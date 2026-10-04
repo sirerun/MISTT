@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.sirerun.mistt</string>
+    <key>CFBundleName</key>
+    <string>MISTT Native Capture Preflight</string>
+    <key>CFBundleDisplayName</key>
+    <string>MISTT Native Capture Preflight</string>
+    <key>CFBundleExecutable</key>
+    <string>NativeCapturePreflight</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.2</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>MISTT captures your microphone only while its paired listening control is On.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>MISTT captures audio output from the explicitly selected call app while its paired listening control is On.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
