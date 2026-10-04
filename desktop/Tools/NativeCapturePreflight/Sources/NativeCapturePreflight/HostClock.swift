@@ -38,13 +38,18 @@ struct HostClock: Sendable {
     }
 }
 
-struct PairedCutoff: Sendable {
+struct PairedCutoff: Sendable, Equatable {
     let ticks: UInt64
     let nanoseconds: UInt64
 
     init(ticks: UInt64, clock: HostClock) {
         self.ticks = ticks
         self.nanoseconds = clock.nanoseconds(for: ticks)
+    }
+
+    static func now() -> PairedCutoff {
+        let ticks = AudioGetCurrentHostTime()
+        return PairedCutoff(ticks: ticks, clock: HostClock(epochTicks: ticks))
     }
 
     static func retainedRange(
@@ -72,6 +77,17 @@ struct PairedCutoff: Sendable {
         }
         guard last > first else { return 0..<0 }
         return first..<last
+    }
+}
+
+enum CaptureGatePublication {
+    static func publishBeforeLock(
+        cutoff: PairedCutoff,
+        closeGate: (PairedCutoff) -> Void,
+        acquireLifecycleLock: () -> Void
+    ) {
+        closeGate(cutoff)
+        acquireLifecycleLock()
     }
 }
 

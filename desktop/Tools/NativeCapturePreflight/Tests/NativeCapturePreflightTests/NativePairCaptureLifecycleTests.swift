@@ -4,8 +4,9 @@ import XCTest
 @available(macOS 14.2, *)
 final class NativePairCaptureLifecycleTests: XCTestCase {
     func testCancellationBeforeDetachedStartPreventsValidationAndCapture() throws {
-        let capture = NativePairCapture()
-        capture.cancelStart(generation: 1)
+        let capture = NativePairCapture(generation: 1)
+        let cutoff = PairedCutoff(ticks: 12_000, clock: HostClock(epochTicks: 10_000, convert: { $0 * 10 }))
+        capture.cancelStart(generation: 1, cutoff: cutoff)
         let stopped = expectation(description: "pre-cancelled generation reports muted")
 
         XCTAssertThrowsError(try capture.start(

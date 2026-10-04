@@ -86,7 +86,7 @@ final class CaptureController: ObservableObject {
         }
         generation &+= 1
         let startGeneration = generation
-        let capture = NativePairCapture()
+        let capture = NativePairCapture(generation: startGeneration)
         self.capture = capture
         desiredOn = true
         snapshot.status = "Starting · requesting microphone permission"
@@ -149,15 +149,16 @@ final class CaptureController: ObservableObject {
     }
 
     func stop(reason: String = "User muted both sources") {
+        let cutoff = PairedCutoff.now()
         let stoppedGeneration = generation
+        let capture = self.capture
+        capture.cancelStart(generation: stoppedGeneration, cutoff: cutoff)
         generation &+= 1
         desiredOn = false
         startingTask?.cancel()
         meterTimer?.invalidate()
         meterTimer = nil
-        capture.cancelStart(generation: stoppedGeneration)
-        let capture = self.capture
-        capture.stop(reason: reason)
+        capture.stop(reason: reason, cutoff: cutoff)
         snapshot = capture.currentSnapshot()
         snapshot.status = "Muted · \(reason)"
         selectedTargets = []
