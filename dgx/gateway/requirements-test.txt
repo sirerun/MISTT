@@ -1,0 +1,6 @@
+# CPU-only HTTP/WebSocket fixture tests. Does not install/import Torch or the model.
+numpy==2.2.6
+fastapi==0.116.1
+starlette==0.47.3
+httpx==0.28.1
+uvicorn==0.35.0

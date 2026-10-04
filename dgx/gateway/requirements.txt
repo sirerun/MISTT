@@ -1,0 +1,12 @@
+# Install into the NVIDIA image's --system-site-packages venv. PyTorch is
+# supplied and checked by the pinned image, never installed from PyPI.
+numpy==2.2.6
+fastapi==0.116.1
+uvicorn==0.35.0
+transformers==4.56.2
+accelerate==1.10.1
+diffusers==0.35.1
+huggingface_hub==0.34.4
+safetensors==0.6.2
+tokenizers==0.22.0
+
