@@ -27,8 +27,7 @@ struct MicrophoneWindow: View {
                     Circle()
                         .fill(Color.clear)
                     MicLogo(isMuted: presentation.isMuted,
-                            foreground: microphoneColor,
-                            cutout: Color(nsColor: .windowBackgroundColor))
+                            foreground: microphoneColor)
                         .frame(width: 96, height: 96)
                     Circle()
                         .strokeBorder(micFocused ? Color.accentColor : .clear,
@@ -60,8 +59,9 @@ struct MicrophoneWindow: View {
         }
         .padding(24)
         .frame(width: 260, height: 260)
-        .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityAddTraits(.updatesFrequently)
+        .modifier(FloatingSurface())
+        .background(FloatingWindow())
     }
 }
 
@@ -70,7 +70,6 @@ struct MicrophoneWindow: View {
 private struct MicLogo: View {
     let isMuted: Bool
     let foreground: Color
-    let cutout: Color
 
     var body: some View {
         Canvas { context, size in
@@ -87,7 +86,9 @@ private struct MicLogo: View {
                 path.addRoundedRect(in: CGRect(x: 43, y: 42, width: 14, height: 4),
                                     cornerSize: CGSize(width: 2, height: 2))
             }
-            drawing.fill(grille, with: .color(cutout))
+            var knockout = drawing
+            knockout.blendMode = .destinationOut
+            knockout.fill(grille, with: .color(.white))
 
             var cradle = Path()
             cradle.move(to: CGPoint(x: 25, y: 47))

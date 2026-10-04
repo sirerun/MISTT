@@ -16,7 +16,11 @@ final class BridgeController: ObservableObject {
 @main
 struct PreviewApp: App {
     @StateObject private var controller = BridgeController()
-    var body: some Scene { WindowGroup { MicrophoneWindow(controller: controller) } }
+    var body: some Scene {
+        WindowGroup { MicrophoneWindow(controller: controller) }
+            .windowStyle(.hiddenTitleBar)
+            .windowResizability(.contentSize)
+    }
 }
 
 #Preview("Muted") { MicrophoneWindow(controller: BridgeController()) }

@@ -7,3 +7,9 @@ This target compiles the production `MicrophoneWindow.swift` and presentation mo
 Derived data is configured on the external BuildOffload volume. The isolated target built successfully using Xcode 27.0 on 2026-10-04; Canvas rendering is not confirmed. Full native build, capture validation, installation, and runtime acceptance remain deferred.
 
 The preview build fixed the production contrast environment key, unsupported live-region modifier, and missing client-count return. Status decoding moved unchanged to `RelayStatusDecoding.swift` so this target includes only the presentation model.
+
+## Floating overlay
+
+The production and fixture windows now use a hidden title bar, clear nonopaque background, no shadow, floating window level, background dragging, and all-spaces/full-screen-auxiliary collection behavior. The microphone grille is transparent. Floating means above ordinary application windows; system alerts and higher-level overlays may still appear above it.
+
+The isolated host built successfully and was launched locally on 2026-10-04. Window screenshots show the background fill and chrome removed, and the fixture control exposes On with three clients after toggling. Native audio/runtime acceptance remains deferred. macOS 15+ also explicitly clears the SwiftUI window container; older supported systems need a visual check of the fallback.
