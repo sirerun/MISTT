@@ -51,14 +51,19 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 	if !initial.Muted || !initial.UpdateReady || initial.Revision != 1 {
 		t.Fatalf("unexpected initial status: %+v", initial)
 	}
-	updated, err := client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: false, ExpectedRevision: initial.Revision})
+	requestID := "00112233-4455-6677-8899-aabbccddeeff"
+	updated, err := client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: false, ExpectedRevision: initial.Revision, RequestId: requestID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Muted || updated.Revision <= initial.Revision {
 		t.Fatalf("mute transition not published: %+v", updated)
 	}
-	_, err = client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: initial.Revision})
+	replayed, err := client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: false, ExpectedRevision: initial.Revision, RequestId: requestID})
+	if err != nil || replayed.Revision != updated.Revision || replayed.Muted {
+		t.Fatalf("request retry was not idempotent: status=%+v err=%v", replayed, err)
+	}
+	_, err = client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: initial.Revision, RequestId: "10112233-4455-6677-8899-aabbccddeeff"})
 	if status.Code(err) != codes.Aborted {
 		t.Fatalf("stale revision should abort, got %v", err)
 	}
@@ -110,5 +115,21 @@ func TestNativeUpdateReservationAndCommandReplay(t *testing.T) {
 	defer s.mu.Unlock()
 	if s.updateReserved || !s.muted || !s.updateReadyLocked() {
 		t.Fatal("cancel did not release reservation while preserving muted safe-idle state")
+	}
+}
+
+func TestActivePairDemandIsIndependentOfIdleClosure(t *testing.T) {
+	s := &Service{muted: false, closureConfirmed: false, clients: map[uint64]*subscriber{1: {}}, active: &activePair{}, changed: make(chan struct{}, 1)}
+	s.mu.Lock()
+	wantsAudio, canStart, updateReady := s.demandLocked(), s.canStartLocked(), s.updateReadyLocked()
+	s.mu.Unlock()
+	if !wantsAudio {
+		t.Fatal("active paired session lost subscriber demand after capture_started")
+	}
+	if canStart {
+		t.Fatal("relay admitted a second generation before closure confirmation")
+	}
+	if updateReady {
+		t.Fatal("active generation was reported safe for update")
 	}
 }

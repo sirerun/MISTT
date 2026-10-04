@@ -3,101 +3,82 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 )
 
-func validConfig(t *testing.T) (string, string) {
-	t.Helper()
-	dir := t.TempDir()
-	token := filepath.Join(dir, "token")
-	if err := os.WriteFile(token, []byte("fixture-token\n"), 0600); err != nil {
+func TestDefaultsAreBoundedAndMatchAppHelperContract(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Listen != "127.0.0.1:50051" || cfg.Language != "en" || cfg.StartupTimeout != 180*time.Second || cfg.DrainTimeout != 5*time.Second {
+		t.Fatalf("unexpected defaults: %+v", cfg)
+	}
+	if len(cfg.IncludeHelperExecutables) != 1 || cfg.IncludeHelperExecutables[0] != ApprovedHelperExecutable {
+		t.Fatalf("default helper contract mismatch: %+v", cfg.IncludeHelperExecutables)
+	}
+	if err := cfg.Validate(false); err != nil {
 		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "config.yaml")
-	body := `listen: "127.0.0.1:50051"
-session:
-  startup_timeout: 180s
-  drain_timeout: 5s
-  max_duration: 0s
-capture:
-  device: default
-  sample_rate: 16000
-  channels: 1
-  format: s16le
-stt:
-  backend: dgx_vibevoice
-  endpoint: https://dgx.example.invalid/mistt
-  token_file: ` + token + `
-  language: en
-hub:
-  client_buffer: 64
-  audio_buffer_duration: 1s
-log:
-  level: info
-`
-	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
-		t.Fatal(err)
-	}
-	return path, token
-}
-
-func TestLoadYAMLThenEnvironmentThenFlags(t *testing.T) {
-	path, _ := validConfig(t)
-	c, err := Load(path, []string{"MISTT_LISTEN=127.0.0.1:51000", "MISTT_SESSION_STARTUP_TIMEOUT=90s"}, map[string]string{"listen": "[::1]:52000"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Listen != "[::1]:52000" {
-		t.Fatalf("flag did not override environment: %q", c.Listen)
-	}
-	if c.Session.StartupTimeout != durationValue(90_000_000_000) {
-		t.Fatalf("environment duration not applied: %s", c.Session.StartupTimeout)
 	}
 }
 
-func TestLoadRejectsUnsafeAndUnknownConfiguration(t *testing.T) {
-	cases := []struct{ name, replace string }{
-		{"wildcard listener", `listen: "0.0.0.0:50051"`},
-		{"hostname listener", `listen: "localhost:50051"`},
-		{"unsupported sample rate", `sample_rate: 44100`},
-		{"retired grace", `grace: 1s`},
-		{"unknown key", `surprise: true`},
+func TestOnlyLoopbackAndApprovedHelperAreAccepted(t *testing.T) {
+	cases := map[string]func(*Config){
+		"public listener":         func(c *Config) { c.Listen = "0.0.0.0:50051" },
+		"remote listener":         func(c *Config) { c.Listen = "192.0.2.1:50051" },
+		"unsupported language":    func(c *Config) { c.Language = "fr" },
+		"unknown helper":          func(c *Config) { c.IncludeHelperExecutables = []string{"/tmp/MediaSDK_Server"} },
+		"missing approved helper": func(c *Config) { c.IncludeHelperExecutables = nil },
+		"excessive queue":         func(c *Config) { c.FrameQueue = 4097 },
+		"negative duration":       func(c *Config) { c.MaxDuration = -time.Second },
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			path, _ := validConfig(t)
-			b, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var changed string
-			switch tc.name {
-			case "wildcard listener", "hostname listener":
-				changed = strings.Replace(string(b), `listen: "127.0.0.1:50051"`, tc.replace, 1)
-			case "unsupported sample rate":
-				changed = strings.Replace(string(b), "sample_rate: 16000", tc.replace, 1)
-			case "retired grace":
-				changed = strings.Replace(string(b), "  max_duration: 0s", "  max_duration: 0s\n  "+tc.replace, 1)
-			case "unknown key":
-				changed = string(b) + tc.replace + "\n"
-			}
-			if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Load(path, nil, nil); err == nil {
-				t.Fatal("expected invalid configuration to fail")
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := Defaults()
+			mutate(&cfg)
+			if err := cfg.Validate(false); err == nil {
+				t.Fatal("accepted invalid configuration")
 			}
 		})
 	}
 }
 
-func TestLoadRejectsBroadTokenPermissions(t *testing.T) {
-	path, token := validConfig(t)
+func TestHelperEnvironmentAcceptsOnlyApprovedRelativePath(t *testing.T) {
+	t.Setenv("MISTT_HELPER_EXECUTABLES", ApprovedHelperExecutable)
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IncludeHelperExecutables) != 1 || cfg.IncludeHelperExecutables[0] != ApprovedHelperExecutable {
+		t.Fatalf("wrong helper list: %+v", cfg.IncludeHelperExecutables)
+	}
+	t.Setenv("MISTT_HELPER_EXECUTABLES", "/Applications/App.app/Contents/Resources/app/electron/sdk/lib/MediaSDK_Server")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("accepted absolute helper path")
+	}
+}
+
+func TestTokenPathMustBeRestrictedRegularNonsymlink(t *testing.T) {
+	dir := t.TempDir()
+	token := filepath.Join(dir, "token")
+	if err := os.WriteFile(token, []byte("test-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	cfg.TokenFile = token
+	if err := cfg.Validate(false); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(token, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path, nil, nil); err == nil {
-		t.Fatal("expected broad token permissions to fail")
+	if err := cfg.Validate(false); err == nil {
+		t.Fatal("accepted broad token permissions")
+	}
+	link := filepath.Join(dir, "token-link")
+	if err := os.Symlink(token, link); err != nil {
+		t.Fatal(err)
+	}
+	cfg.TokenFile = link
+	if err := cfg.Validate(false); err == nil {
+		t.Fatal("accepted symlink token path")
 	}
 }
