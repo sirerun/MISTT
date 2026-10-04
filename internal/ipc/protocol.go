@@ -182,6 +182,20 @@ func DecodeControl(line []byte) (NativeMessage, error) {
 	if err := dec.Decode(&msg); err != nil {
 		return NativeMessage{}, fmt.Errorf("decode native %s: %w", msg.Type, err)
 	}
+	if msg.RequestID != "" {
+		id, err := audio.ParseUUID(msg.RequestID)
+		if err != nil {
+			return NativeMessage{}, errors.New("native request_id is not a UUID")
+		}
+		msg.RequestID = audio.FormatUUID(id)
+	}
+	if msg.SessionID != "" {
+		id, err := audio.ParseUUID(msg.SessionID)
+		if err != nil {
+			return NativeMessage{}, errors.New("native session_id is not a UUID")
+		}
+		msg.SessionID = audio.FormatUUID(id)
+	}
 	if err := msg.Validate(); err != nil {
 		return NativeMessage{}, err
 	}
@@ -228,6 +242,12 @@ func (m NativeMessage) Validate() error {
 		return errors.New("native session_id is not a UUID")
 	}
 	switch m.Type {
+	case "capture_started", "capture_stopped", "capture_failed", "source_end":
+		if !audio.ValidUUIDText(m.SessionID) {
+			return errors.New("native message requires a session UUID")
+		}
+	}
+	switch m.Type {
 	case "capture_started":
 		if m.CaptureEpochHostNS == 0 || m.CaptureEpochUnixMS <= 0 {
 			return errors.New("capture_started requires positive host and wall-clock epochs")
@@ -251,6 +271,9 @@ func (m NativeMessage) Validate() error {
 			return errors.New("empty source_end must have zero sequence and sample total")
 		}
 	case "native_set_muted", "native_prepare_update", "native_cancel_update":
+		if !audio.ValidUUIDText(m.RequestID) {
+			return errors.New("native command requires a request UUID")
+		}
 		if m.CommandSequence == 0 {
 			return errors.New("native command sequence must be positive")
 		}

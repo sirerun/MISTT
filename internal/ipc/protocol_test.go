@@ -32,6 +32,30 @@ func TestDecodeControlStrictFieldsAndCorrelation(t *testing.T) {
 	}
 }
 
+func TestFoundationUppercaseUUIDsNormalizeForNativeCorrelation(t *testing.T) {
+	requestUpper := "10112233-4455-6677-8899-AABBCCDDEEFF"
+	sessionUpper := "00112233-4455-6677-8899-AABBCCDDEEFF"
+	cases := []struct{ name, raw string }{
+		{"capture started", `{"type":"capture_started","request_id":"` + requestUpper + `","session_id":"` + sessionUpper + `","capture_epoch_host_ns":10,"capture_epoch_unix_ms":20,"sources":[{"source":"microphone","sample_rate_hz":16000,"channels":1,"encoding":"s16le"},{"source":"call_audio","sample_rate_hz":16000,"channels":1,"encoding":"s16le"}],"microphone_ready":true,"call_audio_ready":true}`},
+		{"capture stopped", `{"type":"capture_stopped","request_id":"` + requestUpper + `","session_id":"` + sessionUpper + `","cutoff_host_ns":30,"microphone_io_stopped":true,"tap_io_stopped":true,"tap_destroyed":true,"aggregate_destroyed":true}`},
+		{"source end", `{"type":"source_end","session_id":"` + sessionUpper + `","source":"microphone","last_sequence":0,"total_samples":0}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := DecodeControl([]byte(tc.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.SessionID != "00112233-4455-6677-8899-aabbccddeeff" {
+				t.Fatalf("session ID not canonicalized: %q", m.SessionID)
+			}
+			if m.RequestID != "" && m.RequestID != "10112233-4455-6677-8899-aabbccddeeff" {
+				t.Fatalf("request ID not canonicalized: %q", m.RequestID)
+			}
+		})
+	}
+}
+
 func TestOutboundZeroValueFieldsKeepSchemaTypes(t *testing.T) {
 	status, err := json.Marshal(NativeMessage{Type: "status", Reason: "startup_muted", Revision: 1})
 	if err != nil {

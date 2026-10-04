@@ -159,7 +159,7 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 		cleanEOF := s.cleanNativeEOF
 		s.mu.Unlock()
 		if cleanEOF {
-			grpcServer.GracefulStop()
+			grpcServer.Stop()
 			return nil
 		}
 		grpcServer.Stop()
