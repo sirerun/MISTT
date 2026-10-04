@@ -79,6 +79,38 @@ final class PCMFixtureConverterTests: XCTestCase {
         }
     }
 
+    func testBoundedStreamingConverterRejectsInputFrameBoundAdditionOverflow() {
+        XCTAssertThrowsError(try BoundedPCMStreamConverter(sourceRate: 32_000, maximumInputFrames: Int.max)) { error in
+            XCTAssertEqual(error as? PCMStreamConverterError, .invalidFormat)
+        }
+    }
+
+    func testUInt64DoubleConversionRejectsRoundedUpperBound() {
+        XCTAssertNil(PCMStreamNumericBounds.uint64(Double(UInt64.max)))
+        XCTAssertNil(PCMStreamNumericBounds.uint64(.infinity))
+        XCTAssertNil(PCMStreamNumericBounds.uint64(.nan))
+        XCTAssertNotNil(PCMStreamNumericBounds.uint64(Double(UInt64.max).nextDown))
+    }
+
+    func testAnchorRejectsRoundedUInt64UpperBoundary() {
+        XCTAssertThrowsError(try PCMStreamAnchor.nanoseconds(
+            startNanoseconds: 0,
+            frameOffset: UInt64.max,
+            sampleRate: 1
+        )) { error in
+            XCTAssertEqual(error as? PCMStreamConverterError, .anchorOverflow)
+        }
+    }
+
+    func testMicrophoneSampleRateMustBeFiniteAndBounded() {
+        XCTAssertTrue(PCMFormatBounds.isSupportedMicrophoneSampleRate(32_000))
+        XCTAssertTrue(PCMFormatBounds.isSupportedMicrophoneSampleRate(768_000))
+        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(.nan))
+        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(.infinity))
+        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(7_999))
+        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(768_001))
+    }
+
     private func convert(rate: Double, channels: Int, samples: [Float], blockFrames: Int) throws -> [UInt8] {
         let totalFrames = samples.count / channels
         var converter = try BoundedPCMStreamConverter(sourceRate: rate, channels: channels, maximumInputFrames: blockFrames)
