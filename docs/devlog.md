@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Local native tests passed; first launch exposed inventory crash
+
+**Type:** finding
+**Tags:** native-capture, preflight, verification
+
+**Problem:** Native checkpoint `77a1515c32c5b4e0f64d19b9c31efab9df1175f3` (integrated as `4bf6897`) passes 25 focused arm64 Swift tests, but its first packaged-app launch aborts before capture starts.
+**Root cause:** NPF-005: the generic Core Audio scalar reader initializes with `0 as! T`, attempting a runtime cast from `Int` to another fixed-width integer. The local crash trace identifies that reader in the process-inventory path. Unit fixtures did not exercise this hardware inventory path.
+**Fix:** Typed generic initialization and a hardware-free regression check are assigned to the native lane. Earlier compile errors and exact-rate PCM serialization were corrected before the passing test run. Ad-hoc packaging and strict signature verification passed on Xcode 27.0 / Swift 6.4; raw logs and crash reports remain outside public artifacts.
+**Impact:** No microphone/system-audio permission or signal acceptance is implied. T2.0 remains open; real launch, permissions, selected-app output, clock/cutoff and teardown still gate product implementation. A quiet synthetic test source is prepared in TikTok's local editor; no public broadcast was started.
+
 ## 2026-10-04: Exact native snapshot review and cutoff mismatch
 
 **Type:** finding
