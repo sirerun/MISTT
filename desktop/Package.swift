@@ -12,14 +12,15 @@ let package = Package(
     ],
     targets: [
         .target(name: "NativeAudioQueue", publicHeadersPath: "include"),
+        .target(name: "NativePairAtomics", publicHeadersPath: "include"),
         .executableTarget(
             name: "MISTTDesktop",
-            dependencies: ["NativeAudioQueue", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["NativeAudioQueue", "NativePairAtomics", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/MISTTDesktop"
         ),
         .testTarget(
             name: "MISTTDesktopTests",
-            dependencies: ["MISTTDesktop"],
+            dependencies: ["MISTTDesktop", "NativeAudioQueue"],
             path: "Tests/MISTTDesktopTests",
             resources: [.copy("Fixtures/fake-mistt")]
         ),

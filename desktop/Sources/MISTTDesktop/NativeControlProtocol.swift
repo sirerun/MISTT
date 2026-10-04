@@ -106,6 +106,7 @@ enum RelayMessage: Sendable {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let type = try decoder.decode(TypeEnvelope.self, from: line).type
+        try StrictJSONValidator.validateKeys(line, type: type)
         switch type {
         case "capture_start":
             let request = try decoder.decode(CaptureStartRequest.self, from: line)
@@ -126,8 +127,20 @@ enum RelayMessage: Sendable {
             try message.status.validate()
             return .status(message.status)
         case "control_result":
-            var result = try decoder.decode(ControlResult.self, from: line)
-            guard result.type == "control_result", result.status != nil || result.error != nil else { throw RelayReadError.invalidMessage }
+            let result = try decoder.decode(ControlResult.self, from: line)
+            guard result.type == "control_result" else { throw RelayReadError.invalidMessage }
+            if let error = result.error {
+                if ["stale_command", "status_conflict"].contains(error.code) {
+                    guard result.status != nil else { throw RelayReadError.invalidMessage }
+                } else {
+                    guard result.status == nil else { throw RelayReadError.invalidMessage }
+                }
+                guard !error.code.isEmpty, error.code.utf8.count <= 64, error.detail.utf8.count <= 512 else {
+                    throw RelayReadError.invalidMessage
+                }
+            } else {
+                guard result.status != nil else { throw RelayReadError.invalidMessage }
+            }
             try result.status?.validate()
             return .controlResult(result)
         case "heartbeat":

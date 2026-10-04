@@ -1,36 +1,43 @@
 import AppKit
 import Combine
-import Foundation
 import Darwin
+import Foundation
 
 @MainActor
-final class BridgeController: ObservableObject {
-    @Published private(set) var presentation = RelayPresentation(
-        status: nil, unavailableReason: nil, isStarting: true, controlPending: false
-    )
+final class BridgeController: ObservableObject, UpdateSafetyProviding {
+    @Published private(set) var presentation = RelayPresentation(status: nil, unavailableReason: nil,
+                                                                   isStarting: true, controlPending: false)
 
     private let relayExecutableURL: URL
     private let configurationURL: URL
     private let fileManager: FileManager
-    private let commandQueue = DispatchQueue(label: "com.sirerun.mistt.desktop.control")
+    private let captureDriver = NativeCaptureDriver()
     private var process: Process?
     private var inputPipe: Pipe?
     private var outputHandle: FileHandle?
+    private var writer: NativeIPCWriter?
     private var lineReader: StatusLineReader?
     private var revisionGate = StatusRevisionGate()
-    private var generation = 0
-    private var didStart = false
+    private var processGeneration = 0
+    private var commandSequence: UInt64 = 0
+    private var pendingCommandID: UUID?
+    private var pendingCommandTimeout: Task<Void, Never>?
+    private var heartbeatWatchdog: Task<Void, Never>?
+    private var lastHeartbeat = ContinuousClock.now
+    private var startRequest: CaptureStartRequest?
+    private var activeSession: UUID?
     private var isShuttingDown = false
-    private var pendingControl: (muted: Bool, afterRevision: UInt64, id: UUID)?
-    private var controlTimeoutTask: Task<Void, Never>?
-    private var startupTimeoutTask: Task<Void, Never>?
-    private var shutdownCompletion: (() -> Void)?
+    private var shutdownCompletion: ((Bool) -> Void)?
+    private var didForceTerminateRelay = false
+    private var updateReservationConfirmed = false
+    private var updateReservationRevision: UInt64?
+    private var updateContinuation: CheckedContinuation<Bool, Never>?
+    private var updateTimeout: Task<Void, Never>?
+    private var shutdownControlContinuation: CheckedContinuation<Bool, Never>?
 
-    init(
-        relayExecutableURL: URL = BridgeController.bundledRelayURL,
-        configurationURL: URL = BridgeController.configuredPath(),
-        fileManager: FileManager = .default
-    ) {
+    init(relayExecutableURL: URL = BridgeController.bundledRelayURL,
+         configurationURL: URL = BridgeController.configuredPath(),
+         fileManager: FileManager = .default) {
         self.relayExecutableURL = relayExecutableURL
         self.configurationURL = configurationURL
         self.fileManager = fileManager
@@ -45,28 +52,28 @@ final class BridgeController: ObservableObject {
         if let override = environment["MISTT_CONFIG"], !override.isEmpty {
             return URL(fileURLWithPath: override).standardizedFileURL
         }
-        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return applicationSupport.appendingPathComponent("MISTT/config.yaml", isDirectory: false)
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return root.appendingPathComponent("MISTT/config.yaml")
+    }
+
+    var updateReservationReady: Bool {
+        guard updateReservationConfirmed, captureDriver.isClosed,
+              let revision = updateReservationRevision, let status = revisionGate.latest else { return false }
+        return status.revision >= revision && status.muted && !status.capturing && status.updateReady && status.updateReserved
     }
 
     func start() {
-        guard !didStart else { return }
-        didStart = true
-        generation &+= 1
-        let processGeneration = generation
+        guard process == nil else { return }
+        processGeneration &+= 1
+        let token = processGeneration
         revisionGate.reset()
-        pendingControl = nil
-        isShuttingDown = false
-
-        guard fileManager.fileExists(atPath: configurationURL.path) else {
-            failClosed("Configuration file not found.")
+        updateReservationConfirmed = false
+        updateReservationRevision = nil
+        guard fileManager.fileExists(atPath: configurationURL.path),
+              fileManager.isExecutableFile(atPath: relayExecutableURL.path) else {
+            failClosed("MISTT relay or configuration is unavailable.")
             return
         }
-        guard fileManager.isExecutableFile(atPath: relayExecutableURL.path) else {
-            failClosed("MISTT relay is unavailable.")
-            return
-        }
-
         let child = Process()
         let stdin = Pipe()
         let stdout = Pipe()
@@ -75,197 +82,274 @@ final class BridgeController: ObservableObject {
         child.standardInput = stdin
         child.standardOutput = stdout
         child.standardError = FileHandle.nullDevice
-        child.terminationHandler = { [weak self] terminated in
-            Task { @MainActor in
-                self?.childTerminated(terminated, generation: processGeneration)
-            }
+        child.terminationHandler = { [weak self] child in
+            Task { @MainActor in self?.childTerminated(child, generation: token) }
         }
-        let reader = StatusLineReader { [weak self] result in
-            Task { @MainActor in
-                self?.receive(result, generation: processGeneration)
-            }
-        }
-        let stdoutHandle = stdout.fileHandleForReading
-        stdoutHandle.readabilityHandler = { [weak reader] handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-            } else {
-                reader?.append(data)
-            }
-        }
-
-        process = child
-        inputPipe = stdin
-        outputHandle = stdoutHandle
-        lineReader = reader
-        presentation = RelayPresentation(status: nil, unavailableReason: nil, isStarting: true, controlPending: false)
         do {
             try child.run()
+            process = child
+            inputPipe = stdin
+            let output = stdout.fileHandleForReading
+            let writer = try NativeIPCWriter(fileHandle: stdin.fileHandleForWriting) { [weak self] _ in
+                Task { @MainActor in self?.relayFailed("MISTT relay input closed during a control or audio write.") }
+            }
+            let reader = StatusLineReader { [weak self] result in
+                Task { @MainActor in self?.receive(result, generation: token) }
+            }
+            output.readabilityHandler = { [weak reader] handle in
+                let data = handle.availableData
+                if data.isEmpty { handle.readabilityHandler = nil }
+                else { reader?.append(data) }
+            }
+            process = child; inputPipe = stdin; outputHandle = output; writer = writer; lineReader = reader
+            presentation = RelayPresentation(status: nil, unavailableReason: nil, isStarting: true, controlPending: false)
+            lastHeartbeat = .now
+            heartbeatWatchdog?.cancel()
+            heartbeatWatchdog = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, self.processGeneration == token else { return }
+                    if self.lastHeartbeat.duration(to: .now) > .seconds(2) {
+                        self.relayFailed("MISTT relay heartbeat expired.")
+                        return
+                    }
+                }
+            }
         } catch {
-            stdoutHandle.readabilityHandler = nil
             failClosed("MISTT relay could not start.")
-            return
-        }
-        startupTimeoutTask?.cancel()
-        startupTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled else { return }
-            self?.startupTimedOut(generation: processGeneration)
+            if let child = process, child.isRunning { child.terminate() }
         }
     }
 
     func toggleMute() {
-        guard presentation.isInteractive,
-              let status = presentation.status,
-              pendingControl == nil,
-              !isShuttingDown else { return }
-        sendMuted(!status.muted, afterRevision: status.revision)
+        guard presentation.isInteractive, let status = revisionGate.latest,
+              status.updateReserved == false, pendingCommandID == nil, !isShuttingDown else { return }
+        sendMute(!status.muted, expectedRevision: status.revision)
     }
 
-    func shutdownForQuit(completion: @escaping () -> Void) {
-        guard let child = process, child.isRunning else {
-            completion()
-            return
-        }
-        guard !isShuttingDown else {
-            shutdownCompletion = completion
-            return
-        }
+    func shutdownForQuit(completion: @escaping (Bool) -> Void) {
+        guard let process, process.isRunning else { completion(captureDriver.isClosed); return }
+        guard !isShuttingDown else { shutdownCompletion = completion; return }
         isShuttingDown = true
         shutdownCompletion = completion
-        controlTimeoutTask?.cancel()
-        startupTimeoutTask?.cancel()
-        pendingControl = nil
-        presentation = RelayPresentation(status: nil,
-                                         unavailableReason: "MISTT relay is shutting down.",
-                                         isStarting: false,
-                                         controlPending: false)
-        inputPipe?.fileHandleForWriting.closeFile() // EOF asks the relay to stop capture and drain.
-        scheduleForcedTermination(child, generation: generation)
-    }
-
-    private func sendMuted(_ muted: Bool, afterRevision: UInt64) {
-        guard let inputPipe else {
-            failClosed("MISTT relay control is unavailable.")
-            return
-        }
-        let id = UUID()
-        pendingControl = (muted, afterRevision, id)
-        presentation = RelayPresentation(status: presentation.status,
-                                         unavailableReason: nil,
-                                         isStarting: false,
-                                         controlPending: true)
-        let data = Data("{\"muted\":\(muted)}\n".utf8)
-        let handle = inputPipe.fileHandleForWriting
-        commandQueue.async { [weak self] in
-            do {
-                try handle.write(contentsOf: data)
-            } catch {
-                Task { @MainActor in self?.controlWriteFailed(id: id) }
+        Task { [weak self] in
+            guard let self else { return }
+            guard let status = self.revisionGate.latest else { self.finishShutdown(false); return }
+            if !self.updateReservationReady {
+                // Close native sample gates before waiting for the relay's
+                // correlated stop path. The relay supplies the real stop identity.
+                self.captureDriver.closeGateImmediately()
+                let muted = await self.sendMuteAndWait(true, expectedRevision: status.revision)
+                guard muted, self.captureDriver.isClosed,
+                      await self.waitForSafeIdleStatus(), self.revisionGate.latest?.muted == true,
+                      self.revisionGate.latest?.capturing == false else {
+                    self.finishShutdown(false); return
+                }
             }
-        }
-        controlTimeoutTask?.cancel()
-        controlTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
-            self?.controlTimedOut(id: id)
-        }
-    }
-
-    private func receive(_ result: Result<RelayStatus, RelayReadError>, generation: Int) {
-        guard generation == self.generation, !isShuttingDown else { return }
-        switch result {
-        case .failure:
-            failClosed("MISTT relay returned invalid status.")
-        case .success(let status):
-            guard revisionGate.accept(status) else { return }
-            startupTimeoutTask?.cancel()
-            if let pending = pendingControl,
-               status.revision > pending.afterRevision,
-               status.muted == pending.muted {
-                pendingControl = nil
-                controlTimeoutTask?.cancel()
-            }
-            presentation = RelayPresentation(status: status,
-                                             unavailableReason: nil,
-                                             isStarting: false,
-                                             controlPending: pendingControl != nil)
-        }
-    }
-
-    private func startupTimedOut(generation: Int) {
-        guard generation == self.generation, presentation.status == nil, !isShuttingDown else { return }
-        failClosed("MISTT relay did not report status.")
-    }
-
-    private func controlTimedOut(id: UUID) {
-        guard pendingControl?.id == id, !isShuttingDown else { return }
-        failClosed("MISTT relay did not confirm the microphone state.")
-    }
-
-    private func controlWriteFailed(id: UUID) {
-        guard pendingControl?.id == id, !isShuttingDown else { return }
-        failClosed("MISTT relay control failed.")
-    }
-
-    private func childTerminated(_ child: Process, generation: Int) {
-        guard generation == self.generation else { return }
-        outputHandle?.readabilityHandler = nil
-        lineReader = nil
-        inputPipe = nil
-        outputHandle = nil
-        process = nil
-        startupTimeoutTask?.cancel()
-        controlTimeoutTask?.cancel()
-        pendingControl = nil
-        if let completion = shutdownCompletion {
-            shutdownCompletion = nil
-            isShuttingDown = false
-            completion()
-            return
-        }
-        if !isShuttingDown {
-            let reason = child.terminationReason == .uncaughtSignal
-                ? "MISTT relay stopped unexpectedly."
-                : "MISTT relay exited (\(child.terminationStatus))."
-            failClosed(reason)
-        }
-    }
-
-    private func failClosed(_ reason: String) {
-        startupTimeoutTask?.cancel()
-        controlTimeoutTask?.cancel()
-        pendingControl = nil
-        presentation = RelayPresentation(status: nil,
-                                         unavailableReason: reason,
-                                         isStarting: false,
-                                         controlPending: false)
-        guard let child = process, child.isRunning, !isShuttingDown else { return }
-        isShuttingDown = true
-        inputPipe?.fileHandleForWriting.closeFile()
-        scheduleForcedTermination(child, generation: generation)
-    }
-
-    private func scheduleForcedTermination(_ child: Process, generation: Int) {
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { [weak self, weak child] in
-            guard let child, child.isRunning else { return }
-            child.terminate()
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) { [weak self, weak child] in
-                guard let child, child.isRunning else { return }
-                _ = kill(child.processIdentifier, SIGKILL)
+            guard let writer = self.writer, let child = self.process else { self.finishShutdown(false); return }
+            writer.whenIdle { result in
                 Task { @MainActor in
-                    guard let self, generation == self.generation else { return }
-                    if self.shutdownCompletion != nil {
-                        // Process termination handler completes the application quit handshake.
-                        return
-                    }
-                    self.presentation = RelayPresentation(status: nil,
-                                                         unavailableReason: "MISTT relay did not stop cleanly.",
-                                                         isStarting: false,
-                                                         controlPending: false)
+                    guard case .success = result else { self.finishShutdown(false); return }
+                    self.inputPipe?.fileHandleForWriting.closeFile()
+                    self.waitForChildExit(child, generation: self.processGeneration)
                 }
             }
         }
+    }
+
+    func requestUpdateReservation() async -> Bool {
+        guard captureDriver.isClosed, !isShuttingDown, pendingCommandID == nil,
+              let status = revisionGate.latest, status.muted, !status.capturing, status.updateReady else { return false }
+        let accepted = await withCheckedContinuation { continuation in
+            updateContinuation = continuation
+            sendUpdateCommand("native_prepare_update", expectedRevision: status.revision)
+            updateTimeout?.cancel()
+            updateTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.resolveUpdateReservation(false)
+            }
+        }
+        return accepted && updateReservationReady
+    }
+
+    func cancelUpdateReservation() async {
+        guard pendingCommandID == nil, let status = revisionGate.latest else {
+            updateReservationConfirmed = false; updateReservationRevision = nil; return
+        }
+        _ = await withCheckedContinuation { continuation in
+            updateContinuation = continuation
+            sendUpdateCommand("native_cancel_update", expectedRevision: status.revision)
+            updateTimeout?.cancel()
+            updateTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.resolveUpdateReservation(false)
+            }
+        }
+        updateReservationConfirmed = false
+        updateReservationRevision = nil
+    }
+
+    private func sendMute(_ muted: Bool, expectedRevision: UInt64) {
+        guard let writer else { failClosed("MISTT relay control is unavailable."); return }
+        commandSequence &+= 1
+        let requestID = UUID()
+        if muted { captureDriver.closeGateImmediately() }
+        pendingCommandID = requestID
+        presentation = RelayPresentation(status: revisionGate.latest, unavailableReason: nil,
+                                         isStarting: false, controlPending: true)
+        writer.enqueueControl(NativeSetMuted(requestId: requestID, commandSequence: commandSequence,
+                                             expectedStatusRevision: expectedRevision, muted: muted))
+        armCommandTimeout(requestID)
+    }
+
+    private func waitForSafeIdleStatus() async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if let status = revisionGate.latest, status.updateReady, status.muted, !status.capturing { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func sendMuteAndWait(_ muted: Bool, expectedRevision: UInt64) async -> Bool {
+        await withCheckedContinuation { continuation in
+            shutdownControlContinuation = continuation
+            sendMute(muted, expectedRevision: expectedRevision)
+        }
+    }
+
+    private func sendUpdateCommand(_ type: String, expectedRevision: UInt64) {
+        guard let writer else { resolveUpdateReservation(false); return }
+        commandSequence &+= 1
+        let requestID = UUID()
+        pendingCommandID = requestID
+        writer.enqueueControl(NativeUpdateCommand(type: type, requestId: requestID,
+                                                  commandSequence: commandSequence,
+                                                  expectedStatusRevision: expectedRevision))
+        armCommandTimeout(requestID)
+    }
+
+    private func armCommandTimeout(_ id: UUID) {
+        pendingCommandTimeout?.cancel()
+        pendingCommandTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.commandTimedOut(id)
+        }
+    }
+
+    private func receive(_ result: Result<RelayMessage, RelayReadError>, generation: Int) {
+        guard generation == processGeneration else { return }
+        guard case .success(let message) = result else { relayFailed("MISTT relay sent malformed control data."); return }
+        switch message {
+        case .status(let status):
+            guard revisionGate.accept(status) else { return }
+            presentation = RelayPresentation(status: status, unavailableReason: nil,
+                                             isStarting: false, controlPending: pendingCommandID != nil)
+            if !status.updateReady || !status.updateReserved { updateReservationConfirmed = false; updateReservationRevision = nil }
+        case .controlResult(let response):
+            guard response.type == "control_result", let id = pendingCommandID, response.requestId == id else { return }
+            pendingCommandID = nil; pendingCommandTimeout?.cancel(); pendingCommandTimeout = nil
+            if let status = response.status, revisionGate.accept(status) {
+                presentation = RelayPresentation(status: status, unavailableReason: nil, isStarting: false, controlPending: false)
+            }
+            let succeeded = response.error == nil && response.status != nil
+            let isPrepare = updateContinuation != nil && response.status?.updateReserved == true && response.status?.updateReady == true
+            if updateContinuation != nil { updateReservationConfirmed = isPrepare; updateReservationRevision = isPrepare ? response.status?.revision : nil; resolveUpdateReservation(succeeded && isPrepare) }
+            if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: succeeded && response.status?.muted == true) }
+        case .heartbeat:
+            lastHeartbeat = .now
+        case .captureStart(let request):
+            guard request.type == "capture_start", activeSession == nil else {
+                sendCaptureFailure(request, code: "busy"); return
+            }
+            activeSession = request.sessionId; startRequest = request
+            guard let writer else { sendCaptureFailure(request, code: "relay_unavailable"); return }
+            captureDriver.start(request, writer: writer) { [weak self] started in
+                guard let self else { return }
+                if !started { self.activeSession = nil; self.startRequest = nil }
+            }
+        case .captureStop(let request):
+            guard request.type == "capture_stop", request.sessionId == activeSession,
+                  let writer else { sendCaptureFailure(request, code: "stale_session"); return }
+            captureDriver.stop(request, writer: writer) { [weak self] stopped in
+                guard let self else { return }
+                if stopped { self.activeSession = nil; self.startRequest = nil }
+            }
+        }
+    }
+
+    private func sendCaptureFailure(_ request: CaptureStopRequest, code: String) {
+        writer?.enqueueControl(CaptureFailed(requestId: request.requestId, sessionId: request.sessionId,
+                                             code: code, detail: "Capture request could not be admitted.", closureConfirmed: false))
+    }
+
+    private func sendCaptureFailure(_ request: CaptureStartRequest, code: String) {
+        writer?.enqueueControl(CaptureFailed(requestId: request.requestId, sessionId: request.sessionId,
+                                             code: code, detail: "Capture request could not be admitted.", closureConfirmed: captureDriver.isClosed))
+    }
+
+    private func resolveUpdateReservation(_ result: Bool) {
+        updateTimeout?.cancel(); updateTimeout = nil
+        let continuation = updateContinuation; updateContinuation = nil
+        continuation?.resume(returning: result && updateReservationReady)
+    }
+
+    private func commandTimedOut(_ id: UUID) {
+        guard pendingCommandID == id else { return }
+        pendingCommandID = nil
+        if updateContinuation != nil { resolveUpdateReservation(false) }
+        if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: false) }
+        relayFailed("MISTT relay did not acknowledge its correlated control request.")
+    }
+
+    private func relayFailed(_ reason: String) {
+        updateReservationConfirmed = false; updateReservationRevision = nil
+        captureDriver.abortForRelayDeath()
+        failClosed(reason)
+    }
+
+    private func failClosed(_ reason: String) {
+        pendingCommandTimeout?.cancel(); pendingCommandTimeout = nil
+        resolveUpdateReservation(false)
+        if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: false) }
+        presentation = RelayPresentation(status: nil, unavailableReason: reason, isStarting: false, controlPending: false)
+        guard let child = process, child.isRunning else { return }
+        if !isShuttingDown { isShuttingDown = true; inputPipe?.fileHandleForWriting.closeFile(); child.terminate() }
+    }
+
+    private func childTerminated(_ child: Process, generation: Int) {
+        guard generation == processGeneration else { return }
+        outputHandle?.readabilityHandler = nil
+        writer?.close()
+        outputHandle = nil; inputPipe = nil; writer = nil; lineReader = nil; process = nil
+        heartbeatWatchdog?.cancel(); heartbeatWatchdog = nil
+        pendingCommandTimeout?.cancel(); pendingCommandID = nil
+        resolveUpdateReservation(false)
+        if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: false) }
+        updateReservationConfirmed = false; updateReservationRevision = nil
+        let clean = !didForceTerminateRelay && child.terminationReason == .exit && child.terminationStatus == 0 &&
+                    captureDriver.isClosed && revisionGate.latest?.muted == true && revisionGate.latest?.capturing == false
+        finishShutdown(clean)
+    }
+
+    private func waitForChildExit(_ child: Process, generation: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, generation == self.processGeneration, child.isRunning else { return }
+            self.didForceTerminateRelay = true
+            child.terminate()
+            try? await Task.sleep(for: .seconds(1))
+            if child.isRunning { _ = kill(child.processIdentifier, SIGKILL) }
+        }
+    }
+
+    private func finishShutdown(_ clean: Bool) {
+        guard let completion = shutdownCompletion else { return }
+        shutdownCompletion = nil
+        isShuttingDown = false
+        completion(clean)
     }
 }
