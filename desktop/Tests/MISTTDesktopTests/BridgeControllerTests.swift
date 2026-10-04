@@ -55,6 +55,15 @@ final class BridgeControllerTests: XCTestCase {
         ])
     }
 
+    func testRelayConfigurationRequiresEndpointAndTokenFileAfterEnvironmentMerge() throws {
+        let file = try privateConfigFile(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio"}"#)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        XCTAssertThrowsError(try RelayConfiguration.environment(from: file, inherited: [:]))
+        let environment = try RelayConfiguration.environment(from: file, inherited: ["MISTT_TOKEN_FILE": "/private/token"])
+        XCTAssertEqual(environment["MISTT_DGX_ENDPOINT"], "wss://example.test/audio")
+        XCTAssertEqual(environment["MISTT_TOKEN_FILE"], "/private/token")
+    }
+
     func testRelayConfigurationRejectsUnknownMalformedAndNonStringValues() throws {
         for content in [#"{"UNKNOWN":"value"}"#, "not json", #"{"MISTT_LANGUAGE":false}"#] {
             let file = try privateConfigFile(content)
@@ -67,6 +76,14 @@ final class BridgeControllerTests: XCTestCase {
         let file = try privateConfigFile(#"{"MISTT_LANGUAGE":"en"}"#, permissions: 0o640)
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         XCTAssertThrowsError(try RelayConfiguration.load(from: file))
+    }
+
+    func testRelayConfigurationRejectsSymbolicLink() throws {
+        let file = try privateConfigFile(#"{"MISTT_LANGUAGE":"en"}"#)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let link = file.deletingLastPathComponent().appendingPathComponent("link.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        XCTAssertThrowsError(try RelayConfiguration.load(from: link))
     }
 
     private func privateConfigFile(_ contents: String, permissions: Int16 = 0o600) throws -> URL {

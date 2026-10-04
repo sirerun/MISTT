@@ -61,7 +61,9 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         revisionGate.reset()
         updateReservationConfirmed = false
         updateReservationRevision = nil
-        guard let configuredEnvironment = try? RelayConfiguration.load(from: configurationURL),
+        guard let configuredEnvironment = try? RelayConfiguration.environment(
+            from: configurationURL, inherited: ProcessInfo.processInfo.environment
+        ),
               fileManager.isExecutableFile(atPath: relayExecutableURL.path) else {
             failClosed("MISTT relay or configuration is unavailable.")
             return
@@ -71,7 +73,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         let stdout = Pipe()
         child.executableURL = relayExecutableURL
         child.arguments = ["desktop", "--config", configurationURL.path]
-        child.environment = ProcessInfo.processInfo.environment.merging(configuredEnvironment) { _, configured in configured }
+        child.environment = configuredEnvironment
         child.standardInput = stdin
         child.standardOutput = stdout
         child.standardError = FileHandle.nullDevice
