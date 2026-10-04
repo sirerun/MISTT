@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
 MISTT_VALIDATE_ROOT="${MISTT_VALIDATE_ROOT:-/Volumes/BuildOffload/build/mistt-product-validation}"
 test -d /Volumes/BuildOffload && test -w /Volumes/BuildOffload
-python3 -c 'import os,sys; sys.exit(0 if os.path.ismount("/Volumes/BuildOffload") else 75)'
+python3 -c 'import os,shutil,sys; p="/Volumes/BuildOffload"; sys.exit(0 if os.path.ismount(p) and shutil.disk_usage(p).free >= 5*1024**3 else 75)'
 case "$MISTT_VALIDATE_ROOT" in /Volumes/BuildOffload/*) ;; *) echo 'Use an external SSD validation root' >&2; exit 2;; esac
 mkdir -p "$MISTT_VALIDATE_ROOT/tmp"
 export GOCACHE="$MISTT_VALIDATE_ROOT/gocache" GOMODCACHE="$MISTT_VALIDATE_ROOT/gomodcache"
