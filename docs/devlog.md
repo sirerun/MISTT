@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Helper identity hardening and measured host-clock quantum
+
+**Type:** finding
+**Tags:** native-capture, signature, clock
+
+**Problem:** Independent review of the first ownership-validator checkpoint `c794c3d` found that default dynamic signature validation did not enforce the expected Apple/vendor requirement (NPF-009), and canonicalizing an allowed relative path could follow a symlink outside the owner bundle (NPF-010). The initial continuity hardening also assumed a one-nanosecond tolerance before actual host-clock qualification.
+**Evidence:** Read-only `mach_timebase_info` on this Mac reports numerator 125 / denominator 3: approximately 41.7 ns per host tick. A nominal sample-rate timeline is not itself measured device-clock behavior; an unqualified 1 ns bound can falsely reject valid adjacent callbacks.
+**Fix:** Validator checkpoint `f9a6f52` (integrated `8686187`) checks an explicit Apple-generic anchor plus expected identifier/team and component-safe canonical bundle containment, with injected regressions authored. The C lane is replacing the unqualified continuity bound with strict sample-anchor ordering and signed early/late diagnostics. Exclusive cutoff clipping remains unchanged. Native integration retains and revalidates the same admitted owner/helper incarnations.
+**Impact:** Later validator/C/watchdog/converter changes still need compilation, tests and actual hardware evidence. Shared-host load is above the build threshold. No permission grants, captured signal, live conversion, paired DGX inference or release acceptance is inferred from static checks or the clock read.
+
 ## 2026-10-04: TikTok's active output belongs to a bundleless media helper
 
 **Type:** decision
