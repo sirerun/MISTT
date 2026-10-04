@@ -30,13 +30,14 @@ final class CaptureController: ObservableObject {
     @Published private(set) var clients: [AudioClient] = []
     @Published private(set) var inventoryError: String?
 
-    private let capture = NativePairCapture()
+    private var capture = NativePairCapture()
     private var inventoryTimer: Timer?
     private var meterTimer: Timer?
     private var selectedTargets: [AudioClient] = []
     private var targetLeaseValidator: TargetLeaseValidator?
     private var generation: UInt64 = 0
     private var startingTask: Task<Void, Never>?
+    private var captureBusy = false
     private var desiredOn = false
     private let ownershipPolicy: CoreAudioTargetOwnership.Policy?
     private let ownershipConfigurationError: String?
@@ -78,13 +79,15 @@ final class CaptureController: ObservableObject {
     }
 
     func start() {
-        guard !desiredOn, startingTask == nil else { return }
+        guard !desiredOn, startingTask == nil, !captureBusy else { return }
         guard let ownershipPolicy else {
             snapshot.status = "Muted · \(ownershipConfigurationError ?? "audio producer configuration is invalid")"
             return
         }
         generation &+= 1
         let startGeneration = generation
+        let capture = NativePairCapture()
+        self.capture = capture
         desiredOn = true
         snapshot.status = "Starting · requesting microphone permission"
         snapshot.firstFailure = nil
@@ -102,7 +105,7 @@ final class CaptureController: ObservableObject {
             default: permission = false
             }
             guard self.isCurrent(startGeneration) else { return }
-            self.capture.setPermissionState(microphone: permission ? "Granted" : "Denied or restricted")
+            capture.setPermissionState(microphone: permission ? "Granted" : "Denied or restricted")
             guard permission else {
                 self.finishStart(generation: startGeneration, status: "Muted · microphone permission denied or restricted")
                 return
@@ -119,25 +122,27 @@ final class CaptureController: ObservableObject {
                 let targets = leases.map(\.audioClient)
                 self.targetLeaseValidator = validator
                 self.selectedTargets = targets
-                let capture = self.capture
                 let validateTargets = { try validator.validateCurrent() }
+                self.captureBusy = true
                 try await Task.detached(priority: .userInitiated) { [capture, targets, validateTargets, startGeneration, weak self] in
                     try capture.start(targets: targets, validateTargets: validateTargets, generation: startGeneration) { [weak self] result in
                         Task { @MainActor in
                             guard let self, self.generation == startGeneration || !self.desiredOn else { return }
+                            self.captureBusy = false
                             self.snapshot = result
                         }
                     }
                 }.value
                 guard self.isCurrent(startGeneration) else {
-                    self.capture.stop(reason: "Start became stale; both sources remain muted")
+                    capture.stop(reason: "Start became stale; both sources remain muted")
                     return
                 }
-                self.snapshot = self.capture.currentSnapshot()
+                self.snapshot = capture.currentSnapshot()
                 self.startMeters(generation: startGeneration)
             } catch {
+                self.captureBusy = false
                 guard self.isCurrent(startGeneration) else { return }
-                self.capture.setPermissionState(systemAudio: "Not granted or unavailable")
+                capture.setPermissionState(systemAudio: "Not granted or unavailable")
                 self.finishStart(generation: startGeneration, status: "Muted · \(Self.ownershipFailureText(error))")
             }
         }
@@ -151,6 +156,7 @@ final class CaptureController: ObservableObject {
         meterTimer?.invalidate()
         meterTimer = nil
         capture.cancelStart(generation: stoppedGeneration)
+        let capture = self.capture
         capture.stop(reason: reason)
         snapshot = capture.currentSnapshot()
         snapshot.status = "Muted · \(reason)"
