@@ -65,6 +65,7 @@ private struct StopOutcome {
 @available(macOS 14.2, *)
 final class NativePairCapture: @unchecked Sendable {
     private let lock = NSLock()
+    private let ownerGeneration: UInt64
     private let stopQueue = DispatchQueue(label: "com.sirerun.mistt.preflight.stop", qos: .userInitiated)
     private let atomicState = MISTTCreateCaptureState()!
     private let generationCancellation = CaptureGenerationCancellation()
@@ -86,7 +87,8 @@ final class NativePairCapture: @unchecked Sendable {
     private var streamFormat = AudioStreamBasicDescription()
     private var stoppedHandler: (@Sendable (CaptureSnapshot) -> Void)?
 
-    init() {
+    init(generation: UInt64 = 0) {
+        ownerGeneration = generation
         let signal = DispatchSource.makeUserDataAddSource(queue: stopQueue)
         failureSignal = signal
         signal.setEventHandler { [weak self] in
@@ -128,14 +130,21 @@ final class NativePairCapture: @unchecked Sendable {
         if let systemAudio { snapshot.systemAudioPermission = systemAudio }
     }
 
-    func cancelStart(generation expectedGeneration: UInt64) {
-        lock.lock()
+    func cancelStart(generation expectedGeneration: UInt64, cutoff suppliedCutoff: PairedCutoff? = nil, deadline: TimeInterval = 1.0) {
+        guard expectedGeneration == ownerGeneration else { return }
+        let cutoff = suppliedCutoff ?? .now()
+        withLifecycleLockWatchdog(deadline: deadline) { acquired in
+            CaptureGatePublication.publishBeforeLock(
+                cutoff: cutoff,
+                closeGate: { MISTTCloseCaptureGate(atomicState, $0.nanoseconds) },
+                acquireLifecycleLock: { lock.lock(); acquired.signal() }
+            )
+        }
         generationCancellation.cancel(through: expectedGeneration)
-        if generation == expectedGeneration {
+        if generation == expectedGeneration || !didStart {
             startCancelled = true
             snapshot.status = "Muted · start cancelled before both sources became ready"
             snapshot.firstFailure = snapshot.firstFailure ?? "start cancelled while Core Audio resources were being created"
-            MISTTCloseCaptureGate(atomicState, AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()))
         }
         lock.unlock()
     }
@@ -146,6 +155,7 @@ final class NativePairCapture: @unchecked Sendable {
         generation expectedGeneration: UInt64,
         onStop: @escaping @Sendable (CaptureSnapshot) -> Void
     ) throws {
+        guard expectedGeneration == ownerGeneration else { throw CaptureStartError.cancelled }
         guard ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 14, minorVersion: 2, patchVersion: 0)) else {
             throw CaptureStartError.unsupportedOS
         }
@@ -251,14 +261,19 @@ final class NativePairCapture: @unchecked Sendable {
         }
     }
 
-    func stop(reason: String = "User stopped both sources", deadline: TimeInterval = 1.0) {
-        let ticks = AudioGetCurrentHostTime()
-        let clock = HostClock(epochTicks: ticks)
-        lock.lock()
-        generationCancellation.cancel(through: generation)
+    func stop(reason: String = "User stopped both sources", cutoff suppliedCutoff: PairedCutoff? = nil, deadline: TimeInterval = 1.0) {
+        let cutoff = suppliedCutoff ?? .now()
+        withLifecycleLockWatchdog(deadline: deadline) { acquired in
+            CaptureGatePublication.publishBeforeLock(
+                cutoff: cutoff,
+                closeGate: { MISTTCloseCaptureGate(atomicState, $0.nanoseconds) },
+                acquireLifecycleLock: { lock.lock(); acquired.signal() }
+            )
+        }
+        generationCancellation.cancel(through: ownerGeneration)
         if isStarting {
             startCancelled = true
-            snapshot.stopAtNanoseconds = clock.epochNanoseconds
+            snapshot.stopAtNanoseconds = cutoff.nanoseconds
             snapshot.status = "Muted · \(reason); waiting for in-flight start to release resources"
             snapshot.firstFailure = snapshot.firstFailure ?? reason
             let completion = startupCompletion
@@ -271,7 +286,6 @@ final class NativePairCapture: @unchecked Sendable {
                     if completion.wait(timeout: .now()) == .timedOut { _exit(70) }
                 }
             }
-            MISTTCloseCaptureGate(atomicState, clock.epochNanoseconds)
             return
         }
         if reason != "User stopped both sources" {
@@ -291,9 +305,6 @@ final class NativePairCapture: @unchecked Sendable {
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) {
             if finished.wait(timeout: .now()) == .timedOut { _exit(70) }
         }
-        let cutoff = PairedCutoff(ticks: ticks, clock: clock)
-        // This atomic gate is closed before any asynchronous cleanup begins.
-        MISTTCloseCaptureGate(atomicState, cutoff.nanoseconds)
         isOpen = false
         teardownInProgress = true
         snapshot.stopAtNanoseconds = cutoff.nanoseconds
@@ -331,6 +342,14 @@ final class NativePairCapture: @unchecked Sendable {
         guard isStarting, !startCancelled, !generationCancellation.isCancelled(expectedGeneration), generation == expectedGeneration else {
             throw CaptureStartError.cancelled
         }
+    }
+
+    private func withLifecycleLockWatchdog(deadline: TimeInterval, acquire: (DispatchSemaphore) -> Void) {
+        let acquired = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) {
+            if acquired.wait(timeout: .now()) == .timedOut { _exit(70) }
+        }
+        acquire(acquired)
     }
 
     private func createTapAndAggregate(targets: [AudioClient]) throws {
