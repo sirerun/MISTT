@@ -70,7 +70,15 @@ func (m NativeMessage) MarshalJSON() ([]byte, error) {
 	var value map[string]any
 	switch m.Type {
 	case "capture_start":
-		value = map[string]any{"type": m.Type, "request_id": m.RequestID, "session_id": m.SessionID, "sources": m.Sources, "microphone": map[string]any{"device": m.Device}, "call_audio": map[string]any{"bundle_id": m.BundleID, "include_helpers": m.IncludeHelpers, "include_helper_executables": m.IncludeHelperExecutables}}
+		helpers := m.IncludeHelpers
+		if helpers == nil {
+			helpers = []uint32{}
+		}
+		executables := m.IncludeHelperExecutables
+		if executables == nil {
+			executables = []string{}
+		}
+		value = map[string]any{"type": m.Type, "request_id": m.RequestID, "session_id": m.SessionID, "sources": m.Sources, "microphone": map[string]any{"device": m.Device}, "call_audio": map[string]any{"bundle_id": m.BundleID, "include_helpers": helpers, "include_helper_executables": executables}}
 	case "capture_stop":
 		value = map[string]any{"type": m.Type, "request_id": m.RequestID, "session_id": m.SessionID, "reason": m.Reason}
 	case "native_set_muted":
@@ -221,6 +229,9 @@ func (m NativeMessage) Validate() error {
 	}
 	switch m.Type {
 	case "capture_started":
+		if m.CaptureEpochHostNS == 0 || m.CaptureEpochUnixMS <= 0 {
+			return errors.New("capture_started requires positive host and wall-clock epochs")
+		}
 		if !m.MicrophoneReady || !m.CallAudioReady || len(m.Sources) != 2 || !m.Sources[0].Valid(audio.Microphone) || !m.Sources[1].Valid(audio.CallAudio) {
 			return errors.New("capture_started requires both canonical 16 kHz mono s16le sources ready")
 		}

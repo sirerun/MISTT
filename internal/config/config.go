@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const ApprovedHelperExecutable = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
+
 type Config struct {
 	Listen                   string
 	Endpoint                 string
@@ -31,7 +33,7 @@ type Config struct {
 }
 
 func Defaults() Config {
-	return Config{Listen: "127.0.0.1:50051", Language: "en", MicrophoneDevice: "default", TargetBundleID: "com.tiktok.livestudio.desktop", StartupTimeout: 180 * time.Second, DrainTimeout: 5 * time.Second, MaxDuration: 0, ClientBuffer: 64, FrameQueue: 160, NativeControlQueue: 32}
+	return Config{Listen: "127.0.0.1:50051", Language: "en", MicrophoneDevice: "default", TargetBundleID: "com.tiktok.livestudio.desktop", IncludeHelperExecutables: []string{ApprovedHelperExecutable}, StartupTimeout: 180 * time.Second, DrainTimeout: 5 * time.Second, MaxDuration: 0, ClientBuffer: 64, FrameQueue: 160, NativeControlQueue: 32}
 }
 func FromEnv() (Config, error) {
 	c := Defaults()
@@ -59,8 +61,8 @@ func FromEnv() (Config, error) {
 	if v, ok := os.LookupEnv("MISTT_HELPER_EXECUTABLES"); ok && strings.TrimSpace(v) != "" {
 		for _, p := range strings.Split(v, ",") {
 			p = strings.TrimSpace(p)
-			if p == "" || !filepath.IsAbs(p) {
-				return Config{}, errors.New("MISTT_HELPER_EXECUTABLES requires absolute paths")
+			if p != ApprovedHelperExecutable {
+				return Config{}, errors.New("MISTT_HELPER_EXECUTABLES permits only the approved app-relative helper")
 			}
 			c.IncludeHelperExecutables = append(c.IncludeHelperExecutables, p)
 		}
@@ -94,11 +96,12 @@ func (c Config) Validate(requireCredentials bool) error {
 		return fmt.Errorf("listen must be loopback host:port: %w", err)
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() || (host != "127.0.0.1" && host != "::1") || port == "" {
+	portNumber, portErr := strconv.Atoi(port)
+	if ip == nil || !ip.IsLoopback() || (host != "127.0.0.1" && host != "::1") || portErr != nil || portNumber < 1 || portNumber > 65535 {
 		return errors.New("gRPC must bind only literal 127.0.0.1 or [::1]")
 	}
-	if c.Language == "" || c.MicrophoneDevice == "" || c.TargetBundleID == "" {
-		return errors.New("language, microphone device and target bundle ID are required")
+	if c.Language != "en" || c.MicrophoneDevice == "" || c.TargetBundleID == "" {
+		return errors.New("paired gateway v1 requires English, a microphone device and target bundle ID")
 	}
 	if c.StartupTimeout <= 0 || c.DrainTimeout <= 0 || c.MaxDuration < 0 {
 		return errors.New("startup/drain timeouts must be positive and max duration nonnegative")
@@ -106,7 +109,7 @@ func (c Config) Validate(requireCredentials bool) error {
 	if c.ClientBuffer < 1 || c.ClientBuffer > 4096 || c.FrameQueue < 1 || c.FrameQueue > 4096 || c.NativeControlQueue < 1 {
 		return errors.New("buffer capacities must be positive and bounded")
 	}
-	if len(c.IncludeHelperPIDs) > 32 || len(c.IncludeHelperExecutables) > 32 || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
+	if len(c.IncludeHelperPIDs) > 32 || len(c.IncludeHelperExecutables) != 1 || c.IncludeHelperExecutables[0] != ApprovedHelperExecutable || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
 		return errors.New("native target configuration exceeds bounded IPC limits")
 	}
 	if c.Endpoint != "" {
@@ -118,11 +121,11 @@ func (c Config) Validate(requireCredentials bool) error {
 		return errors.New("MISTT_DGX_ENDPOINT must name the authenticated wss endpoint")
 	}
 	if c.TokenFile != "" {
-		info, err := os.Stat(c.TokenFile)
+		info, err := os.Lstat(c.TokenFile)
 		if err != nil {
 			return fmt.Errorf("stat restricted DGX token: %w", err)
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
 			return errors.New("DGX token must be a regular file with permissions no broader than 0600")
 		}
 	} else if requireCredentials {

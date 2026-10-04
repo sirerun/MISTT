@@ -24,7 +24,13 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: mistt run|status|transcribe|mute|unmute")
+		return errors.New("usage: mistt --desktop|run|status|transcribe|mute|unmute")
+	}
+	if args[0] == "--desktop" {
+		args = args[1:]
+		if len(args) == 0 || args[0] != "run" && args[0] != "status" && args[0] != "transcribe" && args[0] != "mute" && args[0] != "unmute" {
+			return runDaemon(args)
+		}
 	}
 	switch args[0] {
 	case "run":
@@ -55,6 +61,7 @@ func runDaemon(args []string) error {
 	flags.StringVar(&cfg.Language, "language", cfg.Language, "paired recognition language")
 	flags.StringVar(&cfg.MicrophoneDevice, "microphone-device", cfg.MicrophoneDevice, "native microphone selection")
 	flags.StringVar(&cfg.TargetBundleID, "target-bundle-id", cfg.TargetBundleID, "selected app bundle identity")
+	flags.Bool("desktop", true, "run as the native app-owned relay child")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

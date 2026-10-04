@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/sirerun/MISTT/gen/mistt/v1"
+	"github.com/sirerun/MISTT/internal/audio"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -90,6 +92,84 @@ func (s *Service) SetMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "mute request is required")
 	}
+	if !audio.ValidUUIDText(req.RequestId) {
+		return nil, status.Error(codes.InvalidArgument, "mute request_id must be a UUID")
+	}
+	payload := fmt.Sprintf("%t|%d", req.Muted, req.ExpectedRevision)
+	s.mu.Lock()
+	if previous, ok := s.muteRequests[req.RequestId]; ok {
+		if previous.payload != payload {
+			s.mu.Unlock()
+			return nil, status.Error(codes.InvalidArgument, "mute request_id was reused with a different payload")
+		}
+		done := previous.done
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, status.Error(codes.DeadlineExceeded, "timed out waiting for the original mute request")
+		case <-done:
+		}
+		s.mu.Lock()
+		result, code, detail := cloneStatus(previous.result), previous.code, previous.detail
+		s.mu.Unlock()
+		if code != codes.OK {
+			return result, status.Error(code, detail)
+		}
+		return result, nil
+	}
+	if len(s.muteRequests) >= 128 {
+		s.pruneMuteRequestsLocked()
+	}
+	if len(s.muteRequests) >= 128 {
+		s.mu.Unlock()
+		return nil, status.Error(codes.ResourceExhausted, "mute request cache is full")
+	}
+	record := &muteRecord{payload: payload, done: make(chan struct{})}
+	s.muteRequests[req.RequestId] = record
+	s.muteOrder = append(s.muteOrder, req.RequestId)
+	s.mu.Unlock()
+	result, callErr := s.setMuted(ctx, req)
+	s.mu.Lock()
+	record.result = cloneStatus(result)
+	if callErr != nil {
+		converted := status.Convert(callErr)
+		record.code, record.detail = converted.Code(), converted.Message()
+	} else {
+		record.code = codes.OK
+	}
+	record.complete = true
+	close(record.done)
+	s.pruneMuteRequestsLocked()
+	s.mu.Unlock()
+	return result, callErr
+}
+
+func (s *Service) pruneMuteRequestsLocked() {
+	for len(s.muteRequests) > 128 {
+		removed := false
+		for i, id := range s.muteOrder {
+			if record, ok := s.muteRequests[id]; ok && record.complete {
+				delete(s.muteRequests, id)
+				s.muteOrder = append(s.muteOrder[:i], s.muteOrder[i+1:]...)
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			return
+		}
+	}
+}
+
+func cloneStatus(value *misttv1.Status) *misttv1.Status {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*misttv1.Status, error) {
 	s.mu.Lock()
 	if s.shutdownRequested {
 		s.mu.Unlock()
@@ -150,6 +230,9 @@ func (s *Service) SetMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 func (s *Service) addSubscriber(ctx context.Context, language string) (*subscriber, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(language) != s.cfg.Language {
+		return nil, status.Error(codes.FailedPrecondition, "subscriber language is not admitted by the paired gateway")
 	}
 	s.mu.Lock()
 	select {

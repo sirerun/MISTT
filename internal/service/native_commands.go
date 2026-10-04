@@ -35,11 +35,6 @@ func (s *Service) applyNativeCommand(m ipc.NativeMessage) error {
 		s.mu.Unlock()
 		return s.output.SendControl(result)
 	}
-	if m.CommandSequence != s.commandHigh+1 {
-		result := s.resultLocked(m.RequestID, "stale_command", "command sequence has a gap")
-		s.mu.Unlock()
-		return s.output.SendControl(result)
-	}
 	s.commandHigh = m.CommandSequence
 	var errorCode, errorDetail string
 	if m.ExpectedStatusRevision != s.revision {

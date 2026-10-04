@@ -95,7 +95,7 @@ type readyWire struct {
 	Protocol                          string        `json:"protocol"`
 	SessionID                         string        `json:"session_id"`
 	Language                          string        `json:"language"`
-	Model                             string        `json:"model"`
+	Model                             modelWire     `json:"model"`
 	Sources                           []sourceLimit `json:"sources"`
 	MaxActivePairs                    uint32        `json:"max_active_pairs"`
 	AggregateMaxAudioSamples          uint64        `json:"aggregate_max_audio_samples"`
@@ -106,6 +106,14 @@ type readyWire struct {
 	MaxInferenceWorkers               uint32        `json:"max_inference_workers"`
 	StartupTimeoutMS                  uint32        `json:"startup_timeout_ms"`
 	DrainTimeoutMS                    uint32        `json:"drain_timeout_ms"`
+}
+type modelWire struct {
+	ID           string `json:"id"`
+	Revision     string `json:"revision"`
+	SourceCommit string `json:"source_commit"`
+	SampleRate   uint32 `json:"sample_rate"`
+	ChunkSamples uint32 `json:"chunk_samples"`
+	Lookahead    uint32 `json:"lookahead_samples"`
 }
 type transcriptWire struct {
 	Type                string       `json:"type"`
@@ -171,11 +179,11 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 	if req.Language == "" {
 		return nil, errors.New("DGX language is required")
 	}
-	cred, err := os.ReadFile(c.cfg.TokenFile)
+	token, err := readRestrictedToken(c.cfg.TokenFile)
 	if err != nil {
-		return nil, fmt.Errorf("read DGX credential: %w", err)
+		return nil, fmt.Errorf("read restricted DGX credential: %w", err)
 	}
-	token := strings.TrimSpace(string(cred))
+	token = strings.TrimSpace(token)
 	if token == "" || strings.ContainsAny(token, "\r\n") {
 		return nil, errors.New("DGX credential is empty or malformed")
 	}
@@ -228,13 +236,43 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 		}
 	}
 	limits := map[audio.Source]sourceLimit{ready.Sources[0].Source: ready.Sources[0], ready.Sources[1].Source: ready.Sources[1]}
-	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{SessionID: ready.SessionID, Model: ready.Model, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
+	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{SessionID: ready.SessionID, Model: ready.Model.ID + "@" + ready.Model.Revision, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
 	go s.writeLoop()
 	go s.readLoop()
 	return s, nil
 }
+
+func readRestrictedToken(path string) (string, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Mode().Perm()&0077 != 0 {
+		return "", errors.New("token must be a nonsymlink regular file with permissions no broader than 0600")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	after, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(before, after) || !after.Mode().IsRegular() || after.Mode().Perm()&0077 != 0 {
+		return "", errors.New("token file changed or is not restricted")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 4097))
+	if err != nil {
+		return "", err
+	}
+	if len(data) == 0 || len(data) > 4096 {
+		return "", errors.New("token file is empty or exceeds 4096 bytes")
+	}
+	return string(data), nil
+}
 func validateReady(r readyWire, req backend.StartRequest, want []backend.SourceFormat) error {
-	if r.Type != "ready" || r.Protocol != protocol || r.SessionID != req.SessionID || r.Language != req.Language || r.Model == "" || r.MaxActivePairs != 1 || r.AggregateMaxAudioSamples == 0 || r.AggregateMaxQueueFrames == 0 || r.AggregateMaxContextTokens == 0 || r.MaxInferenceWorkers != 1 || r.StartupTimeoutMS == 0 || r.DrainTimeoutMS == 0 || len(r.Sources) != 2 {
+	if r.Type != "ready" || r.Protocol != protocol || r.SessionID != req.SessionID || r.Language != req.Language || r.Model.ID == "" || r.Model.Revision == "" || r.Model.SourceCommit == "" || r.Model.SampleRate == 0 || r.Model.ChunkSamples == 0 || r.Model.Lookahead > r.Model.SampleRate || r.MaxActivePairs != 1 || r.AggregateMaxAudioSamples == 0 || r.AggregateMaxQueueFrames == 0 || r.AggregateMaxContextTokens == 0 || r.MaxInferenceWorkers != 1 || r.StartupTimeoutMS == 0 || r.DrainTimeoutMS == 0 || len(r.Sources) != 2 {
 		return errors.New("DGX ready violates paired protocol or admission requirements")
 	}
 	if len(want) != 2 || r.Sources[0].Source != want[0].Source || r.Sources[1].Source != want[1].Source {
@@ -294,7 +332,8 @@ func readStrictJSON(conn *websocket.Conn, dst any, required ...string) error {
 func (s *ClientSession) Ready() backend.Ready         { return s.ready }
 func (s *ClientSession) Events() <-chan backend.Event { return s.events }
 func (s *ClientSession) CaptureStarted(epochHostNS uint64, epochUnixMS int64, sources []backend.SourceFormat) error {
-	if len(sources) != 2 || sources[0].Source != audio.Microphone || sources[1].Source != audio.CallAudio {
+	want := []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}}
+	if epochHostNS == 0 || epochUnixMS <= 0 || len(sources) != 2 || sources[0] != want[0] || sources[1] != want[1] {
 		return errors.New("capture_started requires the canonical paired source formats")
 	}
 	return s.writeJSON(captureStartedWire{Type: "capture_started", SessionID: s.ready.SessionID, CaptureEpochHostNS: epochHostNS, CaptureEpochUnixMS: epochUnixMS, Sources: sources})
@@ -302,6 +341,10 @@ func (s *ClientSession) CaptureStarted(epochHostNS uint64, epochUnixMS int64, so
 func (s *ClientSession) QueueFrame(f audio.Frame) error {
 	if err := f.Validate(); err != nil {
 		return err
+	}
+	wantID, err := audio.ParseUUID(s.ready.SessionID)
+	if err != nil || f.SessionID != wantID {
+		return errors.New("audio frame session does not match paired WSS generation")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -325,7 +368,7 @@ func (s *ClientSession) QueueFrame(f audio.Frame) error {
 	if uint32(len(f.Samples)) > limit.MaxFrameSamples {
 		return fmt.Errorf("%s frame exceeds gateway frame cap", f.Source)
 	}
-	if f.Sequence != ledger.LastSequence+1 || f.StartSample != ledger.TotalSamples {
+	if ledger.LastSequence == math.MaxUint64 || f.Sequence != ledger.LastSequence+1 || f.StartSample != ledger.TotalSamples {
 		return fmt.Errorf("%s queue has a source sequence gap", f.Source)
 	}
 	if uint64(len(f.Samples)) > limit.MaxAudioSamples-ledger.TotalSamples {
@@ -593,6 +636,9 @@ func decodeRemoteEvent(data []byte, session string) (backend.Event, error) {
 	}
 }
 func strictJSON(data []byte, dst any, required ...string) error {
+	if err := rejectDuplicateJSON(data); err != nil {
+		return err
+	}
 	fields, err := remoteObject(data)
 	if err != nil {
 		return err
@@ -613,6 +659,61 @@ func strictJSON(data []byte, dst any, required ...string) error {
 		return err
 	}
 	if dec.Decode(new(any)) != io.EOF {
+		return errors.New("DGX JSON has trailing content")
+	}
+	return nil
+}
+func rejectDuplicateJSON(data []byte) error {
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.UseNumber()
+	var value func() error
+	value = func() error {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for dec.More() {
+				keyToken, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return errors.New("DGX JSON object has invalid key")
+				}
+				if seen[key] {
+					return fmt.Errorf("DGX message repeats nested field %q", key)
+				}
+				seen[key] = true
+				if err := value(); err != nil {
+					return err
+				}
+			}
+			_, err = dec.Token()
+			return err
+		case '[':
+			for dec.More() {
+				if err := value(); err != nil {
+					return err
+				}
+			}
+			_, err = dec.Token()
+			return err
+		default:
+			return errors.New("DGX JSON has unexpected closing delimiter")
+		}
+	}
+	if err := value(); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
 		return errors.New("DGX JSON has trailing content")
 	}
 	return nil
