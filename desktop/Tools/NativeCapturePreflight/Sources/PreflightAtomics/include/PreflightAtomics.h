@@ -48,6 +48,8 @@ enum {
 
 MISTTAtomicCapture *MISTTCreateCaptureState(void);
 void MISTTDestroyCaptureState(MISTTAtomicCapture *state);
+// Capture generations are single-use. This compatibility entry point is a no-op;
+// create a fresh state for each generation rather than resetting a closed gate.
 void MISTTResetCaptureState(MISTTAtomicCapture *state);
 void MISTTOpenCaptureGate(MISTTAtomicCapture *state, uint64_t epoch_ns);
 void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns);
