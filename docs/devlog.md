@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: TikTok's active output belongs to a bundleless media helper
+
+**Type:** decision
+**Tags:** native-capture, target-identity, preflight
+
+**Problem:** After NPF-005 was fixed, the probe opens but refuses the first start: TikTok's main app bundle has no HAL process object. Selecting the idle named Electron helper would not capture the tested playback.
+**Evidence:** Playing the owned quiet 12-second tone in the local editor activates the HAL object for `MediaSDK_Server`; the named Electron helper remains idle. Read-only process inspection ties the media server directly to the selected main app, and strict code-signature verification matches its team. This is actual inventory correlation, not captured-signal proof.
+**Decision:** Separate selected owner identity from explicitly selected audio producers. Add one optional vetted app-relative executable selector to the draft native control schema. Native validates the fixed signing tuple, live direct ancestry, same user, canonical executable path, process-start fingerprints and current HAL mapping before start and during capture; a path alone never authorizes capture. Missing/replaced owner or helper still fails the whole pair closed. Do not include wildcard descendants or substitute other output.
+**Impact:** The corrected probe checkpoint `745553b` passes 26 local tests and opens. Native executable-helper validation is a new bounded preflight subtask; no capture permissions or hardware signal/exclusion acceptance are claimed. Independent review also found watchdog descriptor-lifetime/flags/close races (NPF-006), hidden sequential timestamp overlap (NPF-007) and unchecked numeric bounds (NPF-008), assigned to isolated native/C sub-lanes. Product implementation remains gated by T2.0.
+
 ## 2026-10-04: Local native tests passed; first launch exposed inventory crash
 
 **Type:** finding
