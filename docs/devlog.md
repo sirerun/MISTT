@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Single-use capture generations and callback closure
+
+**Type:** finding
+**Tags:** native-capture, cancellation, teardown
+
+**Problem:** Independent source review found cancellation could precede startup and be lost (NPF-011), helper identity was not rechecked after resources started (NPF-012), and microphone closure could be reported without callback quiescence (NPF-013). The first callback-counter fix used a Swift atomic API available only on macOS 15, violating the 14.2 baseline (NPF-015). Root review also found integer-conversion boundary traps in the converter harness (NPF-016).
+**Fix:** Native checkpoint `c7d1438` adds persistent cancellation, a fresh capture instance per generation and a final original-lease check before opening gates. C checkpoint `501cd8b` makes gate closure irreversible and preserves the earliest cutoff. Coordinator `034c164` integrates whole microphone callback entry/exit counting with C11 atomics and bounded stop observation, replacing the unsupported Swift API. Converter boundary fixes are assigned to the native lane.
+**Evidence:** Independent exact-checkpoint source review found NPF-011 through NPF-013 fixes present; revised C/native callback review is pending. No new compilation or runtime check has run while shared-host load exceeds the admission threshold. The last tested checkpoint remains `13374fe` with 26 tests. Headphone output and original webcam input are now selected and verified through macOS audio-device inventory.
+**Impact:** T2.0 remains open. Scalar energy-drain/cutoff races (NPF-014) limit diagnostic summaries; they are not proof of exact PCM cutoff. The converter remains a harness rather than live capture transport. Hardware permissions, signal/exclusion, conversion and teardown acceptance still precede contract freeze and product implementation.
+
 ## 2026-10-04: Helper identity hardening and measured host-clock quantum
 
 **Type:** finding
