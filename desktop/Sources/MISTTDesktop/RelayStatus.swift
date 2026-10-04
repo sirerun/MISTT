@@ -37,6 +37,13 @@ struct StatusRevisionGate {
     mutating func reset() { latest = nil }
 }
 
+enum RelayShutdownReadiness {
+    static func isReady(status: RelayStatus?, localCaptureClosed: Bool) -> Bool {
+        guard localCaptureClosed, let status else { return false }
+        return status.updateReady && status.muted && !status.capturing
+    }
+}
+
 struct RelayPresentation: Equatable {
     let status: RelayStatus?
     let unavailableReason: String?
