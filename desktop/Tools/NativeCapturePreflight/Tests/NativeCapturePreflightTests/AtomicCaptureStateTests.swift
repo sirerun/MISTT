@@ -35,47 +35,76 @@ final class AtomicCaptureStateTests: XCTestCase {
         XCTAssertEqual(call.frames, 0)
     }
 
-    func testBackwardsAnchorFromEitherSourceFailsBothSourcesClosed() {
+    func testBackwardsSampleAnchorFromEitherSourceFailsBothSourcesClosed() {
         for source: UInt32 in [0, 1] {
             let state = MISTTCreateCaptureState()!
             MISTTOpenCaptureGate(state, 10_000_000)
             XCTAssertEqual(MISTTRecordBuffer(state, source, true, 10_100_000, 160, 16_000), 0)
-            XCTAssertEqual(MISTTRecordBuffer(state, source, true, 10_099_999, 160, 16_000), 2)
+            XCTAssertEqual(MISTTRecordBuffer(state, source, true, 10_099_999, 160, 16_000),
+                           Int32(MISTT_FAILURE_BUFFER_OVERLAP))
             XCTAssertFalse(MISTTCaptureGateIsOpen(state))
-            XCTAssertEqual(MISTTFirstFailure(state), 2)
+            XCTAssertEqual(MISTTFirstFailure(state), UInt32(MISTT_FAILURE_BUFFER_OVERLAP))
+            var snapshot = MISTTSourceSnapshot()
+            MISTTReadSource(state, source, &snapshot)
+            XCTAssertGreaterThan(snapshot.maximum_anchor_overlap_ns, 0)
             MISTTDestroyCaptureState(state)
         }
     }
 
-    func testSequentialOverlapFailsClosedButAllowsOneNanosecondQuantization() {
-        let accepted = MISTTCreateCaptureState()!
-        defer { MISTTDestroyCaptureState(accepted) }
+    func testSmallClockJitterAndRepeatedDriftAreRecordedWithoutFalseReject() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
         let epoch: UInt64 = 10_000_000
         let firstStart: UInt64 = 10_100_000
-        let previousDuration: UInt64 = 62_500 // exact 3-frame duration at 48 kHz
-        MISTTOpenCaptureGate(accepted, epoch)
-        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart, 3, 48_000), 0)
-        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + previousDuration - 1, 3, 48_000), 0)
-        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + 2 * previousDuration - 1, 3, 48_000), 0)
-        XCTAssertTrue(MISTTCaptureGateIsOpen(accepted))
-        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + 3 * previousDuration - 2, 3, 48_000),
-                       Int32(MISTT_FAILURE_BUFFER_OVERLAP))
-        XCTAssertFalse(MISTTCaptureGateIsOpen(accepted))
-        var source = MISTTSourceSnapshot()
-        MISTTReadSource(accepted, 0, &source)
-        XCTAssertEqual(source.buffers, 3)
-        XCTAssertEqual(source.frames, 9)
-        XCTAssertEqual(source.clipped_or_dropped_frames, 3)
-        XCTAssertEqual(source.maximum_anchor_gap_ns, 0)
+        let duration: UInt64 = 10_000_000 // 160 frames at 16 kHz
+        MISTTOpenCaptureGate(state, epoch)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, firstStart, 160, 16_000), 0)
+        let secondStart = firstStart + duration - 100
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, secondStart, 160, 16_000), 0)
+        let thirdStart = secondStart + duration - 100
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, thirdStart, 160, 16_000), 0)
+        XCTAssertTrue(MISTTCaptureGateIsOpen(state))
 
-        let rejected = MISTTCreateCaptureState()!
-        defer { MISTTDestroyCaptureState(rejected) }
-        MISTTOpenCaptureGate(rejected, epoch)
-        XCTAssertEqual(MISTTRecordBuffer(rejected, 0, true, firstStart, 3, 48_000), 0)
-        XCTAssertEqual(MISTTRecordBuffer(rejected, 0, true, firstStart + previousDuration - 2, 3, 48_000),
-                       Int32(MISTT_FAILURE_BUFFER_OVERLAP))
-        XCTAssertFalse(MISTTCaptureGateIsOpen(rejected))
-        XCTAssertEqual(MISTTFirstFailure(rejected), UInt32(MISTT_FAILURE_BUFFER_OVERLAP))
+        var source = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &source)
+        XCTAssertEqual(source.buffers, 3)
+        XCTAssertEqual(source.frames, 480)
+        XCTAssertEqual(source.maximum_anchor_gap_ns, 0)
+        XCTAssertEqual(source.maximum_anchor_overlap_ns, 100)
+    }
+
+    func testPositiveExpectedNextResidualIsRecordedAsGap() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        let firstStart: UInt64 = 10_100_000
+        let duration: UInt64 = 10_000_000
+        MISTTOpenCaptureGate(state, 10_000_000)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, firstStart, 160, 16_000), 0)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, firstStart + duration + 250, 160, 16_000), 0)
+        var source = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &source)
+        XCTAssertEqual(source.maximum_anchor_gap_ns, 250)
+        XCTAssertEqual(source.maximum_anchor_overlap_ns, 0)
+    }
+
+    func testDuplicateAndEarlierSampleAnchorsFailClosed() {
+        for backwardBy: UInt64 in [0, 62_500] {
+            let state = MISTTCreateCaptureState()!
+            let firstStart: UInt64 = 10_100_000
+            let previousLast = firstStart + 159 * 62_500
+            MISTTOpenCaptureGate(state, 10_000_000)
+            XCTAssertEqual(MISTTRecordBuffer(state, 0, true, firstStart, 160, 16_000), 0)
+            XCTAssertEqual(MISTTRecordBuffer(state, 0, true, previousLast - backwardBy, 160, 16_000),
+                           Int32(MISTT_FAILURE_BUFFER_OVERLAP))
+            XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+            XCTAssertEqual(MISTTFirstFailure(state), UInt32(MISTT_FAILURE_BUFFER_OVERLAP))
+            var source = MISTTSourceSnapshot()
+            MISTTReadSource(state, 0, &source)
+            XCTAssertEqual(source.buffers, 1)
+            XCTAssertEqual(source.frames, 160)
+            XCTAssertGreaterThan(source.maximum_anchor_overlap_ns, 0)
+            MISTTDestroyCaptureState(state)
+        }
     }
 
     func testImplausibleSampleRatesAndUnboundedCallbackFramesFailClosed() {

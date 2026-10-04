@@ -17,8 +17,9 @@ typedef struct {
     _Atomic uint64_t invalid;
     _Atomic uint64_t first_offset;
     _Atomic uint64_t last_offset;
+    _Atomic uint64_t last_sample_offset;
     _Atomic uint64_t max_gap;
-    _Atomic uint64_t last_start;
+    _Atomic uint64_t max_overlap;
     long double expected_next_offset_ns;
     _Atomic uint64_t max_callback_ns;
     _Atomic uint64_t callback_overruns;
@@ -31,7 +32,7 @@ typedef struct {
         uint64_t start_ns, frame_count;
         double sample_rate;
         uint64_t before_buffers, before_frames, before_clipped;
-        uint64_t before_first, before_last, before_max_gap;
+        uint64_t before_first, before_last, before_last_sample, before_max_gap, before_max_overlap;
         long double before_expected_next_offset_ns;
     } latest;
 } SourceMetrics;
@@ -153,14 +154,39 @@ static int32_t commit_buffer_locked(MISTTAtomicCapture *state, SourceMetrics *m,
     }
 
     uint64_t offset = first_ns - epoch;
-    uint64_t previous_offset = atomic_load_explicit(&m->last_offset, memory_order_relaxed);
-    long double expected_next = m->expected_next_offset_ns;
-    uint64_t gap = 0;
-    if (previous_offset == UINT64_MAX) {
-        expected_next = (long double)offset;
-    } else {
-        long double difference = (long double)offset - expected_next;
-        if (difference < -(long double)MISTT_TIMESTAMP_ROUNDING_TOLERANCE_NS) {
+    uint64_t last_index = first + retained - 1;
+    uint64_t last_delta, last_ns;
+    if (!rounded_frame_offset(last_index, frame_ns, &last_delta) ||
+        !checked_add_u64(start_ns, last_delta, &last_ns) || last_ns < epoch) {
+        m->latest.valid = false;
+        fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+        return MISTT_FAILURE_COUNTER_OVERFLOW;
+    }
+    uint64_t last_sample_offset = last_ns - epoch;
+
+    uint64_t previous_sample_offset = atomic_load_explicit(&m->last_sample_offset, memory_order_relaxed);
+    long double next_expected_offset = (long double)offset + (long double)retained * frame_ns;
+    if (!isfinite(next_expected_offset) || next_expected_offset >= 0x1p64L) {
+        m->latest.valid = false;
+        fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+        return MISTT_FAILURE_COUNTER_OVERFLOW;
+    }
+
+    if (previous_sample_offset != UINT64_MAX) {
+        long double residual = (long double)offset - m->expected_next_offset_ns;
+        if (!isfinite(residual) || fabsl(residual) >= 0x1p64L) {
+            m->latest.valid = false;
+            fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+            return MISTT_FAILURE_COUNTER_OVERFLOW;
+        }
+        uint64_t gap = residual > 0.0L ? (uint64_t)ceill(residual) : 0;
+        uint64_t overlap = residual < 0.0L ? (uint64_t)ceill(-residual) : 0;
+        update_max(&m->max_gap, gap);
+        update_max(&m->max_overlap, overlap);
+
+        // Host timestamps can drift from the nominal ASBD line. Reject only
+        // a repeated or backward sample anchor; preserve line residuals above.
+        if (offset <= previous_sample_offset) {
             if (!counter_can_add(&m->clipped, frame_count)) {
                 m->latest.valid = false;
                 fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
@@ -171,22 +197,6 @@ static int32_t commit_buffer_locked(MISTTAtomicCapture *state, SourceMetrics *m,
             fail_once(state, MISTT_FAILURE_BUFFER_OVERLAP);
             return MISTT_FAILURE_BUFFER_OVERLAP;
         }
-        if (difference > (long double)MISTT_TIMESTAMP_ROUNDING_TOLERANCE_NS) {
-            long double measurable_gap = floorl(difference - (long double)MISTT_TIMESTAMP_ROUNDING_TOLERANCE_NS);
-            if (measurable_gap >= 0x1p64L) {
-                m->latest.valid = false;
-                fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
-                return MISTT_FAILURE_COUNTER_OVERFLOW;
-            }
-            gap = (uint64_t)measurable_gap;
-            expected_next = (long double)offset;
-        }
-    }
-    long double next_expected_offset = expected_next + (long double)retained * frame_ns;
-    if (!isfinite(next_expected_offset) || next_expected_offset >= 0x1p64L) {
-        m->latest.valid = false;
-        fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
-        return MISTT_FAILURE_COUNTER_OVERFLOW;
     }
 
     if (!counter_can_add(&m->clipped, clipped_add) ||
@@ -203,8 +213,8 @@ static int32_t commit_buffer_locked(MISTTAtomicCapture *state, SourceMetrics *m,
     atomic_compare_exchange_strong_explicit(&m->first_offset, &expected_first, offset,
                                             memory_order_relaxed, memory_order_relaxed);
     atomic_store_explicit(&m->last_offset, offset, memory_order_relaxed);
+    atomic_store_explicit(&m->last_sample_offset, last_sample_offset, memory_order_relaxed);
     m->expected_next_offset_ns = next_expected_offset;
-    update_max(&m->max_gap, gap);
     return 0;
 }
 
@@ -232,8 +242,9 @@ void MISTTResetCaptureState(MISTTAtomicCapture *state) {
         atomic_store_explicit(&m->invalid, 0, memory_order_relaxed);
         atomic_store_explicit(&m->first_offset, UINT64_MAX, memory_order_relaxed);
         atomic_store_explicit(&m->last_offset, UINT64_MAX, memory_order_relaxed);
+        atomic_store_explicit(&m->last_sample_offset, UINT64_MAX, memory_order_relaxed);
         atomic_store_explicit(&m->max_gap, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->last_start, 0, memory_order_relaxed);
+        atomic_store_explicit(&m->max_overlap, 0, memory_order_relaxed);
         m->expected_next_offset_ns = 0.0L;
         atomic_store_explicit(&m->max_callback_ns, 0, memory_order_relaxed);
         atomic_store_explicit(&m->callback_overruns, 0, memory_order_relaxed);
@@ -266,8 +277,10 @@ void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns) {
             atomic_store_explicit(&m->clipped, m->latest.before_clipped, memory_order_relaxed);
             atomic_store_explicit(&m->first_offset, m->latest.before_first, memory_order_relaxed);
             atomic_store_explicit(&m->last_offset, m->latest.before_last, memory_order_relaxed);
+            atomic_store_explicit(&m->last_sample_offset, m->latest.before_last_sample, memory_order_relaxed);
             m->expected_next_offset_ns = m->latest.before_expected_next_offset_ns;
             atomic_store_explicit(&m->max_gap, m->latest.before_max_gap, memory_order_relaxed);
+            atomic_store_explicit(&m->max_overlap, m->latest.before_max_overlap, memory_order_relaxed);
 
             uint64_t open_ns = atomic_load_explicit(&state->open_ns, memory_order_relaxed);
             long double frame_ns = 1000000000.0L / (long double)m->latest.sample_rate;
@@ -331,19 +344,6 @@ static int32_t record_buffer(MISTTAtomicCapture *state, uint32_t source, bool ho
         atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
         return MISTT_FAILURE_INVALID_TIMESTAMP;
     }
-    uint64_t previous = atomic_load_explicit(&m->last_start, memory_order_relaxed);
-    if (previous != 0 && start_ns < previous) {
-        if (!try_add_counter(&m->invalid, 1)) {
-            fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
-            atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
-            return MISTT_FAILURE_COUNTER_OVERFLOW;
-        }
-        fail_once(state, MISTT_FAILURE_BACKWARDS_TIMESTAMP);
-        atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
-        return MISTT_FAILURE_BACKWARDS_TIMESTAMP;
-    }
-    atomic_store_explicit(&m->last_start, start_ns, memory_order_relaxed);
-
     m->latest.valid = true;
     m->latest.start_ns = start_ns;
     m->latest.frame_count = frame_count;
@@ -353,8 +353,10 @@ static int32_t record_buffer(MISTTAtomicCapture *state, uint32_t source, bool ho
     m->latest.before_clipped = atomic_load_explicit(&m->clipped, memory_order_relaxed);
     m->latest.before_first = atomic_load_explicit(&m->first_offset, memory_order_relaxed);
     m->latest.before_last = atomic_load_explicit(&m->last_offset, memory_order_relaxed);
+    m->latest.before_last_sample = atomic_load_explicit(&m->last_sample_offset, memory_order_relaxed);
     m->latest.before_expected_next_offset_ns = m->expected_next_offset_ns;
     m->latest.before_max_gap = atomic_load_explicit(&m->max_gap, memory_order_relaxed);
+    m->latest.before_max_overlap = atomic_load_explicit(&m->max_overlap, memory_order_relaxed);
 
     uint64_t open_ns = atomic_load_explicit(&state->open_ns, memory_order_relaxed);
     uint64_t stop_ns = atomic_load_explicit(&state->cutoff_ns, memory_order_relaxed);
@@ -407,6 +409,7 @@ void MISTTReadSource(const MISTTAtomicCapture *state, uint32_t source, MISTTSour
     out->first_offset_ns = atomic_load_explicit(&m->first_offset, memory_order_relaxed);
     out->last_offset_ns = atomic_load_explicit(&m->last_offset, memory_order_relaxed);
     out->maximum_anchor_gap_ns = atomic_load_explicit(&m->max_gap, memory_order_relaxed);
+    out->maximum_anchor_overlap_ns = atomic_load_explicit(&m->max_overlap, memory_order_relaxed);
     out->maximum_callback_ns = atomic_load_explicit(&m->max_callback_ns, memory_order_relaxed);
     out->callback_overruns = atomic_load_explicit(&m->callback_overruns, memory_order_relaxed);
 }
