@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package mistt.v1;
+
+option go_package = "github.com/sirerun/MISTT/gen/mistt/v1;misttv1";
+
+service Mistt {
+  // StreamTranscription subscribes to the single paired session managed by the
+  // native owner. It does not open devices or create an ASR session per client.
+  rpc StreamTranscription(stream ClientMessage) returns (stream StreamResponse);
+  rpc WatchStatus(WatchStatusRequest) returns (stream Status);
+  rpc SetMuted(SetMutedRequest) returns (Status);
+}
+
+message ClientMessage {
+  oneof kind {
+    Subscribe subscribe = 1;
+    KeepAlive keep_alive = 2;
+  }
+}
+
+message Subscribe {
+  string language = 1;
+}
+
+message KeepAlive {}
+message WatchStatusRequest {}
+
+message SetMutedRequest {
+  bool muted = 1;
+  uint64 expected_revision = 2;
+  string request_id = 3;
+}
+
+message SourceFormat {
+  string source = 1;
+  uint32 sample_rate_hz = 2;
+  uint32 channels = 3;
+  string encoding = 4;
+}
+
+message Status {
+  bool muted = 1;
+  uint32 connected_clients = 2;
+  bool capturing = 3;
+  string reason = 4;
+  uint64 revision = 5;
+  bool update_ready = 6;
+  bool update_reserved = 7;
+}
+
+message StreamResponse {
+  string session_id = 1;
+  uint64 sequence = 2;
+  oneof payload {
+    SessionStarted session_started = 3;
+    TranscriptionEvent transcription = 4;
+    SessionStopped session_stopped = 5;
+    SessionGap session_gap = 6;
+  }
+}
+
+message SessionStarted {
+  string backend = 1;
+  string model = 2;
+  string language = 3;
+  uint32 sample_rate_hz = 4;
+  uint32 channels = 5;
+  string encoding = 6;
+  uint64 capture_epoch_host_ns = 7;
+  int64 capture_epoch_unix_ms = 8;
+  repeated SourceFormat sources = 9;
+}
+
+message TranscriptionEvent {
+  string source = 1;
+  uint64 source_event_sequence = 2;
+  string segment_id = 3;
+  string text = 4;
+  bool is_final = 5;
+  double confidence = 6;
+  uint64 start_sample = 7;
+  uint64 end_sample = 8;
+  uint64 start_offset_ns = 9;
+  uint64 end_offset_ns = 10;
+  int64 wall_clock_unix_ms = 11;
+}
+
+message SessionStopped {
+  string reason = 1;
+  int32 grpc_code = 2;
+  string detail = 3;
+}
+
+message SessionGap {
+  string reason = 1;
+  uint64 dropped = 2;
+}
