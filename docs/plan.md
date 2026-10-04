@@ -56,7 +56,7 @@ Acceptance: a reproducible probe demonstrates real streaming inference and final
 fidelity: executable
 Acceptance: a real native app and relay satisfy the RFC on this Mac against the authenticated DGX service; one capture/backend session serves three local clients; permission/failure/mute/drain/count behavior is verified on a landed revision.
 
-- [x] T2.0 Freeze contracts and MVP ownership  Owner: coordinator  Est: M  kind: agent stage: preflight  verifies: [UC-001, UC-002, UC-003, UC-004, UC-007, UC-008]  deps: []  Done: 2026-10-04
+- [ ] T2.0 Freeze contracts and MVP ownership  Owner: coordinator  Est: M  kind: agent stage: preflight  verifies: [UC-001, UC-002, UC-003, UC-004, UC-007, UC-008]  deps: []
   Acceptance: proto/schema/config and provider seam match RFC; select supported macOS baseline, bundle ID, single-instance/process/CLI ownership and native Go/Swift IPC binding. Verify bundled malgo microphone permission attribution early; amend ADR if a capture-boundary change is required. Reconcile untracked authored docs/assets before any PR; qualify external volume and build lease. Test-fixture mode is impossible to select in a production app.
 - [ ] T2.1 Create scaffolding and typed local API contract  Owner: Go worker  Est: M  kind: agent stage: implement  verifies: [UC-002, UC-004, UC-008]  blocked-by: [T2.0]
   Acceptance: Go module, generated proto, codegen tooling, config validation, build-tagged capture/provider fixtures, mic-free CI and documented Swift binding are implemented; invalid loopback/PCM/grace config fails before microphone access. This remains a candidate until T2.7.
@@ -165,3 +165,5 @@ The next execution command is `/ship docs/plan.md`. It should first reconcile th
 - [Sparkle documentation](https://sparkle-project.org/documentation/), [automatic updates](https://sparkle-project.org/documentation/automatic-updates/), [publishing](https://sparkle-project.org/documentation/publishing/).
 
 - 2026-10-04 UTC ship preflight: T2.0 frozen integration contract at docs/contracts/desktop-dgx-v1.md. Go/DGX/desktop candidates may proceed speculatively against this contract; final verify/review/merge gates remain. External volume and GitHub access pass; signing identity remains unavailable. Startup default increased to 180s from measured cold load.
+
+- Preflight correction: T2.0 contract/tool/ownership checks pass, but bundled capture TCC attribution still needs the native spike. T2.0 stays unchecked until that evidence exists. Worker coding is explicitly speculative against the frozen contract; no hardware/candidate acceptance or merge is authorized by partial preflight.
