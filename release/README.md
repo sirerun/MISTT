@@ -1,5 +1,7 @@
 # Release and deferred local validation
 
+The installed desktop app reads owner-owned, restricted `~/Library/Application Support/MISTT/config.json` before starting its relay. `MISTT_CONFIG` can select another restricted file. Configuration uses the documented Go environment keys and stores a token-file path, never token contents. To provision a new file later, use `python3 release/configure.py --endpoint wss://YOUR_QUALIFIED_ENDPOINT/mistt/v1/stream --token-file /absolute/restricted/token-file --helper-executable /absolute/qualified/helper`. Repeat the helper option for each qualified executable. The helper creates with mode 0600 and refuses to replace existing configuration. Endpoint, helper ownership, permission grants and token validity still need real local qualification.
+
 The source candidate is independent of actual build, native capture, model resource and installation qualification. Heavy commands below are intended for a later admitted run; importing the release module performs no build, network or signing action.
 
 ## Local validation
