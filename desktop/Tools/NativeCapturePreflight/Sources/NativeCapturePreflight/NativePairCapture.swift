@@ -12,6 +12,7 @@ struct SourceCounters: Sendable {
     var firstOffsetNanoseconds: Int64?
     var lastOffsetNanoseconds: Int64?
     var maximumAnchorGapNanoseconds: Int64 = 0
+    var maximumAnchorOverlapNanoseconds: Int64 = 0
     var energySamples = 0
     var energyOverflow = 0
     var peakRMS: Double = 0
@@ -553,6 +554,7 @@ final class NativePairCapture: @unchecked Sendable {
             firstOffsetNanoseconds: offset(value.first_offset_ns),
             lastOffsetNanoseconds: offset(value.last_offset_ns),
             maximumAnchorGapNanoseconds: Int64(min(value.maximum_anchor_gap_ns, UInt64(Int64.max))),
+            maximumAnchorOverlapNanoseconds: Int64(min(value.maximum_anchor_overlap_ns, UInt64(Int64.max))),
             energySamples: previous.energySamples,
             energyOverflow: previous.energyOverflow,
             peakRMS: previous.peakRMS,

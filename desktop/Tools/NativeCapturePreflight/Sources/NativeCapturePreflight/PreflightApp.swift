@@ -96,6 +96,7 @@ private struct PreflightView: View {
                 metric("First offset ns", counters.firstOffsetNanoseconds)
                 metric("Last offset ns", counters.lastOffsetNanoseconds)
                 metric("Max anchor gap ns", counters.maximumAnchorGapNanoseconds)
+                metric("Max anchor overlap ns", counters.maximumAnchorOverlapNanoseconds)
                 metric("Energy samples", counters.energySamples)
                 metric("Energy queue overflow", counters.energyOverflow)
                 metric("Peak sampled RMS", String(format: "%.4f", counters.peakRMS))
