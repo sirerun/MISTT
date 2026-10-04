@@ -40,6 +40,7 @@ struct MISTTDesktopApp: App {
                 }
         }
         .defaultSize(width: 260, height: 260)
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
