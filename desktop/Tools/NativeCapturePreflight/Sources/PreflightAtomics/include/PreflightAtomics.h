@@ -14,7 +14,10 @@ typedef struct {
     uint64_t invalid_timestamps;
     uint64_t first_offset_ns;
     uint64_t last_offset_ns;
+    // Maximum positive / negative residual against the prior expected-next
+    // sample anchor; magnitudes are rounded up to integer nanoseconds.
     uint64_t maximum_anchor_gap_ns;
+    uint64_t maximum_anchor_overlap_ns;
     uint64_t maximum_callback_ns;
     uint64_t callback_overruns;
 } MISTTSourceSnapshot;
@@ -42,9 +45,6 @@ enum {
 #define MISTT_MAX_SAMPLE_RATE_HZ 384000.0
 #define MISTT_MAX_CALLBACK_DURATION_SECONDS 10.0
 #define MISTT_MAX_FRAMES_PER_BUFFER UINT64_C(3840000)
-// Integer host timestamps may move adjacent anchors by at most one ns when
-// independently quantized. This tolerance never shifts the expected PCM line.
-#define MISTT_TIMESTAMP_ROUNDING_TOLERANCE_NS UINT64_C(1)
 
 MISTTAtomicCapture *MISTTCreateCaptureState(void);
 void MISTTDestroyCaptureState(MISTTAtomicCapture *state);
