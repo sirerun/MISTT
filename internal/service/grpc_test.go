@@ -9,6 +9,7 @@ import (
 	"time"
 
 	misttv1 "github.com/sirerun/MISTT/gen/mistt/v1"
+	"github.com/sirerun/MISTT/internal/backend"
 	"github.com/sirerun/MISTT/internal/config"
 	"github.com/sirerun/MISTT/internal/ipc"
 	"google.golang.org/grpc"
@@ -116,6 +117,66 @@ func TestNativeUpdateReservationAndCommandReplay(t *testing.T) {
 	defer s.mu.Unlock()
 	if s.updateReserved || !s.muted || !s.updateReadyLocked() {
 		t.Fatal("cancel did not release reservation while preserving muted safe-idle state")
+	}
+}
+
+func TestNativeMuteResultWaitsForPairedClosure(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	s.muted, s.capturing, s.closureConfirmed = false, true, false
+	s.active = &activePair{ready: backend.Ready{DrainTimeoutMS: 5000}}
+	command := ipc.NativeMessage{Type: "native_set_muted", RequestID: "00112233-4455-6677-8899-aabbccddeeff", CommandSequence: 1, ExpectedStatusRevision: 1, Muted: true}
+	done := make(chan error, 1)
+	go func() { done <- s.applyNativeCommandAt(command, time.Now()) }()
+	select {
+	case err := <-done:
+		t.Fatalf("mute result returned before closure: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	s.mu.Lock()
+	s.active, s.capturing, s.stopping, s.closureConfirmed = nil, false, false, true
+	s.publishLocked()
+	s.mu.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("mute result did not follow confirmed closure")
+	}
+}
+
+func TestNativeMuteClosureTimeoutReturnsCurrentConflict(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	cfg := config.Defaults()
+	cfg.DrainTimeout = 40 * time.Millisecond
+	s := New(cfg, nil, nil, ipc.NewWriter(writeEnd, 8))
+	s.muted, s.capturing, s.closureConfirmed = false, true, false
+	s.active = &activePair{ready: backend.Ready{DrainTimeoutMS: 40}}
+	command := ipc.NativeMessage{Type: "native_set_muted", RequestID: "00112233-4455-6677-8899-aabbccddeeff", CommandSequence: 1, ExpectedStatusRevision: 1, Muted: true}
+	started := time.Now()
+	if err := s.applyNativeCommandAt(command, started); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("mute exceeded bounded closure deadline: %v", elapsed)
+	}
+	s.mu.Lock()
+	result := s.commands[1].result
+	s.mu.Unlock()
+	if result.Error == nil || result.Error.Code != "status_conflict" || result.Status == nil || result.Status.Capturing != true {
+		t.Fatalf("timeout did not return correlated conflict with current status: %+v", result)
 	}
 }
 

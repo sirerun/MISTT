@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/sirerun/MISTT/internal/ipc"
 )
@@ -12,8 +13,13 @@ func commandPayload(m ipc.NativeMessage) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%t", m.Type, m.RequestID, m.CommandSequence, m.ExpectedStatusRevision, m.Muted)
 }
 func (s *Service) applyNativeCommand(m ipc.NativeMessage) error {
+	return s.applyNativeCommandAt(m, time.Now())
+}
+
+func (s *Service) applyNativeCommandAt(m ipc.NativeMessage, received time.Time) error {
 	payload := commandPayload(m)
 	var cancelStart context.CancelFunc
+	var waitForClosure bool
 	s.mu.Lock()
 	if prior, ok := s.commands[m.CommandSequence]; ok {
 		if prior.requestID == m.RequestID && prior.payload == payload {
@@ -60,6 +66,24 @@ func (s *Service) applyNativeCommand(m ipc.NativeMessage) error {
 				s.publishLocked()
 				s.signalLocked()
 			}
+			if m.Muted && errorCode == "" {
+				cancelStart = s.startCancel
+				s.reason = "user"
+				waitForClosure = s.active != nil || s.starting || s.stopping || s.capturing || !s.closureConfirmed
+				if waitForClosure && s.nativeStopDeadline.IsZero() {
+					window := s.cfg.DrainTimeout
+					if window <= 0 {
+						window = 5 * time.Second
+					}
+					if s.active != nil && s.active.ready.DrainTimeoutMS > 0 {
+						remoteWindow := time.Duration(s.active.ready.DrainTimeoutMS) * time.Millisecond
+						if remoteWindow < window {
+							window = remoteWindow
+						}
+					}
+					s.nativeStopDeadline = received.Add(window)
+				}
+			}
 		case "native_prepare_update":
 			if !s.updateReadyLocked() || s.updateReserved {
 				errorCode = "status_conflict"
@@ -84,14 +108,71 @@ func (s *Service) applyNativeCommand(m ipc.NativeMessage) error {
 		}
 	}
 	result := s.resultLocked(m.RequestID, errorCode, errorDetail)
-	s.commands[m.CommandSequence] = commandRecord{requestID: m.RequestID, payload: payload, result: result}
-	s.requestCommands[m.RequestID] = m.CommandSequence
-	s.pruneCommandsLocked()
 	s.mu.Unlock()
 	if cancelStart != nil {
 		cancelStart()
 	}
+	if waitForClosure && errorCode == "" {
+		if err := s.waitForNativeClosure(received); err != nil {
+			s.mu.Lock()
+			result = s.resultLocked(m.RequestID, "status_conflict", "paired closure was not confirmed before the stop deadline")
+			s.nativeStopDeadline = time.Time{}
+			s.mu.Unlock()
+		} else {
+			s.mu.Lock()
+			s.nativeStopDeadline = time.Time{}
+			result = s.resultLocked(m.RequestID, "", "")
+			s.mu.Unlock()
+		}
+	}
+	s.mu.Lock()
+	s.commands[m.CommandSequence] = commandRecord{requestID: m.RequestID, payload: payload, result: result}
+	s.requestCommands[m.RequestID] = m.CommandSequence
+	s.pruneCommandsLocked()
+	s.mu.Unlock()
 	return s.output.SendControl(result)
+}
+
+func (s *Service) waitForNativeClosure(received time.Time) error {
+	s.mu.Lock()
+	deadline := s.nativeStopDeadline
+	s.mu.Unlock()
+	if deadline.IsZero() {
+		deadline = received.Add(s.cfg.DrainTimeout)
+	}
+	for {
+		s.mu.Lock()
+		safe := s.active == nil && !s.starting && !s.stopping && !s.capturing && s.closureConfirmed
+		changed := s.statusChanged
+		s.mu.Unlock()
+		if safe {
+			return nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-changed:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		case <-timer.C:
+			return context.DeadlineExceeded
+		case <-s.closed:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return fmt.Errorf("native owner closed before paired closure")
+		}
+	}
 }
 func (s *Service) resultLocked(requestID, code, detail string) ipc.NativeMessage {
 	result := ipc.NativeMessage{Type: "control_result", RequestID: requestID, Status: &ipc.NativeStatus{Muted: s.muted, Capturing: s.capturing, ConnectedClients: uint32(len(s.clients)), Reason: s.reason, Revision: s.revision, UpdateReady: s.updateReadyLocked(), UpdateReserved: s.updateReserved}}

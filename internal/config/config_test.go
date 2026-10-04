@@ -54,12 +54,36 @@ func TestHelperEnvironmentAcceptsOnlyApprovedRelativePath(t *testing.T) {
 		t.Fatalf("approved environment override did not validate: %v", err)
 	}
 	t.Setenv("MISTT_HELPER_EXECUTABLES", ApprovedHelperExecutable+","+ApprovedHelperExecutable)
-	if _, err := FromEnv(); err == nil {
+	duplicate, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := duplicate.Validate(false); err == nil {
 		t.Fatal("accepted duplicate approved helper paths")
 	}
 	t.Setenv("MISTT_HELPER_EXECUTABLES", "/Applications/App.app/Contents/Resources/app/electron/sdk/lib/MediaSDK_Server")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("accepted absolute helper path")
+	}
+}
+
+func TestRunFlagsCanCompleteEnvironmentConfigurationBeforeValidation(t *testing.T) {
+	for _, key := range []string{"MISTT_DGX_ENDPOINT", "MISTT_TOKEN_FILE"} {
+		t.Setenv(key, "")
+	}
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(token, []byte("test-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// run applies parsed flag values after FromEnv and validates the final config.
+	cfg.Endpoint = "wss://gateway.example.test/v1"
+	cfg.TokenFile = token
+	if err := cfg.Validate(true); err != nil {
+		t.Fatalf("flag-completed config did not validate: %v", err)
 	}
 }
 
