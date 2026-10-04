@@ -250,15 +250,29 @@ def publish(directory: Path) -> None:
     tag = f'v{manifest["version"]}'
     if subprocess.run(["gh", "release", "view", tag, "--repo", repo], capture_output=True, timeout=30).returncode == 0:
         raise ValueError("Release already exists; refusing replacement")
+    cask_endpoint = f"repos/{tap}/contents/Casks/mistt.rb"
+    lookup = subprocess.run(["gh", "api", cask_endpoint], env=tap_env, text=True, capture_output=True, timeout=30)
+    if lookup.returncode and "(HTTP 404)" not in lookup.stderr:
+        raise ValueError("Cannot establish current tap revision")
+    source_sha = manifest.get("source_sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError("Missing exact reviewed source revision")
+    ref_endpoint = f"repos/{repo}/git/ref/tags/{tag}"
+    tag_lookup = subprocess.run(["gh", "api", ref_endpoint], text=True, capture_output=True, timeout=30)
+    if tag_lookup.returncode == 0:
+        ref = json.loads(tag_lookup.stdout)["object"]
+        if ref.get("type") != "commit" or ref.get("sha") != source_sha:
+            raise ValueError("Existing release tag identifies a different source revision")
+    elif "(HTTP 404)" in tag_lookup.stderr:
+        run("gh", "api", f"repos/{repo}/git/refs", "--method", "POST",
+            "-f", f"ref=refs/tags/{tag}", "-f", f"sha={source_sha}")
+    else:
+        raise ValueError("Cannot establish release tag ownership")
     run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--draft", "--prerelease", "--title", f"MISTT {manifest['version']}",
         "--notes", "Signed Apple Silicon release. Starts muted; requires macOS 14.2+.", str(archive),
         str(directory / "appcast.xml"), str(directory / "manifest.json"), str(directory / "mistt.rb"))
     # Archives become public before the cask references them; stable feed is exposed last.
     run("gh", "release", "edit", tag, "--repo", repo, "--draft=false", "--prerelease=true", "--latest=false")
-    cask_endpoint = f"repos/{tap}/contents/Casks/mistt.rb"
-    lookup = subprocess.run(["gh", "api", cask_endpoint], env=tap_env, text=True, capture_output=True, timeout=30)
-    if lookup.returncode and "(HTTP 404)" not in lookup.stderr:
-        raise ValueError("Cannot establish current tap revision")
     payload = {"message": f"Update MISTT to {manifest['version']}",
                "content": base64.b64encode((directory / "mistt.rb").read_bytes()).decode()}
     if lookup.returncode == 0:
