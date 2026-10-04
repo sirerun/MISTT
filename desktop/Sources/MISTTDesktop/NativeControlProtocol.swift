@@ -10,7 +10,7 @@ struct SourceFormat: Codable, Equatable, Sendable {
 struct MicrophoneRequest: Codable, Equatable, Sendable { let device: String }
 struct CallAudioRequest: Codable, Equatable, Sendable {
     let bundleId: String
-    let includeHelpers: [String]
+    let includeHelpers: [UInt32]
     let includeHelperExecutables: [String]?
 }
 

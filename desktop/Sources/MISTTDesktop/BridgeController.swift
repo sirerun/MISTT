@@ -48,6 +48,8 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         return executable.deletingLastPathComponent().appendingPathComponent("mistt", isDirectory: false)
     }
 
+    static let relayArguments = ["--desktop", "run"]
+
     var updateReservationReady: Bool {
         guard updateReservationConfirmed, captureDriver.isClosed,
               let revision = updateReservationRevision, let status = revisionGate.latest else { return false }
@@ -72,7 +74,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         let stdin = Pipe()
         let stdout = Pipe()
         child.executableURL = relayExecutableURL
-        child.arguments = ["desktop", "--config", configurationURL.path]
+        child.arguments = Self.relayArguments
         child.environment = configuredEnvironment
         child.standardInput = stdin
         child.standardOutput = stdout
