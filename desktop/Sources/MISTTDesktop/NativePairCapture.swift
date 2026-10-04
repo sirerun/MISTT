@@ -159,6 +159,11 @@ final class NativePairCapture: @unchecked Sendable {
                 acquireLifecycleLock: { lock.lock(); acquired.signal() }
             )
         }
+        // A concurrent start may have reopened its gates while this caller was
+        // acquiring the lifecycle lock. Re-publish the same cutoff under lock.
+        MISTTCloseCaptureGate(atomicState, cutoff.nanoseconds)
+        MISTTAudioQueueCloseGate(microphonePCMQueue, cutoff.nanoseconds)
+        MISTTAudioQueueCloseGate(callAudioPCMQueue, cutoff.nanoseconds)
         generationCancellation.cancel(through: expectedGeneration)
         if generation == expectedGeneration || !didStart {
             startCancelled = true
@@ -295,6 +300,11 @@ final class NativePairCapture: @unchecked Sendable {
                 acquireLifecycleLock: { lock.lock(); acquired.signal() }
             )
         }
+        // Pair the pre-lock fast close with an under-lock close so a racing
+        // start cannot reopen its gates after the published cutoff.
+        MISTTCloseCaptureGate(atomicState, cutoff.nanoseconds)
+        MISTTAudioQueueCloseGate(microphonePCMQueue, cutoff.nanoseconds)
+        MISTTAudioQueueCloseGate(callAudioPCMQueue, cutoff.nanoseconds)
         generationCancellation.cancel(through: ownerGeneration)
         if isStarting {
             startCancelled = true

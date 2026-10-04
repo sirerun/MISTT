@@ -78,15 +78,17 @@ final class NativeIPCWriter: @unchecked Sendable {
         return true
     }
 
-    func enqueueSourceEnd(_ message: SourceEnd, source: Source) {
+    @discardableResult
+    func enqueueSourceEnd(_ message: SourceEnd, source: Source) -> Bool {
         do {
             let frame = try NativeControlFrame.encode(message)
             lock.lock()
-            guard !failed, !closed else { lock.unlock(); return }
+            guard !failed, !closed else { lock.unlock(); return false }
             if source == .microphone { microphoneEnd = frame } else { callAudioEnd = frame }
             lock.unlock()
             drive()
-        } catch { fail(.queueFull) }
+            return true
+        } catch { fail(.queueFull); return false }
     }
 
     func whenIdle(_ completion: @escaping (Result<Void, Failure>) -> Void) {

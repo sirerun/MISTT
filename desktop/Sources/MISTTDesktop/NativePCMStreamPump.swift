@@ -13,9 +13,8 @@ final class NativePCMStreamPump: @unchecked Sendable {
         var sourceRate: Double?
         var channels: Int?
         var pending = [UInt8]()
-        var sequence: UInt64 = 0
+        var ledger: PCMFrameLedger?
         var finished = false
-        var baseSample: UInt64?
         var expectedNextInputNs: UInt64?
 
         init(source: PairedAudioFrame.Source, queue: OpaquePointer, writerSource: NativeIPCWriter.Source) {
@@ -78,9 +77,9 @@ final class NativePCMStreamPump: @unchecked Sendable {
             }) else { return }
             try finish(streams[0]); try finish(streams[1])
             timer?.cancel(); timer = nil
-            let counts = (streams[0].converter?.outputFrameCount ?? 0, streams[1].converter?.outputFrameCount ?? 0)
-            streams[0].writerEnd(writer, sessionID: sessionID)
-            streams[1].writerEnd(writer, sessionID: sessionID)
+            let counts = (streams[0].ledger?.totalSamples ?? 0, streams[1].ledger?.totalSamples ?? 0)
+            try streams[0].writerEnd(writer, sessionID: sessionID)
+            try streams[1].writerEnd(writer, sessionID: sessionID)
             completion?(.success(counts)); completion = nil
         } catch {
             timer?.cancel(); timer = nil
@@ -107,11 +106,7 @@ final class NativePCMStreamPump: @unchecked Sendable {
             if stream.converter == nil {
                 guard block.host_start_ns >= epochNanoseconds else { throw PumpError.invalidTimestamp }
                 let delta = block.host_start_ns - epochNanoseconds
-                let scaled = delta.multipliedReportingOverflow(by: 16_000)
-                guard !scaled.overflow else { throw PumpError.invalidTimestamp }
-                let rounded = scaled.partialValue.addingReportingOverflow(999_999_999)
-                guard !rounded.overflow else { throw PumpError.invalidTimestamp }
-                stream.baseSample = rounded.partialValue / 1_000_000_000
+                stream.ledger = PCMFrameLedger(baseOffsetNanoseconds: delta)
                 stream.sourceRate = Double(block.sampleRate)
                 stream.channels = Int(block.channels)
                 stream.converter = try BoundedPCMStreamConverter(sourceRate: Double(block.sampleRate), channels: Int(block.channels))
@@ -162,32 +157,28 @@ final class NativePCMStreamPump: @unchecked Sendable {
     }
 
     private func emit(_ stream: SourceStream, byteCount: Int, sampleCount: Int) throws {
-        let base = stream.baseSample ?? 0
-        let outputIndex = stream.converter?.outputFrameCount ?? 0
-        let sum = base.addingReportingOverflow(outputIndex)
-        guard !sum.overflow else { throw PumpError.invalidTimestamp }
-        let sampleStart = sum.partialValue
-        guard sampleCount > 0, sampleCount <= 1600 else { throw PumpError.invalidBlock }
-        let offset = try AudioSampleInstant.offsetNanoseconds(sampleIndex: sampleStart, rate: 16_000)
+        guard var nextLedger = stream.ledger else { throw PumpError.invalidTimestamp }
+        let entry = try nextLedger.accept(sampleCount: UInt32(sampleCount))
         let pcm = Data(stream.pending.prefix(byteCount))
         stream.pending.removeFirst(byteCount)
         let frame = PairedAudioFrame(sessionID: sessionID, source: stream.source,
-                                     sourceSequence: stream.sequence, startSample: sampleStart,
-                                     captureOffsetNanoseconds: offset, sampleCount: UInt32(sampleCount), pcmS16LE: pcm)
+                                     sourceSequence: entry.sequence, startSample: entry.startSample,
+                                     captureOffsetNanoseconds: entry.captureOffsetNanoseconds,
+                                     sampleCount: entry.sampleCount, pcmS16LE: pcm)
         guard writer.enqueueAudio(try frame.framedIPC(), source: stream.writerSource) else { throw PumpError.writerRejectedAudio }
-        let next = stream.sequence.addingReportingOverflow(1)
-        guard !next.overflow else { throw PumpError.sequenceOverflow }
-        stream.sequence = next.partialValue
+        stream.ledger = nextLedger
     }
 
-    private enum PumpError: Error { case alreadyDraining, invalidBlock, invalidTimestamp, formatChanged, clockDiscontinuity, writerRejectedAudio, sequenceOverflow }
+    fileprivate enum PumpError: Error { case alreadyDraining, invalidBlock, invalidTimestamp, formatChanged, clockDiscontinuity, writerRejectedAudio, sequenceOverflow }
 }
 
 private extension NativePCMStreamPump.SourceStream {
-    func writerEnd(_ writer: NativeIPCWriter, sessionID: UUID) {
+    func writerEnd(_ writer: NativeIPCWriter, sessionID: UUID) throws {
         let name = source.wireName
-        writer.enqueueSourceEnd(SourceEnd(sessionId: sessionID, source: name,
-                                          lastSequence: sequence == 0 ? 0 : sequence - 1,
-                                          totalSamples: converter?.outputFrameCount ?? 0), source: writerSource)
+        guard writer.enqueueSourceEnd(SourceEnd(sessionId: sessionID, source: name,
+                                                lastSequence: ledger?.lastSequence ?? 0,
+                                                totalSamples: ledger?.totalSamples ?? 0), source: writerSource) else {
+            throw NativePCMStreamPump.PumpError.writerRejectedAudio
+        }
     }
 }

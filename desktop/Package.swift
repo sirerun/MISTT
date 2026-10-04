@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MISTTDesktop",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("14.2")],
     products: [
         .executable(name: "MISTTDesktop", targets: ["MISTTDesktop"]),
     ],
@@ -21,8 +21,7 @@ let package = Package(
         .testTarget(
             name: "MISTTDesktopTests",
             dependencies: ["MISTTDesktop", "NativeAudioQueue"],
-            path: "Tests/MISTTDesktopTests",
-            resources: [.copy("Fixtures/fake-mistt")]
+            path: "Tests/MISTTDesktopTests"
         ),
     ]
 )

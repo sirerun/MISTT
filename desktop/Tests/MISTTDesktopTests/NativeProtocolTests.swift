@@ -16,6 +16,20 @@ final class NativeProtocolTests: XCTestCase {
         XCTAssertEqual(Array(packet.suffix(4)), [0x34, 0x12, 0xFE, 0xFF])
     }
 
+    func testPerSourceLedgerStartsAtSequenceOneAndSampleZeroButKeepsCaptureDelay() throws {
+        var ledger = PCMFrameLedger(baseOffsetNanoseconds: 2_500_000)
+        let first = try ledger.accept(sampleCount: 1600)
+        let tail = try ledger.accept(sampleCount: 320)
+        XCTAssertEqual(first.sequence, 1)
+        XCTAssertEqual(first.startSample, 0)
+        XCTAssertEqual(first.captureOffsetNanoseconds, 2_500_000)
+        XCTAssertEqual(tail.sequence, 2)
+        XCTAssertEqual(tail.startSample, 1600)
+        XCTAssertEqual(tail.captureOffsetNanoseconds, 102_500_000)
+        XCTAssertEqual(ledger.lastSequence, 2)
+        XCTAssertEqual(ledger.totalSamples, 1920)
+    }
+
     func testSampleInstantCutoffExcludesFirstSampleAtOrAfterCutoff() {
         XCTAssertEqual(AudioSampleInstant.retainedSampleCount(startNanoseconds: 0, total: 10, rate: 10,
                                                                gateNanoseconds: 150_000_000,
@@ -28,6 +42,16 @@ final class NativeProtocolTests: XCTestCase {
     func testDuplicateJSONKeysAndFractionalIntegerFieldsFailClosed() {
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(#"{"type":"status","type":"heartbeat"}"#.utf8)))
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(#"{"revision":1.5}"#.utf8)))
+    }
+
+    func testStrictJSONRejectsNestingBeyondBoundedDepth() {
+        let tooDeep = String(repeating: "[", count: 34) + "0" + String(repeating: "]", count: 34)
+        XCTAssertThrowsError(try StrictJSONValidator.validate(Data(tooDeep.utf8)))
+    }
+
+    func testStrictJSONRejectsNestingBeyondBoundedDepth() {
+        let tooDeep = String(repeating: "[", count: 34) + "0" + String(repeating: "]", count: 34)
+        XCTAssertThrowsError(try StrictJSONValidator.validate(Data(tooDeep.utf8)))
     }
 
     func testNativeCallbackQueueTrimsAtExclusiveSampleInstants() throws {
