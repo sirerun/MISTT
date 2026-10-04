@@ -47,6 +47,10 @@ final class BridgeControllerTests: XCTestCase {
         XCTAssertEqual(path.path, "/tmp/private/mistt.json")
     }
 
+    func testRelayLaunchUsesExplicitNativeOwnerMode() {
+        XCTAssertEqual(BridgeController.relayArguments, ["--desktop", "run"])
+    }
+
     func testRelayConfigurationLoadsOnlyAllowlistedStringValuesFromPrivateFile() throws {
         let file = try privateConfigFile(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio","MISTT_TOKEN_FILE":"/private/token"}"#)
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
@@ -110,5 +114,16 @@ final class BridgeControllerTests: XCTestCase {
         if case .heartbeat = messages[0] {} else { XCTFail("heartbeat order changed") }
         if case .captureStop(let request) = messages[1] { XCTAssertEqual(request.requestId, requestID) }
         else { XCTFail("capture stop was lost") }
+    }
+
+    func testGoCaptureStartUsesNumericHelperPIDArrayAndApprovedExecutableSelector() throws {
+        let id = UUID().uuidString.lowercased()
+        let message = #"{"type":"capture_start","request_id":"\#(id)","session_id":"\#(id)","sources":[{"source":"microphone","sample_rate_hz":16000,"channels":1,"encoding":"s16le"},{"source":"call_audio","sample_rate_hz":16000,"channels":1,"encoding":"s16le"}],"microphone":{"device":"default"},"call_audio":{"bundle_id":"com.tiktok.livestudio.desktop","include_helpers":[731],"include_helper_executables":["Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"]}}"#
+        guard case .captureStart(let request) = try RelayMessage.decode(Data(message.utf8)) else {
+            return XCTFail("expected capture_start")
+        }
+        XCTAssertEqual(request.callAudio.includeHelpers, [731])
+        XCTAssertEqual(request.callAudio.includeHelperExecutables,
+                       ["Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"])
     }
 }
