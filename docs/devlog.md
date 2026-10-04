@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Exact cutoff, EOF and conflict-response rules
+
+**Type:** finding
+**Tags:** IPC, protocol, cutoff
+
+**Problem:** Independent control audit found ambiguity between a sample timestamp and its duration at cutoff, impossible nonempty EOF with zero samples, and a conflict response that lacked a correlated current status snapshot.
+**Root cause:** Draft prose was stricter than the JSON shapes and did not define the sub-sample cutoff boundary.
+**Fix:** Cutoff now retains only sample timestamps strictly before it; at 16 kHz use checked epoch + frame offset + index × 62500 ns. EOF sequence/sample totals are zero together iff no frames were sent. Stale-command/revision conflicts contain both the current nested status and error; cached old snapshots cannot roll back newer UI state. All 15 examples in the amended schema validate.
+**Impact:** Closes draft inconsistencies before product implementation; no native/IPC hardware acceptance is implied.
+
 ## 2026-10-04: Native preflight audit and verification split
 
 **Type:** finding

@@ -188,3 +188,5 @@ Release/signing setup uses the existing account; Xcode sign-in is confirmed but 
 - [Sparkle documentation](https://sparkle-project.org/documentation/), [automatic updates](https://sparkle-project.org/documentation/automatic-updates/), [publishing](https://sparkle-project.org/documentation/publishing/).
 
 - 2026-10-04 UTC T2.0 checkpoint: adopted typed native control schema (13 examples validate) and byte-exact paired PCM/clock vectors. Static native audit found invalid/regressing timestamps, teardown error handling, start cancellation and blocking callback work; fixes are in progress. Shared Mac load exceeds the build threshold, so a scoped capture-free macOS CI probe is being prepared. No TCC/native signal/closure, paired inference or release acceptance is claimed.
+
+- 2026-10-04 UTC control audit follow-up: clarified cutoff against sample timestamps (strictly before, not whole sample duration), empty-source EOF totals and correlated conflict status/error snapshots. These close three material draft inconsistencies before native/relay implementation.
