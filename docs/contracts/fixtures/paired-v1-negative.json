@@ -1,0 +1,175 @@
+{
+  "protocol": "mistt.paired.v1",
+  "purpose": "Synthetic negative codec/clock/cutoff vectors; no speech or hardware evidence",
+  "positive_boundary_control": {
+    "sample_rate_hz": 16000,
+    "cutoff_offset_ns": 44000,
+    "frame_capture_offset_ns": 0,
+    "sample_count_after_native_trim": 1,
+    "sample_timestamps_ns": [0],
+    "next_unretained_sample_timestamp_ns": 62500,
+    "nominal_interval_end_ns": 62500,
+    "expected": "valid; the retained sample timestamp is before cutoff even though its nominal 62500 ns interval extends past the 44000 ns cutoff"
+  },
+  "cases": [
+    {
+      "id": "bad_magic",
+      "layer": "frame_codec",
+      "mutation": "Replace MST1 magic bytes 4d535431 with 4d535430.",
+      "expected": "reject frame before PCM delivery"
+    },
+    {
+      "id": "unknown_source_id",
+      "layer": "frame_codec",
+      "mutation": "Change source_id byte from 01/02 to 03.",
+      "expected": "fail paired session; do not infer a source"
+    },
+    {
+      "id": "reserved_nonzero",
+      "layer": "frame_codec",
+      "mutation": "Set any of the three reserved bytes after source_id to a nonzero value.",
+      "expected": "reject frame"
+    },
+    {
+      "id": "zero_sample_count",
+      "layer": "frame_codec",
+      "mutation": "Set sample_count to 0 and provide no PCM bytes.",
+      "expected": "reject frame; legal range is 1..1600"
+    },
+    {
+      "id": "sample_count_over_limit",
+      "layer": "frame_codec",
+      "mutation": "Set sample_count to 1601 and provide 3202 PCM bytes.",
+      "expected": "reject frame before allocation/delivery"
+    },
+    {
+      "id": "payload_length_mismatch",
+      "layer": "frame_codec",
+      "mutation": "Declare sample_count 3 but include 4 PCM bytes instead of 6.",
+      "expected": "reject inconsistent frame length"
+    },
+    {
+      "id": "wrong_pcm_byte_order",
+      "layer": "pcm",
+      "baseline_expected_samples": [-32768, 0, 32767],
+      "mutation": "Interpret baseline mic payload bytes 00 80 00 00 ff 7f as big-endian s16.",
+      "mutated_samples": [128, 0, -129],
+      "expected": "reject codec conformance; transport encoding is s16le"
+    },
+    {
+      "id": "wrong_uuid_byte_order",
+      "layer": "frame_codec",
+      "mutation": "Reverse UUID bytes or decode the RFC4122 byte sequence using platform-specific mixed-endian UUID fields.",
+      "expected": "reject wrong session identity; do not route frame to current generation"
+    },
+    {
+      "id": "duplicate_source_sequence",
+      "layer": "source_ledger",
+      "source": "microphone",
+      "previous_sequence": 7,
+      "received_sequence": 7,
+      "expected": "fail pair; no duplicate PCM acceptance"
+    },
+    {
+      "id": "gapped_source_sequence",
+      "layer": "source_ledger",
+      "source": "call_audio",
+      "previous_sequence": 7,
+      "received_sequence": 9,
+      "expected": "fail pair; do not conceal/drop the missing frame"
+    },
+    {
+      "id": "sample_start_gap",
+      "layer": "source_ledger",
+      "source": "microphone",
+      "previous_end_sample": 3200,
+      "received_start_sample": 3201,
+      "expected": "fail pair; per-source sample counters are contiguous"
+    },
+    {
+      "id": "backwards_capture_time",
+      "layer": "clock",
+      "previous_capture_offset_ns": 42500000,
+      "received_capture_offset_ns": 42499999,
+      "expected": "fail pair; per-source capture offsets cannot move backwards"
+    },
+    {
+      "id": "raw_ticks_used_as_nanoseconds",
+      "layer": "clock",
+      "fixture_epoch_ticks": 123456,
+      "fixture_buffer_ticks": 123481,
+      "ticks_per_second": 1000000,
+      "correct_capture_offset_ns": 25000,
+      "mutated_capture_offset_ns": 25,
+      "expected": "fail clock-vector conformance; convert both host anchors to ns before subtraction"
+    },
+    {
+      "id": "incorrect_unit_scale",
+      "layer": "clock",
+      "fixture_delta_ticks": 25,
+      "correct_ticks_per_second": 1000000,
+      "correct_delta_ns": 25000,
+      "mutated_assumed_ticks_per_second": 1000000000,
+      "mutated_delta_ns": 25,
+      "expected": "fail clock-vector conformance; host tick scale is not a unit conversion"
+    },
+    {
+      "id": "negative_capture_offset",
+      "layer": "clock",
+      "capture_epoch_host_ns": 123456000,
+      "buffer_host_ns": 123455999,
+      "capture_offset_ns": -1,
+      "expected": "fail pair; negative/invalid source anchor is not forwarded"
+    },
+    {
+      "id": "raw_tick_cutoff",
+      "layer": "cutoff",
+      "capture_epoch_host_ns": 123456000,
+      "correct_cutoff_host_ns": 123500000,
+      "correct_cutoff_offset_ns": 44000,
+      "mutated_cutoff_host_ns": 123500,
+      "expected": "fail cutoff validation; raw tick value cannot be compared to converted ns epoch"
+    },
+    {
+      "id": "sample_timestamp_equals_cutoff",
+      "layer": "cutoff",
+      "cutoff_offset_ns": 44000,
+      "frame_capture_offset_ns": 44000,
+      "sample_index": 0,
+      "sample_timestamp_ns": 44000,
+      "expected": "native must not transmit; if received, fail pair because cutoff is exclusive"
+    },
+    {
+      "id": "native_failed_to_trim_post_cutoff_samples",
+      "layer": "cutoff",
+      "sample_rate_hz": 16000,
+      "cutoff_offset_ns": 44000,
+      "frame_capture_offset_ns": 20000,
+      "received_sample_count": 2,
+      "sample_timestamps_ns": [20000, 82500],
+      "required_native_trimmed_sample_count": 1,
+      "expected": "fail pair; Go rejects the frame and does not silently trim or rewrite ledgers"
+    },
+    {
+      "id": "end_marker_count_mismatch",
+      "layer": "source_end",
+      "transmitted_frames": [{"sequence": 1, "sample_count": 1}],
+      "source_end": {"last_sequence": 1, "total_samples": 2},
+      "expected": "fail pair; source_end totals must exactly match transmitted PCM"
+    },
+    {
+      "id": "nonempty_source_zero_total",
+      "layer": "source_end",
+      "transmitted_frames": [{"sequence": 1, "sample_count": 1}],
+      "source_end": {"last_sequence": 1, "total_samples": 0},
+      "expected": "reject source_end; every frame has at least one sample, so only an empty source may be 0/0"
+    },
+    {
+      "id": "empty_source_nonzero_total",
+      "layer": "source_end",
+      "transmitted_frames": [],
+      "source_end": {"last_sequence": 0, "total_samples": 1},
+      "expected": "reject source_end; empty source is 0/0"
+    }
+  ]
+}
