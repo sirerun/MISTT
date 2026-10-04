@@ -30,6 +30,8 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertIn(manifest["sha256"], cask)
         self.assertIn(manifest["download_url"], cask)
         self.assertIn("auto_updates true", cask)
+        self.assertIn('depends_on macos: "14.2"', cask)
+        self.assertEqual(manifest["minimum_macos"], "14.2")
         self.assertNotIn("zap", cask)
 
     def test_rejects_invalid_signature_or_archive_identity(self):

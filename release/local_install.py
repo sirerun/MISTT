@@ -48,6 +48,8 @@ def main():
     parser.add_argument("--app", type=Path, default=Path("/Applications/MISTT.app"))
     parser.add_argument("--team-id")
     args = parser.parse_args()
+    if args.app != Path("/Applications/MISTT.app") or args.app.is_symlink():
+        raise ValueError("This qualified cask workflow requires the direct /Applications/MISTT.app path")
     if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/mistt", args.cask):
         raise ValueError("Use an explicit owner-controlled mistt cask")
     state = inspect(args.cask, args.app)
