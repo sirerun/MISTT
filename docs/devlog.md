@@ -124,3 +124,15 @@ Adopted root-authored split delivery plan and preserved integrated native prefli
 ## 2026-10-04 — ship readiness and Luna dispatch
 
 T2.11 verified remote main 26d4062 and PR #2 merged. Adopted its preserved native probe; no open PR or active claim conflicted before dispatch. Three exclusive-file GPT-6-Luna workers are verifying C accounting, native controller/conversion and target ownership. Current main CI run 37192784951 failed with zero steps: account locked due to billing. Mac load remains above 10, so no heavy local build runs. Only Apple Development/Distribution identities exist; Developer ID release identity absent. These gates do not establish native hardware/MVP/release/installation acceptance.
+
+## 2026-10-04 — bounded static preflight evidence
+
+T2.13/T2.14 independent lanes completed source and lightweight plist/script/signature checks at main 26d4062, without code changes. Fresh Swift tests/package launch remain blocked by load >10; TikTok owner/media producer is absent. Prior artifacts are older ad-hoc binaries. Coordinator cross-check rejects an overall 1s stop guarantee: cancellation, lock acquisition and teardown arm separate deadlines, and real end-to-end ACK timing is unmeasured. T2.19-T2.23 track a lightweight production-C interleave regression through independent review and landing; required CI billing gate remains.
+
+## 2026-10-04 — independent plan review disposition
+
+Independent Luna reviewer t2_13_native reviewed base26d4062 to ecceb99 and raised DOC-001: native UI task T2.4 could become ready before capture T2.9 despite shared desktop ownership. Accepted and added T2.9 dependency; no new ownership split. Removed trailing blank lines in split epic files. Revised-head parser/DAG verification and independent re-review remain required before merging the candidate.
+
+## 2026-10-04 — revised C regression and repeated admission blockers
+
+CREG-001 and CREG-002 resolved at worker544effb (integrated98f5732); independent Luna source re-review accepted them. Coordinator warnings-as-errors ASan/UBSan check passes actual-C held-lock16/144, fractional48kHz2/1 and no post-close append. Process-watchdog fault probe exits124 after5.03s. No production source changed. User requested another readiness attempt; main CI37192784951 attempt2 failed with zero steps, current annotation still billing-locked. Local load20.36 remains above10. Fresh native build/TCC/signal/paired-MVP/release/local-install acceptance remain unverified.
