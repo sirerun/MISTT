@@ -1,0 +1,40 @@
+name: Native capture preflight
+on:
+  pull_request:
+    paths:
+      - desktop/Tools/NativeCapturePreflight/**
+      - .github/workflows/native-preflight.yml
+  push:
+    branches: [main]
+    paths:
+      - desktop/Tools/NativeCapturePreflight/**
+      - .github/workflows/native-preflight.yml
+permissions:
+  contents: read
+concurrency:
+  group: native-preflight-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      MISTT_DEV_SIGN_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set temporary build paths
+        run: |
+          echo "MISTT_PREFLIGHT_BUILD_ROOT=$RUNNER_TEMP/mistt-native-preflight-build" >> "$GITHUB_ENV"
+          echo "MISTT_PREFLIGHT_ARTIFACT_ROOT=$RUNNER_TEMP/mistt-native-preflight-artifacts" >> "$GITHUB_ENV"
+      - name: Run capture-free fixtures
+        run: swift test --package-path desktop/Tools/NativeCapturePreflight --scratch-path "$MISTT_PREFLIGHT_BUILD_ROOT" --arch arm64 -j 2
+      - name: Package the ad-hoc signed hardware probe
+        run: bash desktop/Tools/NativeCapturePreflight/Scripts/build-app.sh
+      - name: Archive the probe
+        run: ditto -c -k --sequesterRsrc --keepParent "$MISTT_PREFLIGHT_ARTIFACT_ROOT/MISTT-Capture-Preflight.app" "$RUNNER_TEMP/mistt-native-preflight.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mistt-native-preflight-arm64
+          path: ${{ runner.temp }}/mistt-native-preflight.zip
+          retention-days: 1
+          if-no-files-found: error
