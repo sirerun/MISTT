@@ -6,6 +6,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 spec = importlib.util.spec_from_file_location("release_tools", Path(__file__).with_name("release.py"))
@@ -70,6 +71,19 @@ class ReleaseMetadataTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 tools.run_build("go", "build", "./cmd/mistt")
             self.assertEqual(execute.call_args.args, ("claim-helper", "release", "R-build-lease", lease))
+
+    def test_credential_failure_does_not_render_secret_arguments(self):
+        signing_spec = importlib.util.spec_from_file_location("signing_setup", Path(__file__).with_name("setup_signing.py"))
+        signing = importlib.util.module_from_spec(signing_spec)
+        with patch.dict(sys.modules, {"release": tools}):
+            signing_spec.loader.exec_module(signing)
+        secret = "synthetic-private-password"
+        failure = subprocess.CalledProcessError(1, ["security", "import", "-P", secret], stderr=secret)
+        with patch.object(signing.subprocess, "run", side_effect=failure):
+            with self.assertRaises(SystemExit) as stopped:
+                signing.run("security", "import", "-P", secret)
+        self.assertNotIn(secret, str(stopped.exception))
+        self.assertTrue(stopped.exception.__suppress_context__)
 
 
 if __name__ == "__main__":
