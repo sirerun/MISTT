@@ -2,20 +2,22 @@
 
 ## Shipped
 
-- None yet; qualification is locally verified and awaits PR review/landing.
+- Bounded one-source VibeVoice streaming qualification and report: PR #1, landed `4255bd2362e6184e0e0687ea149db4815d8106a8`; six probe tests passed. Synthetic inference evidence, not a product release.
 
 ## In progress
 
-- Ship coordinator: qualification landing, contracts, parallel MVP lanes (2026-10-04 UTC).
+- Dual-source scope planned: native microphone plus selected-app Core Audio tap, timestamp/source framing and paired DGX inference. See [delivery plan](plan.md), [RFC v0.4](rfc/rfc-0001.md) and [capture ADR](adr/0002-dual-source-native-capture.md).
 
 ## In flight
 
-- No PR yet.
+- One-source Go, gateway and desktop candidates are preserved and paused for T2.0 native preflight/revised contract freeze. No accepted MVP or MVP PR yet.
 
 ## Planned
 
-- Native MVP, signed Homebrew cask, installation and automatic updates; see plan.md.
+- TikTok LIVE Studio per-app acceptance; paired native capture and independent ASR contexts; three-client MVP acceptance.
+- Signed Homebrew cask, installation and actual Sparkle A -> B auto-update, with both permission grants preserved.
 
-## Blocked
+## Open gates
 
-- Developer ID signing identity and notarization credentials must be made available using the existing owner account before a signed release.
+- Native tap/microphone permission, target/helper identity, clock/cutoff and bounded closure preflight; actual paired DGX resource/latency headroom.
+- Developer ID signing/notarization using the existing owner account before a signed release; Xcode sign-in alone does not satisfy this gate.

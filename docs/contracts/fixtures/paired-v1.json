@@ -1,0 +1,47 @@
+{
+  "protocol": "mistt.paired.v1",
+  "purpose": "Synthetic codec and clock fixtures; no captured speech or hardware evidence",
+  "frames": [
+    {
+      "source": "microphone",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "source_sequence": 1,
+      "start_sample": 0,
+      "capture_offset_ns": 20000000,
+      "sample_count": 3,
+      "pcm_samples": [
+        -32768,
+        0,
+        32767
+      ],
+      "binary_hex": "4d53543100112233445546778899aabbccddeeff01000000000000000000000100000000000000000000000001312d000000000300800000ff7f",
+      "native_ipc_hex": "0000003b024d53543100112233445546778899aabbccddeeff01000000000000000000000100000000000000000000000001312d000000000300800000ff7f"
+    },
+    {
+      "source": "call_audio",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "source_sequence": 1,
+      "start_sample": 0,
+      "capture_offset_ns": 42500000,
+      "sample_count": 3,
+      "pcm_samples": [
+        -2,
+        1,
+        0
+      ],
+      "binary_hex": "4d53543100112233445546778899aabbccddeeff02000000000000000000000100000000000000000000000002887fa000000003feff01000000",
+      "native_ipc_hex": "0000003b024d53543100112233445546778899aabbccddeeff02000000000000000000000100000000000000000000000002887fa000000003feff01000000"
+    }
+  ],
+  "injected_clock_fixture": {
+    "ticks_per_second": 1000000,
+    "epoch_ticks": 123456,
+    "epoch_ns": 123456000,
+    "buffer_ticks": 123481,
+    "buffer_ns": 123481000,
+    "capture_offset_ns": 25000,
+    "cutoff_ticks": 123500,
+    "cutoff_ns": 123500000,
+    "cutoff_offset_ns": 44000
+  }
+}

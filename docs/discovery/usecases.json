@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "discovered_at": "2026-10-04",
+  "basis": "Landed one-source qualification; accepted native paired capture, TikTok LIVE Studio target, source/time labels, minimal UI and Homebrew/auto-update scope. Product candidates remain unverified and paused for contract change.",
+  "use_cases": [
+    {
+      "id": "UC-001",
+      "domain": "backend",
+      "name": "Recognize streaming English on DGX",
+      "description": "Paced audio produces transcript before input EOF and preserves the final tail.",
+      "actor": "transcript_client",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "backend",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Paced audio produces transcript before input EOF and preserves the final tail.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-002",
+      "domain": "relay",
+      "name": "Subscribe and receive shared transcripts",
+      "description": "One capture and one DGX session fan out ordered revisions/finals to accepted clients.",
+      "actor": "transcript_client",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "relay",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "One capture and one DGX session fan out ordered revisions/finals to accepted clients.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-003",
+      "domain": "privacy",
+      "name": "Toggle microphone consent",
+      "description": "One mute closes microphone and selected-app capture gates/I/O before draining only pre-cutoff audio; startup/failure is Muted and no partial-source fallback occurs.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "privacy",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "One mute closes microphone and selected-app capture gates/I/O before draining only pre-cutoff audio; startup/failure is Muted and no partial-source fallback occurs.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-004",
+      "domain": "relay",
+      "name": "Observe connected clients and status",
+      "description": "Accepted subscriptions count exactly once; UI watchers do not count; newest revision wins.",
+      "actor": "transcript_client",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "relay",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Accepted subscriptions count exactly once; UI watchers do not count; newest revision wins.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-005",
+      "domain": "resilience",
+      "name": "Stop and recover safely",
+      "description": "Drain captured audio within a deadline; errors are explicit; recovery uses a fresh session and explicit unmute.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "resilience",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Drain captured audio within a deadline; errors are explicit; recovery uses a fresh session and explicit unmute.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-006",
+      "domain": "resilience",
+      "name": "Bound resources and sessions",
+      "description": "Queue, admission, duration and context limits fail predictably without dropping speech silently.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "resilience",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Queue, admission, duration and context limits fail predictably without dropping speech silently.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-007",
+      "domain": "desktop",
+      "name": "Use the minimal microphone app",
+      "description": "Logo 3, On/Muted and client count are the only content; keyboard and VoiceOver controls work.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "desktop",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Logo 3, On/Muted and client count are the only content; keyboard and VoiceOver controls work.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-008",
+      "domain": "configuration",
+      "name": "Provision DGX securely outside the UI",
+      "description": "Loopback-only local RPC, verified remote TLS and scoped credentials; no credential leaks.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "configuration",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Loopback-only local RPC, verified remote TLS and scoped credentials; no credential leaks.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-009",
+      "domain": "distribution",
+      "name": "Install and launch through Homebrew",
+      "description": "A cask installs a signed/notarized app containing its relay without Python or models on the Mac.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "distribution",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "A cask installs a signed/notarized app containing its relay without Python or models on the Mac.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-010",
+      "domain": "updates",
+      "name": "Automatically update the installed app",
+      "description": "Signed stable updates install at a safe idle boundary and restart muted without a brew upgrade command.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "updates",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Signed stable updates install at a safe idle boundary and restart muted without a brew upgrade command.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-011",
+      "domain": "updates",
+      "name": "Keep working through rejected updates",
+      "description": "Bad signature, incompatible version, network failure or incomplete download leaves the working app intact.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "updates",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Bad signature, incompatible version, network failure or incomplete download leaves the working app intact.",
+      "test_data": {},
+      "priority": "P1",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-012",
+      "domain": "distribution",
+      "name": "Uninstall and reinstall predictably",
+      "description": "Cask removal stops owned processes; ordinary uninstall preserves user config; reinstall restores operation.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Installed/configured app, or qualification fixture as applicable"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "distribution",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Cask removal stops owned processes; ordinary uninstall preserves user config; reinstall restores operation.",
+      "test_data": {},
+      "priority": "P1",
+      "tags": [
+        "mvp"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-013",
+      "domain": "native_capture",
+      "name": "Capture TikTok LIVE Studio playback only",
+      "description": "Private inclusion-only Core Audio tap captures validated TikTok app/helper output, keeps playback audible and excludes unrelated apps; either permission/target failure stops the pair.",
+      "actor": "desktop_owner",
+      "preconditions": [
+        "Native paired capture owner and authenticated paired DGX service; fixtures where explicitly stated"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "native_capture",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Private inclusion-only Core Audio tap captures validated TikTok app/helper output, keeps playback audible and excludes unrelated apps; either permission/target failure stops the pair.",
+      "test_data": {
+        "target_bundle_id": "com.tiktok.livestudio.desktop"
+      },
+      "priority": "P0",
+      "tags": [
+        "mvp",
+        "dual_source"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-014",
+      "domain": "audio_time",
+      "name": "Preserve separate synchronized capture timelines",
+      "description": "Microphone and call_audio retain independent sequences/sample indices and a shared host-clock mapping through native/DGX resampling, jitter and paired mute cutoff.",
+      "actor": "transcript_client",
+      "preconditions": [
+        "Native paired capture owner and authenticated paired DGX service; fixtures where explicitly stated"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "audio_time",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "Microphone and call_audio retain independent sequences/sample indices and a shared host-clock mapping through native/DGX resampling, jitter and paired mute cutoff.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp",
+        "dual_source"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    },
+    {
+      "id": "UC-015",
+      "domain": "backend",
+      "name": "Recognize and finalize each source independently",
+      "description": "DGX fairly runs two isolated streaming contexts sharing pinned model weights; transcript events carry microphone/call_audio labels, independent revisions/tails and combined session failure/limits.",
+      "actor": "transcript_client",
+      "preconditions": [
+        "Native paired capture owner and authenticated paired DGX service; fixtures where explicitly stated"
+      ],
+      "interfaces": [
+        {
+          "type": "planned",
+          "path": "backend",
+          "page_state": "PLANNED"
+        }
+      ],
+      "expected_outcome": "DGX fairly runs two isolated streaming contexts sharing pinned model weights; transcript events carry microphone/call_audio labels, independent revisions/tails and combined session failure/limits.",
+      "test_data": {},
+      "priority": "P0",
+      "tags": [
+        "mvp",
+        "dual_source"
+      ],
+      "wiring_status": "PLANNED",
+      "coverage": {
+        "interfaces_found": [],
+        "has_tests": false
+      }
+    }
+  ]
+}

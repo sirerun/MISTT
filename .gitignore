@@ -13,3 +13,5 @@ coverage.out
 secrets/
 local/
 ajent.social
+.claude-checkpoint.md
+pr-body.txt
