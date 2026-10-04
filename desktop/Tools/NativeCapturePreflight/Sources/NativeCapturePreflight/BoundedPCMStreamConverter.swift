@@ -13,7 +13,7 @@ enum PCMStreamConverterError: Error, Equatable {
 
 enum PCMFormatBounds {
     static func isSupportedMicrophoneSampleRate(_ sampleRate: Double) -> Bool {
-        sampleRate.isFinite && (8_000...768_000).contains(sampleRate)
+        sampleRate.isFinite && (8_000...384_000).contains(sampleRate)
     }
 }
 

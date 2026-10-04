@@ -36,6 +36,7 @@ struct CaptureSnapshot: Sendable {
     var lastStopDurationMilliseconds: Double?
     var microphoneIOStopped: Bool?
     var tapIOStopped: Bool?
+    var tapCallbacksQuiesced: Bool?
     var tapDestroyed: Bool?
     var aggregateDestroyed: Bool?
     var stopDeadlineExceeded = false
@@ -50,11 +51,14 @@ private enum AudioSource: UInt32 {
 private struct StopOutcome {
     var microphoneStopped = false
     var tapStopped = true
+    var tapCallbacksQuiesced = false
     var ioProcDestroyed = true
     var aggregateDestroyed = true
     var tapDestroyed = true
     var errors: [String] = []
-    var succeeded: Bool { errors.isEmpty && microphoneStopped && tapStopped && ioProcDestroyed && aggregateDestroyed && tapDestroyed }
+    var succeeded: Bool {
+        errors.isEmpty && microphoneStopped && tapStopped && tapCallbacksQuiesced && ioProcDestroyed && aggregateDestroyed && tapDestroyed
+    }
     var firstFailure: String? { errors.first }
 }
 
@@ -178,6 +182,7 @@ final class NativePairCapture: @unchecked Sendable {
         snapshot.stopDeadlineExceeded = false
         snapshot.microphoneIOStopped = nil
         snapshot.tapIOStopped = nil
+        snapshot.tapCallbacksQuiesced = nil
         snapshot.aggregateDestroyed = nil
         snapshot.tapDestroyed = nil
         lock.unlock()
@@ -227,6 +232,7 @@ final class NativePairCapture: @unchecked Sendable {
             snapshot.firstFailure = outcome.firstFailure ?? error.localizedDescription
             snapshot.microphoneIOStopped = outcome.microphoneStopped
             snapshot.tapIOStopped = outcome.tapStopped && outcome.ioProcDestroyed
+            snapshot.tapCallbacksQuiesced = outcome.tapCallbacksQuiesced
             snapshot.aggregateDestroyed = outcome.aggregateDestroyed
             snapshot.tapDestroyed = outcome.tapDestroyed
             snapshot.status = outcome.succeeded
@@ -301,6 +307,7 @@ final class NativePairCapture: @unchecked Sendable {
             self.snapshot.lastStopDurationMilliseconds = elapsed
             self.snapshot.microphoneIOStopped = outcome.microphoneStopped
             self.snapshot.tapIOStopped = outcome.tapStopped && outcome.ioProcDestroyed
+            self.snapshot.tapCallbacksQuiesced = outcome.tapCallbacksQuiesced
             self.snapshot.aggregateDestroyed = outcome.aggregateDestroyed
             self.snapshot.tapDestroyed = outcome.tapDestroyed
             self.snapshot.firstFailure = self.snapshot.firstFailure ?? outcome.firstFailure
@@ -403,6 +410,16 @@ final class NativePairCapture: @unchecked Sendable {
     private func startTapIO() throws {
         let status = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggregateID, nil) { [weak self] _, inputData, inputTime, _, _ in
             guard let self else { return }
+            let source = AudioSource.callAudio.rawValue
+            guard MISTTCallbackEnter(self.atomicState, source) else {
+                self.failureSignal?.add(data: 1)
+                return
+            }
+            defer {
+                if !MISTTCallbackExit(self.atomicState, source) {
+                    self.failureSignal?.add(data: 1)
+                }
+            }
             let callbackStart = AudioGetCurrentHostTime()
             let time = inputTime.pointee
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
@@ -647,6 +664,21 @@ final class NativePairCapture: @unchecked Sendable {
             outcome.tapDestroyed = status == noErr
             if status == noErr { tapID = kAudioObjectUnknown }
             else { outcome.errors.append("AudioHardwareDestroyProcessTap=\(status)") }
+        }
+        if outcome.tapStopped && outcome.ioProcDestroyed {
+            let deadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+            var callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.callAudio.rawValue)
+            while callbacksInFlight > 0, DispatchTime.now().uptimeNanoseconds < deadline {
+                Thread.sleep(forTimeInterval: 0.001)
+                callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.callAudio.rawValue)
+            }
+            outcome.tapCallbacksQuiesced = callbacksInFlight == 0
+            if !outcome.tapCallbacksQuiesced {
+                outcome.errors.append("Selected-app callback quiescence unconfirmed (in-flight: \(callbacksInFlight))")
+            }
+        } else {
+            outcome.tapCallbacksQuiesced = false
+            outcome.errors.append("Selected-app callback quiescence unconfirmed because I/O stop or proc destruction failed")
         }
         return outcome
     }

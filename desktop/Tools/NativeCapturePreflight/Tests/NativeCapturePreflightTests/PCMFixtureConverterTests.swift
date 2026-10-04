@@ -104,11 +104,11 @@ final class PCMFixtureConverterTests: XCTestCase {
 
     func testMicrophoneSampleRateMustBeFiniteAndBounded() {
         XCTAssertTrue(PCMFormatBounds.isSupportedMicrophoneSampleRate(32_000))
-        XCTAssertTrue(PCMFormatBounds.isSupportedMicrophoneSampleRate(768_000))
+        XCTAssertTrue(PCMFormatBounds.isSupportedMicrophoneSampleRate(384_000))
         XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(.nan))
         XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(.infinity))
         XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(7_999))
-        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(768_001))
+        XCTAssertFalse(PCMFormatBounds.isSupportedMicrophoneSampleRate(384_001))
     }
 
     private func convert(rate: Double, channels: Int, samples: [Float], blockFrames: Int) throws -> [UInt8] {
