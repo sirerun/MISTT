@@ -78,6 +78,7 @@ final class NativePairCapture: @unchecked Sendable {
     private var startupCompletion: DispatchSemaphore?
     private var generation: UInt64 = 0
     private var engine: AVAudioEngine?
+    private var microphoneTapInstalled = false
     private var aggregateID: AudioObjectID = kAudioObjectUnknown
     private var tapID: AudioObjectID = kAudioObjectUnknown
     private var ioProc: AudioDeviceIOProcID?
@@ -470,6 +471,7 @@ final class NativePairCapture: @unchecked Sendable {
                         energy: Self.sampledRMS(buffer))
             self.recordCallbackDuration(.microphone, startTicks: callbackStart)
         }
+        microphoneTapInstalled = true
         self.engine = engine
         do {
             try engine.start()
@@ -621,7 +623,10 @@ final class NativePairCapture: @unchecked Sendable {
         if let engine {
             let input = engine.inputNode
             engine.stop()
-            input.removeTap(onBus: 0)
+            if microphoneTapInstalled {
+                input.removeTap(onBus: 0)
+                microphoneTapInstalled = false
+            }
             let deadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
             var callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue)
             while callbacksInFlight > 0, DispatchTime.now().uptimeNanoseconds < deadline {
@@ -631,8 +636,9 @@ final class NativePairCapture: @unchecked Sendable {
             outcome.microphoneStopped = !engine.isRunning && callbacksInFlight == 0
             if !outcome.microphoneStopped {
                 outcome.errors.append("AVAudioEngine stop or microphone callback quiescence unconfirmed (in-flight: \(callbacksInFlight))")
+            } else {
+                self.engine = nil
             }
-            self.engine = nil
         } else {
             let callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue)
             outcome.microphoneStopped = callbacksInFlight == 0
@@ -641,29 +647,24 @@ final class NativePairCapture: @unchecked Sendable {
             }
         }
 
-        if aggregateID != kAudioObjectUnknown {
-            if tapIOStarted, let ioProc {
+        if tapIOStarted {
+            if aggregateID != kAudioObjectUnknown, let ioProc {
                 let status = AudioDeviceStop(aggregateID, ioProc)
                 outcome.tapStopped = status == noErr
                 if status != noErr { outcome.errors.append("AudioDeviceStop=\(status)") }
                 if status == noErr { tapIOStarted = false }
+            } else {
+                outcome.tapStopped = false
+                outcome.errors.append("AudioDeviceStop unconfirmed because the aggregate or IOProc ID is unavailable")
             }
+        }
+        if aggregateID != kAudioObjectUnknown {
             if let ioProc {
                 let status = AudioDeviceDestroyIOProcID(aggregateID, ioProc)
                 outcome.ioProcDestroyed = status == noErr
                 if status == noErr { self.ioProc = nil }
                 else { outcome.errors.append("AudioDeviceDestroyIOProcID=\(status)") }
             }
-            let status = AudioHardwareDestroyAggregateDevice(aggregateID)
-            outcome.aggregateDestroyed = status == noErr
-            if status == noErr { aggregateID = kAudioObjectUnknown }
-            else { outcome.errors.append("AudioHardwareDestroyAggregateDevice=\(status)") }
-        }
-        if tapID != kAudioObjectUnknown {
-            let status = AudioHardwareDestroyProcessTap(tapID)
-            outcome.tapDestroyed = status == noErr
-            if status == noErr { tapID = kAudioObjectUnknown }
-            else { outcome.errors.append("AudioHardwareDestroyProcessTap=\(status)") }
         }
         if outcome.tapStopped && outcome.ioProcDestroyed {
             let deadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
@@ -679,6 +680,29 @@ final class NativePairCapture: @unchecked Sendable {
         } else {
             outcome.tapCallbacksQuiesced = false
             outcome.errors.append("Selected-app callback quiescence unconfirmed because I/O stop or proc destruction failed")
+        }
+        if outcome.tapStopped && outcome.ioProcDestroyed && outcome.tapCallbacksQuiesced {
+            if aggregateID != kAudioObjectUnknown {
+                let status = AudioHardwareDestroyAggregateDevice(aggregateID)
+                outcome.aggregateDestroyed = status == noErr
+                if status == noErr { aggregateID = kAudioObjectUnknown }
+                else { outcome.errors.append("AudioHardwareDestroyAggregateDevice=\(status)") }
+            }
+            if tapID != kAudioObjectUnknown {
+                let status = AudioHardwareDestroyProcessTap(tapID)
+                outcome.tapDestroyed = status == noErr
+                if status == noErr { tapID = kAudioObjectUnknown }
+                else { outcome.errors.append("AudioHardwareDestroyProcessTap=\(status)") }
+            }
+        } else {
+            if aggregateID != kAudioObjectUnknown {
+                outcome.aggregateDestroyed = false
+                outcome.errors.append("Aggregate retained because selected-app callbacks are not confirmed stopped")
+            }
+            if tapID != kAudioObjectUnknown {
+                outcome.tapDestroyed = false
+                outcome.errors.append("Process tap retained because selected-app callbacks are not confirmed stopped")
+            }
         }
         return outcome
     }
