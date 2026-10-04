@@ -39,7 +39,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E1 -- DGX qualification and reproducible evidence  -> docs/plans/E1.md  (6/6)
 
-### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (1/19)
+### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (6/27)
 
 ### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (0/1)
 
