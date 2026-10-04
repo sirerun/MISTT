@@ -29,7 +29,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: mistt-product-${{ inputs.reviewed_sha }}
+  # Serialize all publication candidates, including different reviewed revisions.
+  group: mistt-product-${{ inputs.mode == 'publish' && 'publication' || inputs.reviewed_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -141,15 +142,6 @@ jobs:
             ${{ runner.temp }}/mistt-release/appcast.xml
           if-no-files-found: error
           retention-days: 7
-      - name: Create the exact reviewed release tag without clobbering one
-        if: inputs.mode == 'publish' && inputs.publish_authorized
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
-        run: |
-          python -c 'import os,re; assert re.fullmatch(r"\d+\.\d+\.\d+", os.environ["RELEASE_VERSION"])'
-          git tag "v$RELEASE_VERSION" "$REVIEWED_SHA"
-          git push origin "refs/tags/v$RELEASE_VERSION"
       - name: Stage archives, update cask, promote verified stable feed
         if: inputs.mode == 'publish' && inputs.publish_authorized
         run: python release/release.py publish --directory "$RUNNER_TEMP/mistt-release"
