@@ -55,7 +55,7 @@ struct FloatingWindow: NSViewRepresentable {
             DispatchQueue.main.async { [weak window] in
                 guard let window, let screen = window.screen ?? NSScreen.main else { return }
                 let visible = screen.visibleFrame
-                window.setFrameOrigin(NSPoint(x: visible.minX + 24, y: visible.minY + 24))
+                window.setFrameOrigin(NSPoint(x: max(visible.minX, visible.maxX - window.frame.width - 24), y: visible.minY + 24))
             }
             for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                 window.standardWindowButton(button)?.isHidden = true
