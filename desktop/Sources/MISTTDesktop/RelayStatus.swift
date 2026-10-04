@@ -9,22 +9,7 @@ struct RelayStatus: Codable, Equatable, Sendable {
     let updateReady: Bool
     let updateReserved: Bool
 
-    static func decodeLine(_ data: Data) throws -> RelayStatus {
-        try StrictJSONValidator.validate(data)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let message = try decoder.decode(StatusMessage.self, from: data)
-        guard message.type == "status" else { throw RelayReadError.invalidMessage }
-        try message.status.validate()
-        return message.status
-    }
 
-    func validate() throws {
-        guard !(muted && capturing), connectedClients <= UInt32(Int32.max) else { throw RelayReadError.invalidStatus }
-        if ["permission_denied", "backend_unavailable", "backend_failure", "capture_failure", "native_failure"]
-            .contains(reason), !muted { throw RelayReadError.invalidStatus }
-        guard !updateReady || (muted && !capturing), !updateReserved || updateReady else { throw RelayReadError.invalidStatus }
-    }
 }
 
 struct StatusRevisionGate {
@@ -68,7 +53,7 @@ struct RelayPresentation: Equatable {
     var stateTitle: String { isMuted ? "Muted" : "On" }
     var clientCount: String {
         guard let count = status?.connectedClients else { return "Client count unavailable" }
-        switch count {
+        return switch count {
         case 0: "0 clients connected"
         case 1: "1 client connected"
         default: "\(count) clients connected"
