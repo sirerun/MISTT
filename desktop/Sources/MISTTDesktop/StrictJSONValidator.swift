@@ -3,6 +3,7 @@ import Foundation
 /// Rejects duplicate object keys, floating point values and exponents before JSONDecoder sees a control record.
 struct StrictJSONValidator {
     enum Failure: Error { case invalid, duplicateKey, nonIntegerNumber }
+    private static let maximumNestingDepth = 32
     private let bytes: [UInt8]
     private var index = 0
 
@@ -12,17 +13,17 @@ struct StrictJSONValidator {
         guard data.count <= 65_536 else { throw Failure.invalid }
         var parser = StrictJSONValidator(data)
         parser.skipSpace()
-        try parser.value()
+        try parser.value(depth: 0)
         parser.skipSpace()
         guard parser.index == parser.bytes.count else { throw Failure.invalid }
     }
 
-    private mutating func value() throws {
+    private mutating func value(depth: Int) throws {
         skipSpace()
-        guard index < bytes.count else { throw Failure.invalid }
+        guard index < bytes.count, depth <= Self.maximumNestingDepth else { throw Failure.invalid }
         switch bytes[index] {
-        case 0x7B: try object()
-        case 0x5B: try array()
+        case 0x7B: try object(depth: depth)
+        case 0x5B: try array(depth: depth)
         case 0x22: _ = try string()
         case 0x74: try literal(Array("true".utf8))
         case 0x66: try literal(Array("false".utf8))
@@ -32,7 +33,7 @@ struct StrictJSONValidator {
         }
     }
 
-    private mutating func object() throws {
+    private mutating func object(depth: Int) throws {
         index += 1
         skipSpace()
         if take(0x7D) { return }
@@ -44,19 +45,19 @@ struct StrictJSONValidator {
             guard keys.insert(key).inserted else { throw Failure.duplicateKey }
             skipSpace()
             guard take(0x3A) else { throw Failure.invalid }
-            try value()
+            try value(depth: depth + 1)
             skipSpace()
             if take(0x7D) { return }
             guard take(0x2C) else { throw Failure.invalid }
         }
     }
 
-    private mutating func array() throws {
+    private mutating func array(depth: Int) throws {
         index += 1
         skipSpace()
         if take(0x5D) { return }
         while true {
-            try value()
+            try value(depth: depth + 1)
             skipSpace()
             if take(0x5D) { return }
             guard take(0x2C) else { throw Failure.invalid }
