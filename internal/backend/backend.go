@@ -30,6 +30,14 @@ type Transcript struct {
 	Confidence                                         float64
 	StartSample, EndSample, StartOffsetNS, EndOffsetNS uint64
 }
+type CaptureStarted struct {
+	RequestID          string
+	CaptureEpochHostNS uint64
+	CaptureEpochUnixMS int64
+	Sources            []SourceFormat
+	MicrophoneReady    bool
+	CallAudioReady     bool
+}
 type Event struct {
 	Transcript *Transcript
 	SourceDone *SourceCompletion
@@ -45,7 +53,7 @@ type EndRequest struct{ LastSequence, TotalSamples, CutoffOffsetNS uint64 }
 
 type Session interface {
 	Ready() Ready
-	CaptureStarted(epochHostNS uint64, epochUnixMS int64, sources []SourceFormat) error
+	CaptureStarted(CaptureStarted) error
 	QueueFrame(audio.Frame) error
 	EndSource(audio.Source, EndRequest) error
 	Events() <-chan Event
