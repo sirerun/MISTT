@@ -78,46 +78,52 @@ type muteRecord struct {
 	done     chan struct{}
 	complete bool
 }
+type queuedNativeCommand struct {
+	message  ipc.NativeMessage
+	received time.Time
+}
 
 type Service struct {
 	misttv1.UnimplementedMisttServer
-	cfg               config.Config
-	backend           backend.Provider
-	input             *ipc.Reader
-	output            *ipc.Writer
-	incoming          chan ipc.Event
-	fatal             chan error
-	changed           chan struct{}
-	statusChanged     chan struct{}
-	mu                sync.Mutex
-	muted             bool
-	capturing         bool
-	reason            string
-	revision          uint64
-	closureConfirmed  bool
-	updateReserved    bool
-	clients           map[uint64]*subscriber
-	nextClient        uint64
-	active            *activePair
-	starting          bool
-	startCancel       context.CancelFunc
-	stopping          bool
-	shutdownRequested bool
-	cleanNativeEOF    bool
-	closed            chan struct{}
-	shutdownDone      chan struct{}
-	closeOnce         sync.Once
-	heartbeat         uint64
-	commandHigh       uint64
-	commands          map[uint64]commandRecord
-	requestCommands   map[string]uint64
-	muteRequests      map[string]*muteRecord
-	muteOrder         []string
-	segmentFinal      map[string]segmentState
+	cfg                config.Config
+	backend            backend.Provider
+	input              *ipc.Reader
+	output             *ipc.Writer
+	incoming           chan ipc.Event
+	nativeCommands     chan queuedNativeCommand
+	fatal              chan error
+	changed            chan struct{}
+	statusChanged      chan struct{}
+	mu                 sync.Mutex
+	muted              bool
+	capturing          bool
+	reason             string
+	revision           uint64
+	closureConfirmed   bool
+	updateReserved     bool
+	clients            map[uint64]*subscriber
+	nextClient         uint64
+	active             *activePair
+	starting           bool
+	startCancel        context.CancelFunc
+	stopping           bool
+	shutdownRequested  bool
+	cleanNativeEOF     bool
+	nativeStopDeadline time.Time
+	closed             chan struct{}
+	shutdownDone       chan struct{}
+	closeOnce          sync.Once
+	heartbeat          uint64
+	commandHigh        uint64
+	commands           map[uint64]commandRecord
+	requestCommands    map[string]uint64
+	muteRequests       map[string]*muteRecord
+	muteOrder          []string
+	segmentFinal       map[string]segmentState
 }
 
 func New(cfg config.Config, provider backend.Provider, in io.Reader, out *ipc.Writer) *Service {
-	s := &Service{cfg: cfg, backend: provider, input: ipc.NewReader(in), output: out, incoming: make(chan ipc.Event, 256), fatal: make(chan error, 1), changed: make(chan struct{}, 1), statusChanged: make(chan struct{}), muted: true, reason: "startup_muted", revision: 1, closureConfirmed: true, clients: map[uint64]*subscriber{}, closed: make(chan struct{}), shutdownDone: make(chan struct{}), commands: map[uint64]commandRecord{}, requestCommands: map[string]uint64{}, muteRequests: map[string]*muteRecord{}, segmentFinal: map[string]segmentState{}}
+	s := &Service{cfg: cfg, backend: provider, input: ipc.NewReader(in), output: out, incoming: make(chan ipc.Event, 256), nativeCommands: make(chan queuedNativeCommand, 32), fatal: make(chan error, 1), changed: make(chan struct{}, 1), statusChanged: make(chan struct{}), muted: true, reason: "startup_muted", revision: 1, closureConfirmed: true, clients: map[uint64]*subscriber{}, closed: make(chan struct{}), shutdownDone: make(chan struct{}), commands: map[uint64]commandRecord{}, requestCommands: map[string]uint64{}, muteRequests: map[string]*muteRecord{}, segmentFinal: map[string]segmentState{}}
 	return s
 }
 
@@ -132,6 +138,7 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 	s.output.SendStatus(s.nativeStatusLocked())
 	s.mu.Unlock()
 	go s.readNative()
+	go s.processNativeCommands()
 	go s.supervise()
 	go func() {
 		select {
@@ -237,8 +244,13 @@ func (s *Service) readNative() {
 				continue
 			}
 			if strings.HasPrefix(event.Control.Type, "native_") {
-				if err := s.applyNativeCommand(*event.Control); err != nil {
-					s.failProcess(err)
+				command := queuedNativeCommand{message: *event.Control, received: time.Now()}
+				select {
+				case s.nativeCommands <- command:
+				case <-s.closed:
+					return
+				default:
+					s.failProcess(errors.New("bounded native command queue is full"))
 					return
 				}
 				continue
@@ -249,6 +261,19 @@ func (s *Service) readNative() {
 		default:
 			s.failProcess(errors.New("bounded native reader queue is full"))
 			return
+		}
+	}
+}
+func (s *Service) processNativeCommands() {
+	for {
+		select {
+		case <-s.closed:
+			return
+		case command := <-s.nativeCommands:
+			if err := s.applyNativeCommandAt(command.message, command.received); err != nil {
+				s.failProcess(err)
+				return
+			}
 		}
 	}
 }
@@ -488,7 +513,17 @@ func (s *Service) stopUnstarted(sessionID string) bool {
 	if err := s.output.SendControl(ipc.NativeMessage{Type: "capture_stop", RequestID: requestID, SessionID: sessionID, Reason: "native_failure"}); err != nil {
 		return false
 	}
-	timer := time.NewTimer(s.cfg.StartupTimeout)
+	s.mu.Lock()
+	deadline := s.nativeStopDeadline
+	s.mu.Unlock()
+	if deadline.IsZero() {
+		deadline = time.Now().Add(s.cfg.StartupTimeout)
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return false
+	}
+	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 	for {
 		select {
@@ -701,7 +736,12 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 			stopWindow = remoteWindow
 		}
 	}
-	stopDeadline := time.Now().Add(stopWindow)
+	s.mu.Lock()
+	stopDeadline := s.nativeStopDeadline
+	s.mu.Unlock()
+	if stopDeadline.IsZero() {
+		stopDeadline = time.Now().Add(stopWindow)
+	}
 	reqID, err := newUUID()
 	if err != nil {
 		err = fmt.Errorf("create stop request ID: %w", err)
@@ -947,6 +987,7 @@ func (s *Service) finishPair(pair *activePair, reason string, err error) {
 		s.active = nil
 		s.stopping = false
 		s.capturing = false
+		s.nativeStopDeadline = time.Time{}
 		if err == nil {
 			s.closureConfirmed = true
 		}
