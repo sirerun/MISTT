@@ -57,27 +57,13 @@ Use one coordinator and isolated GPT-6-Luna workers, with no more than three wor
 | Native capture/control | T2.9, T2.4 | One Apple worker owns desktop/; shell fixtures can precede hardware integration |
 | Distribution/installation planning | T3.0 -> T4.0 | Landed MVP gates E3 expansion; E4 expansion uses E3 task IDs; install execution waits for verified releases |
 
-Current lane boundary: prior Go/malgo, single-stream gateway and UI/Go-child capture candidates remain preserved in their external worktrees. They are paused, uncommitted and unverified. Reconcile and reuse compatible pieces only after T2.0; do not integrate their obsolete capture/transport paths or claim builds passed. This planning pass performs no capture implementation, model launch, public LIVE broadcast, release or install.
+Current lane boundary (2026-10-04): T2.27 and ADR 0003 authorize source implementation before resource-heavy qualification. Three GPT-6-Luna lanes own Go relay, DGX gateway and native desktop; the coordinator owns shared contracts and release/updater files. Earlier candidates remain preserved and only compatible source is reused. T2.0 remains an unmet hardware qualification gate.
 
-Current T2.0 sub-lanes: Go owns the prototype's C atomics/header and atomic tests; the Apple worker owns watchdog, bounded streaming-conversion qualification and remaining prototype files; the DGX worker owns the standalone live app/helper ownership validator and its tests. These narrowly partitioned native preflight files do not start T2.1-T2.4/T2.9 product implementation. The coordinator integrates exact commits and owns actual hardware evidence.
+### Current coding wave
+T2.1 -> T2.2, T2.3, and T2.9 -> T2.4 proceed in three exclusive worktrees. The coordinator implements T3.1-T3.4 release and update tooling concurrently. Recycle completed workers into independent review of code they did not author. Integrate exact commits, fix accepted findings, and bank a reviewable source candidate.
 
-### Wave 0: reconcile readiness (coordinator; 0 workers)
-T2.11 establishes current ownership and blockers.
-
-### Wave 1: native preflight checks (3 GPT-6-Luna workers)
-T2.12, T2.13 and T2.14 run concurrently within exclusive file ownership. Reassign an idle slot to ready verification or tracked remediation; coordinator integrates exact snapshots, then performs T2.15 and T2.0 freeze. Hardware access is serialized.
-
-### Wave 2: shared scaffolding (1 GPT-6-Luna worker)
-T2.1 after T2.0; shared protocol is a real prerequisite. Use spare slots for already-ready independent checks/remediation, not speculative product work past an unmet gate.
-
-### Wave 3: product tracks (3 GPT-6-Luna workers)
-Go: T2.2 -> T2.16; DGX: T2.3 -> T2.17 -> T2.10; Apple: T2.9 then T2.4 -> T2.18. Coordinator owns shared integration/contracts and Spark allocation. Serialize native tasks in desktop/ unless an explicit new file-ownership partition is agreed. At most two heavy build lanes per project and one race lane; acquire/release lease and hold above load 10. One inference allocation unless refreshed admission permits more.
-
-### Wave 4: integration and delivery gates (1 worker at a time plus coordinator)
-T2.5 -> T2.6 -> T2.7 -> T2.8. Select a Luna reviewer who authored none of the covered revision; recycle an eligible slot or use a fresh worker. Idle-slot filling never relaxes independent review, exact-head approval, required CI or consent.
-
-### Wave 5: automatic rolling expansion (coordinator; 0 workers)
-T2.8 -> T3.0 -> T4.0. Expand both epics in order so installation can reference real release IDs. Expansion completes only when all stage rows, gates, ownership and waves exist; continue dispatch immediately in the same authorized execution without waiting for another prompt. Future waves use up to three Luna workers and one coordinator; requalify harness capacity and fill every safely runnable slot.
+### Deferred qualification and delivery waves
+The user explicitly deferred CPU/memory-heavy operations. T2.0/T2.16-T2.18 and native/DGX integration require later builds, broad tests, real hardware and model execution. No candidate completion waives T2.5-T2.8 verification, independent review, merge or landed verification. E3 is expanded through publication verification; E4 is expanded through installed runtime/update acceptance and final handoff. Actual signing, publication, installation and update acceptance remain pending. Resume those dependency-linked rows later, retaining shared build leases and host admission rules.
 
 Continuous dispatch: after every completion, finding or blocker change, persist evidence/claims/next runnable IDs and recompute readiness across all epics. Continue through release, local installation, observed runtime acceptance, updates and final handoff. Build success, PR creation, merge, or expansion alone never completes this delivery. Accepted findings append stable-ID fix -> affected verify -> independent review -> merge -> verify-landed tasks; stale-head checks/reviews must be refreshed. Continue other ready work while a lane is externally blocked. If nothing can safely progress, record the exact blocker and required owner action; do not bypass it or poll indefinitely. Load only guidance for the newly runnable stage. No worker is spawned by this planning pass.
 
