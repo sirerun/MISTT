@@ -3,7 +3,6 @@ import CoreAudio
 import Darwin
 import Foundation
 import PreflightAtomics
-import Synchronization
 
 struct SourceCounters: Sendable {
     var buffers = 0
@@ -65,7 +64,6 @@ final class NativePairCapture: @unchecked Sendable {
     private let stopQueue = DispatchQueue(label: "com.sirerun.mistt.preflight.stop", qos: .userInitiated)
     private let atomicState = MISTTCreateCaptureState()!
     private let generationCancellation = CaptureGenerationCancellation()
-    private let microphoneCallbacksInFlight = Atomic<Int>(0)
     private var failureSignal: DispatchSourceUserDataAdd?
     private var snapshot = CaptureSnapshot(status: "Muted", target: "com.tiktok.livestudio.desktop")
     private var isOpen = false
@@ -436,8 +434,16 @@ final class NativePairCapture: @unchecked Sendable {
         lock.lock(); snapshot.microphoneFormat = "\(Int(format.sampleRate)) Hz, \(format.channelCount) ch, \(format.commonFormat)"; lock.unlock()
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             guard let self else { return }
-            self.microphoneCallbacksInFlight.wrappingAdd(1, ordering: .relaxed)
-            defer { self.microphoneCallbacksInFlight.wrappingSubtract(1, ordering: .relaxed) }
+            let source = AudioSource.microphone.rawValue
+            guard MISTTCallbackEnter(self.atomicState, source) else {
+                self.failureSignal?.add(data: 1)
+                return
+            }
+            defer {
+                if !MISTTCallbackExit(self.atomicState, source) {
+                    self.failureSignal?.add(data: 1)
+                }
+            }
             let callbackStart = AudioGetCurrentHostTime()
             let valid = time.isHostTimeValid && time.hostTime != 0
             self.record(source: .microphone, validHostTime: valid, ticks: time.hostTime,
@@ -598,17 +604,22 @@ final class NativePairCapture: @unchecked Sendable {
             engine.stop()
             input.removeTap(onBus: 0)
             let deadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
-            while microphoneCallbacksInFlight.load(ordering: .acquiring) != 0,
-                  DispatchTime.now().uptimeNanoseconds < deadline {
+            var callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue)
+            while callbacksInFlight > 0, DispatchTime.now().uptimeNanoseconds < deadline {
                 Thread.sleep(forTimeInterval: 0.001)
+                callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue)
             }
-            outcome.microphoneStopped = !engine.isRunning && microphoneCallbacksInFlight.load(ordering: .acquiring) == 0
+            outcome.microphoneStopped = !engine.isRunning && callbacksInFlight == 0
             if !outcome.microphoneStopped {
-                outcome.errors.append("AVAudioEngine stop or microphone callback quiescence unconfirmed")
+                outcome.errors.append("AVAudioEngine stop or microphone callback quiescence unconfirmed (in-flight: \(callbacksInFlight))")
             }
             self.engine = nil
         } else {
-            outcome.microphoneStopped = true
+            let callbacksInFlight = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue)
+            outcome.microphoneStopped = callbacksInFlight == 0
+            if !outcome.microphoneStopped {
+                outcome.errors.append("Microphone callback quiescence unconfirmed without AVAudioEngine (in-flight: \(callbacksInFlight))")
+            }
         }
 
         if aggregateID != kAudioObjectUnknown {
