@@ -70,6 +70,8 @@ def artifact_root(path: Path) -> Path:
     allowed = Path(required("RUNNER_TEMP")) if os.environ.get("GITHUB_ACTIONS") == "true" else Path("/Volumes/BuildOffload")
     if not path.is_relative_to(allowed.resolve()):
         raise ValueError("Artifacts and caches must be on the external SSD (or CI runner temporary volume)")
+    if os.environ.get("GITHUB_ACTIONS") != "true" and not os.path.ismount(allowed):
+        raise ValueError("The external build SSD must be mounted before artifact allocation")
     path.mkdir(parents=True, exist_ok=True)
     return path
 
