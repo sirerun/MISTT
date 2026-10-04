@@ -6,12 +6,14 @@ VOLUME=/Volumes/BuildOffload
 BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
 ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-code-native-20261004}
 RELAY=${MISTT_RELAY_BINARY:-}
-CLAIM_REMOTE=/Users/Shared/mini-build-lease.git
-CLAIM_SCRIPT=/Users/dndungu/.agents/skills/claim/scripts/claim.sh
+: "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
+: "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
+export CLAIM_REMOTE
 LEASE_HELD=0
+LEASE_SHA=
 release_lease() {
   if [ "$LEASE_HELD" -eq 1 ]; then
-    CLAIM_REMOTE="$CLAIM_REMOTE" "$CLAIM_SCRIPT" release R-build-lease >/dev/null
+    "$MISTT_CLAIM_SCRIPT" release R-build-lease "$LEASE_SHA" >/dev/null
     LEASE_HELD=0
   fi
 }
@@ -19,7 +21,8 @@ trap release_lease EXIT HUP INT TERM
 for path in "$BUILD_ROOT" "$ARTIFACT_ROOT"; do
   case "$path" in "$VOLUME"/*) ;; *) echo "Build caches and artifacts must stay on $VOLUME." >&2; exit 2 ;; esac
 done
-[ -d "$VOLUME" ] && [ -w "$VOLUME" ] || { echo "$VOLUME is not mounted and writable." >&2; exit 2; }
+MOUNTED_AT=$(df -P "$VOLUME" | awk 'NR == 2 {print $NF}')
+[ "$MOUNTED_AT" = "$VOLUME" ] && [ -w "$VOLUME" ] || { echo "$VOLUME is not mounted and writable." >&2; exit 2; }
 AVAILABLE_KB=$(df -Pk "$VOLUME" | awk 'NR==2 {print $4}')
 [ "${AVAILABLE_KB:-0}" -ge 5242880 ] || { echo "At least 5 GiB free on $VOLUME is required." >&2; exit 2; }
 LOAD_ONE=$(sysctl -n vm.loadavg | tr -d '{}' | awk '{print $1}')
@@ -31,11 +34,16 @@ fi
 /usr/bin/lipo -verify_arch arm64 "$RELAY" >/dev/null 2>&1 || {
   echo "MISTT_RELAY_BINARY must contain an arm64 slice." >&2; exit 2;
 }
-mkdir -p "$BUILD_ROOT/swiftpm" "$BUILD_ROOT/metadata" "$ARTIFACT_ROOT"
+mkdir -p "$BUILD_ROOT/swiftpm" "$BUILD_ROOT/metadata" "$BUILD_ROOT/tmp" "$BUILD_ROOT/clang" "$BUILD_ROOT/swift-module" "$ARTIFACT_ROOT"
+export TMPDIR="$BUILD_ROOT/tmp" CLANG_MODULE_CACHE_PATH="$BUILD_ROOT/clang"
+export SWIFTPM_MODULECACHE_OVERRIDE="$BUILD_ROOT/swift-module"
 APP="$ARTIFACT_ROOT/MISTT.app"
 [ ! -e "$APP" ] || { echo "Refusing to replace existing bundle: $APP. Choose a fresh MISTT_ARTIFACT_ROOT." >&2; exit 2; }
-CLAIM_REMOTE="$CLAIM_REMOTE" "$CLAIM_SCRIPT" claim R-build-lease --purpose "swift build MISTT desktop arm64 release" >/dev/null
-LEASE_HELD=1
+CLAIM_OUTPUT=$("$MISTT_CLAIM_SCRIPT" claim R-build-lease --purpose "swift build MISTT desktop arm64 release")
+case "$CLAIM_OUTPUT" in
+  "WON: R-build-lease "*) LEASE_SHA=${CLAIM_OUTPUT#WON: R-build-lease }; LEASE_HELD=1 ;;
+  *) echo "$CLAIM_OUTPUT" >&2; exit 75 ;;
+esac
 swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --product MISTTDesktop
 swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --show-bin-path > "$BUILD_ROOT/metadata/bin-path.txt"
 release_lease

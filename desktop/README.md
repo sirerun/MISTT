@@ -15,7 +15,7 @@ permission failure, queue overflow, relay loss, and unknown I/O closure all fail
 closed.
 
 The relay is launched from `Contents/MacOS/mistt` with structured arguments.
-The app reads a private, owner-owned `~/Library/Application Support/MISTT/config.json` at launch. `MISTT_CONFIG` may override its path for controlled launches. The file is a flat JSON object whose keys are the allowlisted `MISTT_*` relay environment names and whose values are strings; it must be a regular file owned by the current user with mode `0600`. It stores the DGX endpoint and token file path, never token contents. Unknown keys, malformed JSON, and insecure file permissions fail closed. Use the release provisioning helper to create it. Relay stdout is bounded
+The app reads a private `~/Library/Application Support/MISTT/config.json` at launch. `MISTT_CONFIG` may override its path for controlled launches. The flat JSON object uses allowlisted `MISTT_*` relay environment names with string values; it must be a regular file owned by the current user with no group/world permissions. It stores the DGX endpoint and token file path, never token contents. Unknown keys, malformed JSON, insecure file permissions, or missing endpoint/token path fail closed. Use `../release/configure.py` to create it; its helper selector resolves only to `Contents/Resources/app/electron/sdk/lib/MediaSDK_Server`. Relay stdout is bounded
 JSON Lines for status and capture requests. Native stdin messages use the
 four-byte big-endian length plus kind byte protocol in
 [`../contracts/desktop-dgx-v1.md`](../contracts/desktop-dgx-v1.md).
@@ -30,7 +30,8 @@ closure.
 ## Local verification
 
 Use `Scripts/test.sh` for XCTest and `Scripts/build-app.sh` for an arm64 local
-ad-hoc bundle. Both require `/Volumes/BuildOffload` to be mounted with adequate
+ad-hoc bundle. Set `MISTT_CLAIM_SCRIPT` and `CLAIM_REMOTE` for the shared build
+lease tooling. Both require `/Volumes/BuildOffload` to be mounted with adequate
 free space, reject a one-minute host load above 10, and hold the shared build
 lease around SwiftPM work. Set `MISTT_BUILD_ROOT` and
 `MISTT_ARTIFACT_ROOT` only to paths on that external volume. Supply an already
