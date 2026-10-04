@@ -80,4 +80,22 @@ final class HostClockTests: XCTestCase {
         )
         XCTAssertEqual(result, [target])
     }
+
+    func testScalarPropertyReaderSupportsCoreAudioIntegerTypesWithoutHardware() throws {
+        let expectedPID: pid_t = 64_321
+        let actualPID: pid_t = try CoreAudioInventory.readScalarProperty("fixture PID") { value, size in
+            XCTAssertEqual(size.pointee, UInt32(MemoryLayout<pid_t>.size))
+            value.pointee = expectedPID
+            return noErr
+        }
+        XCTAssertEqual(actualPID, expectedPID)
+
+        let expectedRunning: UInt32 = 1
+        let actualRunning: UInt32 = try CoreAudioInventory.readScalarProperty("fixture running flag") { value, size in
+            XCTAssertEqual(size.pointee, UInt32(MemoryLayout<UInt32>.size))
+            value.pointee = expectedRunning
+            return noErr
+        }
+        XCTAssertEqual(actualRunning, expectedRunning)
+    }
 }

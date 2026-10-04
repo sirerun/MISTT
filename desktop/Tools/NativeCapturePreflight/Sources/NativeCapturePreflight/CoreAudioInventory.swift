@@ -106,9 +106,21 @@ enum CoreAudioInventory {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var result = 0 as! T
+        return try readScalarProperty("process property \(selector)") { result, size in
+            AudioObjectGetPropertyData(objectID, &address, 0, nil, size, result)
+        }
+    }
+
+    static func readScalarProperty<T: FixedWidthInteger>(
+        _ property: String,
+        read: (UnsafeMutablePointer<T>, UnsafeMutablePointer<UInt32>) -> OSStatus
+    ) throws -> T {
+        var result: T = 0
         var size = UInt32(MemoryLayout<T>.size)
-        try check(AudioObjectGetPropertyData(objectID, &address, 0, nil, &size, &result), "process property \(selector)")
+        try check(read(&result, &size), property)
+        guard size == UInt32(MemoryLayout<T>.size) else {
+            throw AudioInventoryError.property(kAudio_ParamError, "invalid size for \(property)")
+        }
         return result
     }
 
