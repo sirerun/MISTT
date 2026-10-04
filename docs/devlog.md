@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Exact native snapshot review and cutoff mismatch
+
+**Type:** finding
+**Tags:** native-capture, cutoff, review
+
+**Problem:** Exact native commit `18a332e0280e6b2f6deb86eacb37268a8163662e` (integrated as `f812012`) remains unsuitable for capture qualification.
+**Root cause:** NPF-001: the range helper floors fractional stop bounds instead of retaining sample timestamps strictly before cutoff. NPF-002: the C counter gate cannot revise an already-counted straddling buffer and can race an in-flight callback. NPF-003: an advancing but overlapping buffer anchor is accepted. NPF-004: the aggregate creation dictionary supplies tap strings where the SDK requires sub-tap dictionaries; the runtime tap-list setter uses a different shape.
+**Fix:** All four findings accepted and sent to the native lane. A narrow C fixture reproduced NPF-001 at 44000 ns: 0 retained/2 clipped, expected 1/1; the exact-boundary case passed. Compilation syntax passed but the behavioral fixture exited 1. The earlier timestamp-failure, teardown-status, permission-start generation and blocking-callback concerns are substantially corrected statically; no hardware or full Swift acceptance is implied.
+**Impact:** T2.0 remains open. Fixes, affected checks and an exact revised snapshot must precede permission/signal/clock/closure qualification and product implementation. Live signal/exclusion and real helper/pipe-loss tests remain separate gates.
+
 ## 2026-10-04: CI could not start the native probe
 
 **Type:** finding
