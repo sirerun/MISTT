@@ -13,7 +13,12 @@ from release import SPARKLE_TOOLS_SHA256, SPARKLE_VERSION, required
 
 
 def run(*args):
-    subprocess.run(args, check=True, capture_output=True, timeout=120)
+    try:
+        subprocess.run(args, check=True, capture_output=True, timeout=120)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        # Arguments include certificate/keychain passwords. Never let Python's
+        # default exception rendering print the command or captured diagnostics.
+        raise SystemExit("Credential setup command failed; secret arguments and diagnostics are suppressed.") from None
 
 
 def main():
