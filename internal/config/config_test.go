@@ -50,6 +50,13 @@ func TestHelperEnvironmentAcceptsOnlyApprovedRelativePath(t *testing.T) {
 	if len(cfg.IncludeHelperExecutables) != 1 || cfg.IncludeHelperExecutables[0] != ApprovedHelperExecutable {
 		t.Fatalf("wrong helper list: %+v", cfg.IncludeHelperExecutables)
 	}
+	if err := cfg.Validate(false); err != nil {
+		t.Fatalf("approved environment override did not validate: %v", err)
+	}
+	t.Setenv("MISTT_HELPER_EXECUTABLES", ApprovedHelperExecutable+","+ApprovedHelperExecutable)
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("accepted duplicate approved helper paths")
+	}
 	t.Setenv("MISTT_HELPER_EXECUTABLES", "/Applications/App.app/Contents/Resources/app/electron/sdk/lib/MediaSDK_Server")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("accepted absolute helper path")

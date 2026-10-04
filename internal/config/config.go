@@ -59,6 +59,7 @@ func FromEnv() (Config, error) {
 		}
 	}
 	if v, ok := os.LookupEnv("MISTT_HELPER_EXECUTABLES"); ok && strings.TrimSpace(v) != "" {
+		c.IncludeHelperExecutables = nil
 		for _, p := range strings.Split(v, ",") {
 			p = strings.TrimSpace(p)
 			if p != ApprovedHelperExecutable {
