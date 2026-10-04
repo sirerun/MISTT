@@ -103,6 +103,7 @@ type Service struct {
 	startCancel       context.CancelFunc
 	stopping          bool
 	shutdownRequested bool
+	cleanNativeEOF    bool
 	closed            chan struct{}
 	shutdownDone      chan struct{}
 	closeOnce         sync.Once
@@ -154,6 +155,13 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 		grpcServer.GracefulStop()
 		return ctx.Err()
 	case <-s.closed:
+		s.mu.Lock()
+		cleanEOF := s.cleanNativeEOF
+		s.mu.Unlock()
+		if cleanEOF {
+			grpcServer.GracefulStop()
+			return nil
+		}
 		grpcServer.Stop()
 		return ErrNativeDisconnected
 	}
@@ -212,10 +220,10 @@ func (s *Service) readNative() {
 	for {
 		event, err := s.input.ReadEvent()
 		if err != nil {
-			if err != io.EOF {
-				s.failProcess(fmt.Errorf("native IPC reader: %w", err))
+			if err == io.EOF {
+				s.handleNativeEOF()
 			} else {
-				s.failProcess(ErrNativeDisconnected)
+				s.failProcess(fmt.Errorf("native IPC reader: %w", err))
 			}
 			return
 		}
@@ -243,6 +251,24 @@ func (s *Service) readNative() {
 			return
 		}
 	}
+}
+func (s *Service) handleNativeEOF() {
+	s.mu.Lock()
+	safe := s.muted && s.active == nil && !s.starting && !s.stopping && !s.capturing && s.closureConfirmed
+	if safe {
+		s.cleanNativeEOF = true
+		s.shutdownRequested = true
+		s.muted = true
+		s.reason = "shutdown"
+		s.publishLocked()
+		s.signalLocked()
+	}
+	s.mu.Unlock()
+	if safe {
+		s.terminateClients(status.Error(codes.Unavailable, "native owner closed its IPC after confirmed idle"))
+		return
+	}
+	s.failProcess(ErrNativeDisconnected)
 }
 func (s *Service) signalLocked() {
 	select {
