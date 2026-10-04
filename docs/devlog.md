@@ -116,3 +116,11 @@ The same independent reviewer rechecked the timestamp fix and reported no remain
 ## 2026-10-04 UTC — maximum Luna delivery resumed
 
 Coordinator plus three GPT-6-Luna lanes resumed T2.0 preflight in preserved external worktrees. Spark health/resource/node checks confirm a responsive ARM64 GB10 with no active GPU allocation; remote main is unchanged and no PR conflicts exist. Actual native permission, target/helper, timestamp and closure evidence still gates full product implementation. Kazi is now installed; its apply CLI does not support the requested Codex/Luna executor, so the explicit native agent lanes continue. Its help invocation triggered its own automatic refresh; no tool configuration/provider was changed to bypass compatibility. Development/distribution signing identities are visible, while Developer ID remains a later release gate.
+
+## 2026-10-04 — adopted full SDLC plan
+
+Adopted root-authored split delivery plan and preserved integrated native preflight checkpoint 84f4155. Current root checkout differs from remote main; task-specific external coordinator worktree owns integration. No existing worker worktree discarded.
+
+## 2026-10-04 — ship readiness and Luna dispatch
+
+T2.11 verified remote main 26d4062 and PR #2 merged. Adopted its preserved native probe; no open PR or active claim conflicted before dispatch. Three exclusive-file GPT-6-Luna workers are verifying C accounting, native controller/conversion and target ownership. Current main CI run 37192784951 failed with zero steps: account locked due to billing. Mac load remains above 10, so no heavy local build runs. Only Apple Development/Distribution identities exist; Developer ID release identity absent. These gates do not establish native hardware/MVP/release/installation acceptance.
