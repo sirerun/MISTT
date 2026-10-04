@@ -7,11 +7,3 @@ The native macOS app owns microphone plus explicitly selected app-playback captu
 [ADR 0001](adr/0001-macos-distribution-and-updates.md) proposes the native app bundle, Homebrew cask and Sparkle distribution architecture. [The delivery plan](plan.md) holds work and acceptance gates; [the devlog](devlog.md) holds events. No implemented app or installed-release evidence is implied by these documents.
 
 The first per-app acceptance target is TikTok LIVE Studio (`com.tiktok.livestudio.desktop`). Local playback identified its bundleless media server as an active HAL output producer; native ownership validation and actual captured-signal/exclusion acceptance remain open. The versioned [paired framing contract](contracts/desktop-dgx-v1.md) defines independent source sequence/sample fields, common capture offsets, two EOF/final paths and native IPC. Existing one-source candidate code is preserved and paused; the landed synthetic qualification is a prerequisite, not evidence for this architecture.
-
-## Accepted floating presentation
-
-[ADR 0004](adr/0004-floating-desktop-overlay.md) records the owner-requested transparent, frameless, draggable overlay above normal apps, initial bottom-right placement and yellow microphone app icon. The production view remains microphone, On/Muted and authoritative client count. Runtime/drag/position/accessibility and signed-bundle verification remain in the plan; preview fixtures do not exercise capture, updater or DGX.
-
-## Independently updated local consumers
-
-[ADR 0005](adr/0005-greeter-consumer-boundary.md) records the concluded Greeter/MISTT technical peer boundary: separately installed MISTT, pinned loopback gRPC consumer, capture/status authority separated from response/output policy, explicit reconnect and no inferred named-guest attribution. Greeter implementation and founder decisions are not added to this app deployment scope.

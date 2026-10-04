@@ -21,3 +21,8 @@
 
 - Native tap/microphone permission, target/helper identity, clock/cutoff and bounded closure preflight; actual paired DGX resource/latency headroom.
 - Developer ID signing/notarization using the existing owner account before a signed release; Xcode sign-in alone does not satisfy this gate.
+
+## Current ship checkpoint — 2026-10-04
+
+- Native preflight T2.12/T2.13/T2.14: three Luna workers dispatched; coordinator owns integration and actual hardware checks.
+- Blocked: local heavy build admission (load >10), required CI (billing-lock annotation, run 37192784951), later Developer ID/notary setup. No installed working app yet.
