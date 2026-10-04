@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: Publish mute cutoff before lifecycle lock
+
+**Type:** finding
+**Tags:** native-capture, mute, verification
+
+**Problem:** NPF-019: native cancellation/stop waited on the lifecycle lock before publishing the closed C gate. A delayed lock holder can let multiple callbacks commit after the intended cutoff; latest-buffer counter reconciliation cannot remove all earlier late buffers. The controller also captured different cutoffs through cancellation and stop.
+**Fix:** Native `00e8b4`, integrated as `8d4a39c`, captures one immutable cutoff at the control action entry, publishes it before waiting on the lock and reuses it through cancellation/teardown. Fresh capture instances bind their owner generation; stale cancellation cannot close a newer instance.
+**Evidence:** Exact-head independent source review found no blocker. The held-lock helper fixture verifies ordering/cutoff reuse but is unrun and does not itself exercise the production callers; stronger C-gate integration coverage is being added. Separately, the focused C fixture against exact `d1f0f14` source/header compiled and passed after eligible local admission. Scratch-only redeclaration and nanosecond-literal mistakes in its first attempts were corrected before the successful run; product C source was unchanged.
+**Impact:** User ended LIVE and authorized continuation. TikTok local preview is open with upload at 0 kbps; both system and TikTok speaker routing select headphones. Full revised Swift package testing remains blocked by repeated load rebounds. Per-stage one-second watchdogs are not an overall acknowledgment guarantee. T2.0, live PCM handoff/anchor preservation, hardware acceptance and all dependent product/release/install/update gates remain open.
+
 ## 2026-10-04: Single-use capture generations and callback closure
 
 **Type:** finding
