@@ -3,6 +3,7 @@ import CoreAudio
 import Darwin
 import Foundation
 import PreflightAtomics
+import Synchronization
 
 struct SourceCounters: Sendable {
     var buffers = 0
@@ -48,7 +49,7 @@ private enum AudioSource: UInt32 {
 }
 
 private struct StopOutcome {
-    var microphoneStopped = true
+    var microphoneStopped = false
     var tapStopped = true
     var ioProcDestroyed = true
     var aggregateDestroyed = true
@@ -63,11 +64,14 @@ final class NativePairCapture: @unchecked Sendable {
     private let lock = NSLock()
     private let stopQueue = DispatchQueue(label: "com.sirerun.mistt.preflight.stop", qos: .userInitiated)
     private let atomicState = MISTTCreateCaptureState()!
+    private let generationCancellation = CaptureGenerationCancellation()
+    private let microphoneCallbacksInFlight = Atomic<Int>(0)
     private var failureSignal: DispatchSourceUserDataAdd?
     private var snapshot = CaptureSnapshot(status: "Muted", target: "com.tiktok.livestudio.desktop")
     private var isOpen = false
     private var isStarting = false
     private var startCancelled = false
+    private var didStart = false
     private var teardownInProgress = false
     private var startupCompletion: DispatchSemaphore?
     private var generation: UInt64 = 0
@@ -123,11 +127,13 @@ final class NativePairCapture: @unchecked Sendable {
 
     func cancelStart(generation expectedGeneration: UInt64) {
         lock.lock()
-        guard isStarting, generation == expectedGeneration else { lock.unlock(); return }
-        startCancelled = true
-        snapshot.status = "Muted · start cancelled before both sources became ready"
-        snapshot.firstFailure = snapshot.firstFailure ?? "start cancelled while Core Audio resources were being created"
-        MISTTCloseCaptureGate(atomicState, AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()))
+        generationCancellation.cancel(through: expectedGeneration)
+        if generation == expectedGeneration {
+            startCancelled = true
+            snapshot.status = "Muted · start cancelled before both sources became ready"
+            snapshot.firstFailure = snapshot.firstFailure ?? "start cancelled while Core Audio resources were being created"
+            MISTTCloseCaptureGate(atomicState, AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()))
+        }
         lock.unlock()
     }
 
@@ -141,10 +147,20 @@ final class NativePairCapture: @unchecked Sendable {
             throw CaptureStartError.unsupportedOS
         }
         lock.lock()
-        guard !isStarting, !isOpen, !teardownInProgress,
+        guard !didStart, !isStarting, !isOpen, !teardownInProgress,
               aggregateID == kAudioObjectUnknown, tapID == kAudioObjectUnknown, engine == nil else {
             lock.unlock()
             throw CaptureStartError.alreadyRunning
+        }
+        didStart = true
+        generation = expectedGeneration
+        if generationCancellation.isCancelled(expectedGeneration) {
+            snapshot.status = "Muted · start cancelled before native capture began"
+            snapshot.firstFailure = CaptureStartError.cancelled.localizedDescription
+            let result = snapshot
+            lock.unlock()
+            onStop(result)
+            throw CaptureStartError.cancelled
         }
         isStarting = true
         startCancelled = false
@@ -166,7 +182,6 @@ final class NativePairCapture: @unchecked Sendable {
         snapshot.tapIOStopped = nil
         snapshot.aggregateDestroyed = nil
         snapshot.tapDestroyed = nil
-        MISTTResetCaptureState(atomicState)
         lock.unlock()
 
         do {
@@ -182,13 +197,21 @@ final class NativePairCapture: @unchecked Sendable {
 
             let epochTicks = AudioGetCurrentHostTime()
             let clock = HostClock(epochTicks: epochTicks)
+            let finalTargets = try validateTargets()
+            guard finalTargets == targets else { throw CaptureStartError.targetChanged }
+            try ensureStartCurrent(expectedGeneration)
             lock.lock()
-            guard !startCancelled, generation == expectedGeneration else {
+            guard !startCancelled, !generationCancellation.isCancelled(expectedGeneration), generation == expectedGeneration else {
                 isStarting = false
                 lock.unlock()
                 throw CaptureStartError.cancelled
             }
             MISTTOpenCaptureGate(atomicState, clock.epochNanoseconds)
+            guard MISTTCaptureGateIsOpen(atomicState) else {
+                isStarting = false
+                lock.unlock()
+                throw CaptureStartError.cancelled
+            }
             isStarting = false
             isOpen = true
             snapshot.status = "On · both capture I/O callbacks started"
@@ -227,6 +250,7 @@ final class NativePairCapture: @unchecked Sendable {
         let ticks = AudioGetCurrentHostTime()
         let clock = HostClock(epochTicks: ticks)
         lock.lock()
+        generationCancellation.cancel(through: generation)
         if isStarting {
             startCancelled = true
             snapshot.stopAtNanoseconds = clock.epochNanoseconds
@@ -298,7 +322,9 @@ final class NativePairCapture: @unchecked Sendable {
 
     private func ensureStartCurrent(_ expectedGeneration: UInt64) throws {
         lock.lock(); defer { lock.unlock() }
-        guard isStarting, !startCancelled, generation == expectedGeneration else { throw CaptureStartError.cancelled }
+        guard isStarting, !startCancelled, !generationCancellation.isCancelled(expectedGeneration), generation == expectedGeneration else {
+            throw CaptureStartError.cancelled
+        }
     }
 
     private func createTapAndAggregate(targets: [AudioClient]) throws {
@@ -410,6 +436,8 @@ final class NativePairCapture: @unchecked Sendable {
         lock.lock(); snapshot.microphoneFormat = "\(Int(format.sampleRate)) Hz, \(format.channelCount) ch, \(format.commonFormat)"; lock.unlock()
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             guard let self else { return }
+            self.microphoneCallbacksInFlight.wrappingAdd(1, ordering: .relaxed)
+            defer { self.microphoneCallbacksInFlight.wrappingSubtract(1, ordering: .relaxed) }
             let callbackStart = AudioGetCurrentHostTime()
             let valid = time.isHostTimeValid && time.hostTime != 0
             self.record(source: .microphone, validHostTime: valid, ticks: time.hostTime,
@@ -417,13 +445,12 @@ final class NativePairCapture: @unchecked Sendable {
                         energy: Self.sampledRMS(buffer))
             self.recordCallbackDuration(.microphone, startTicks: callbackStart)
         }
+        self.engine = engine
         do {
             try engine.start()
         } catch {
-            input.removeTap(onBus: 0)
             throw CaptureStartError.microphoneUnavailable
         }
-        self.engine = engine
         setPermissionState(microphone: "Granted · AVAudioEngine input started")
     }
 
@@ -567,9 +594,21 @@ final class NativePairCapture: @unchecked Sendable {
     private func stopSynchronously() -> StopOutcome {
         var outcome = StopOutcome()
         if let engine {
-            engine.inputNode.removeTap(onBus: 0)
+            let input = engine.inputNode
             engine.stop()
+            input.removeTap(onBus: 0)
+            let deadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+            while microphoneCallbacksInFlight.load(ordering: .acquiring) != 0,
+                  DispatchTime.now().uptimeNanoseconds < deadline {
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+            outcome.microphoneStopped = !engine.isRunning && microphoneCallbacksInFlight.load(ordering: .acquiring) == 0
+            if !outcome.microphoneStopped {
+                outcome.errors.append("AVAudioEngine stop or microphone callback quiescence unconfirmed")
+            }
             self.engine = nil
+        } else {
+            outcome.microphoneStopped = true
         }
 
         if aggregateID != kAudioObjectUnknown {

@@ -1,9 +1,16 @@
 import CoreAudio
+import Darwin
 
 struct HostClock: Sendable {
     let epochTicks: UInt64
     let epochNanoseconds: UInt64
     private let convert: @Sendable (UInt64) -> UInt64
+
+    static var timebaseDescription: String {
+        var info = mach_timebase_info_data_t()
+        guard mach_timebase_info(&info) == KERN_SUCCESS, info.denom > 0 else { return "Unavailable" }
+        return "\(info.numer)/\(info.denom) ns/tick"
+    }
 
     init(epochTicks: UInt64, convert: @escaping @Sendable (UInt64) -> UInt64 = AudioConvertHostTimeToNanos) {
         self.epochTicks = epochTicks

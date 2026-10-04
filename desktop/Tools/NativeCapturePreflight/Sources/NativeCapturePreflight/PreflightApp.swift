@@ -42,6 +42,7 @@ private struct PreflightView: View {
                     GridRow { Text("Microphone format").bold(); Text(controller.snapshot.microphoneFormat) }
                     GridRow { Text("Tap format").bold(); Text(controller.snapshot.tapFormat) }
                     GridRow { Text("Epoch host ns").bold(); Text(controller.snapshot.epochNanoseconds.map(String.init) ?? "Not opened") }
+                    GridRow { Text("Host timebase").bold(); Text(HostClock.timebaseDescription) }
                     GridRow { Text("Common open cutoff ns").bold(); Text(controller.snapshot.openedAtNanoseconds.map(String.init) ?? "Not opened") }
                     GridRow { Text("Common stop cutoff ns").bold(); Text(controller.snapshot.stopAtNanoseconds.map(String.init) ?? "Not stopped") }
                     GridRow { Text("Last stop duration").bold(); Text(controller.snapshot.lastStopDurationMilliseconds.map { String(format: "%.1f ms", $0) } ?? "Not measured") }
