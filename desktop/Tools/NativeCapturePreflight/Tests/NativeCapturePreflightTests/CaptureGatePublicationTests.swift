@@ -5,7 +5,8 @@ import XCTest
 
 final class CaptureGatePublicationTests: XCTestCase {
     func testCutoffIsPublishedBeforeHeldLifecycleLockAndPassedUnchanged() {
-        let state = MISTTCreateCaptureState()!
+        let fixture = CaptureStateFixture()
+        let state = fixture.state
         let epoch: UInt64 = 1_000_000_000
         let cutoff = PairedCutoff(ticks: 1_005_000_000, clock: HostClock(epochTicks: epoch, convert: { $0 }))
         let lifecycle = HeldLifecycleLock()
@@ -14,23 +15,22 @@ final class CaptureGatePublicationTests: XCTestCase {
         let worker = DispatchGroup()
         let events = CaptureGateEventRecorder()
         let gatePublished = DispatchSemaphore(value: 0)
+        defer {
+            if lifecycleLockHeld { lifecycle.unlock() }
+            _ = worker.wait(timeout: .now() + 1)
+        }
+
         MISTTOpenCaptureGate(state, epoch)
         XCTAssertTrue(MISTTCaptureGateIsOpen(state))
         XCTAssertEqual(MISTTRecordBuffer(state, 0, true, epoch, 160, 16_000), 0)
 
         worker.enter()
-        defer {
-            if lifecycleLockHeld { lifecycle.unlock() }
-            worker.wait()
-            MISTTDestroyCaptureState(state)
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [fixture] in
             defer { worker.leave() }
             CaptureGatePublication.publishBeforeLock(
                 cutoff: cutoff,
                 closeGate: { publishedCutoff in
-                    MISTTCloseCaptureGate(state, publishedCutoff.nanoseconds)
+                    MISTTCloseCaptureGate(fixture.state, publishedCutoff.nanoseconds)
                     events.record("gate", cutoff: publishedCutoff)
                     gatePublished.signal()
                 },
@@ -42,7 +42,10 @@ final class CaptureGatePublicationTests: XCTestCase {
             )
         }
 
-        gatePublished.wait()
+        guard gatePublished.wait(timeout: .now() + 1) == .success else {
+            XCTFail("C gate publication did not occur before the held lifecycle lock")
+            return
+        }
         XCTAssertFalse(MISTTCaptureGateIsOpen(state), "C gate must close while the lifecycle lock is still held")
         let beforeUnlock = events.snapshot()
         XCTAssertEqual(beforeUnlock.events, ["gate"])
@@ -58,11 +61,19 @@ final class CaptureGatePublicationTests: XCTestCase {
 
         lifecycle.unlock()
         lifecycleLockHeld = false
+        guard worker.wait(timeout: .now() + 1) == .success else {
+            XCTFail("lifecycle lock caller did not complete after lock release")
+            return
+        }
         let afterUnlock = events.snapshot()
         XCTAssertEqual(afterUnlock.events, ["gate", "lock"])
         XCTAssertEqual(afterUnlock.cutoff, cutoff)
-        worker.wait()
     }
+}
+
+private final class CaptureStateFixture: @unchecked Sendable {
+    let state = MISTTCreateCaptureState()!
+    deinit { MISTTDestroyCaptureState(state) }
 }
 
 private final class HeldLifecycleLock: @unchecked Sendable {
