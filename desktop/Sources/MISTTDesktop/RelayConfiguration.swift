@@ -21,6 +21,16 @@ struct RelayConfiguration {
         return URL(fileURLWithPath: override).standardizedFileURL
     }
 
+    static func environment(from url: URL, inherited: [String: String]) throws -> [String: String] {
+        let configured = try load(from: url)
+        let merged = inherited.merging(configured) { _, configuredValue in configuredValue }
+        guard let endpoint = merged["MISTT_DGX_ENDPOINT"], !endpoint.isEmpty,
+              let tokenFile = merged["MISTT_TOKEN_FILE"], !tokenFile.isEmpty else {
+            throw ConfigurationError.invalidValue
+        }
+        return merged
+    }
+
     static func load(from url: URL) throws -> [String: String] {
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard descriptor >= 0 else { throw ConfigurationError.unavailable }
