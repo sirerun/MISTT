@@ -31,8 +31,20 @@ enum {
     MISTT_FAILURE_INVALID_TIMESTAMP = 1,
     MISTT_FAILURE_BACKWARDS_TIMESTAMP = 2,
     MISTT_FAILURE_NEGATIVE_OFFSET = 3,
-    MISTT_FAILURE_CALLBACK_OVERLAP = 4
+    MISTT_FAILURE_CALLBACK_OVERLAP = 4,
+    MISTT_FAILURE_BUFFER_OVERLAP = 5,
+    MISTT_FAILURE_INVALID_BUFFER = 6,
+    MISTT_FAILURE_COUNTER_OVERFLOW = 7
 };
+
+// Bound the accepted native formats and each callback to at most ten seconds.
+#define MISTT_MIN_SAMPLE_RATE_HZ 8000.0
+#define MISTT_MAX_SAMPLE_RATE_HZ 384000.0
+#define MISTT_MAX_CALLBACK_DURATION_SECONDS 10.0
+#define MISTT_MAX_FRAMES_PER_BUFFER UINT64_C(3840000)
+// Integer host timestamps may move adjacent anchors by at most one ns when
+// independently quantized. This tolerance never shifts the expected PCM line.
+#define MISTT_TIMESTAMP_ROUNDING_TOLERANCE_NS UINT64_C(1)
 
 MISTTAtomicCapture *MISTTCreateCaptureState(void);
 void MISTTDestroyCaptureState(MISTTAtomicCapture *state);
