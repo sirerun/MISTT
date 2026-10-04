@@ -54,6 +54,11 @@ void MISTTResetCaptureState(MISTTAtomicCapture *state);
 void MISTTOpenCaptureGate(MISTTAtomicCapture *state, uint64_t epoch_ns);
 void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns);
 bool MISTTCaptureGateIsOpen(const MISTTAtomicCapture *state);
+// Bracket the entire native callback, including all early-return paths. These
+// per-source counts remain active after gate closure until each callback exits.
+bool MISTTCallbackEnter(MISTTAtomicCapture *state, uint32_t source);
+bool MISTTCallbackExit(MISTTAtomicCapture *state, uint32_t source);
+uint32_t MISTTCallbackInFlight(const MISTTAtomicCapture *state, uint32_t source);
 int32_t MISTTRecordBuffer(MISTTAtomicCapture *state, uint32_t source, bool host_time_valid,
                           uint64_t start_ns, uint64_t frame_count, double sample_rate);
 // Deterministic interleave seam for tests. Production callbacks use RecordBuffer.

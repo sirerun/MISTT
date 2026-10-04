@@ -64,6 +64,42 @@ final class AtomicCaptureStateTests: XCTestCase {
         XCTAssertEqual(mic.frames, 4, "an earlier cutoff may trim the final buffer further")
     }
 
+    func testCallbackActivityRemainsVisibleAfterGateCloses() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 0)
+        XCTAssertTrue(MISTTCallbackEnter(state, 0))
+        XCTAssertTrue(MISTTCallbackEnter(state, 0))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 2)
+
+        MISTTCloseCaptureGate(state, 1_000_000_100)
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 2)
+        XCTAssertTrue(MISTTCallbackEnter(state, 1), "activity tracking must remain independent of the gate")
+        XCTAssertEqual(MISTTCallbackInFlight(state, 1), 1)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 4, 16_000), 0)
+
+        XCTAssertTrue(MISTTCallbackExit(state, 0))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 1)
+        XCTAssertEqual(MISTTCallbackInFlight(state, 1), 1)
+        XCTAssertTrue(MISTTCallbackExit(state, 0))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 0)
+        XCTAssertTrue(MISTTCallbackExit(state, 1))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 1), 0)
+    }
+
+    func testCallbackActivityRejectsUnbalancedExitAndInvalidSource() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+
+        XCTAssertFalse(MISTTCallbackEnter(state, 2))
+        XCTAssertFalse(MISTTCallbackExit(state, 0))
+        XCTAssertEqual(MISTTCallbackInFlight(state, 0), 0)
+        XCTAssertEqual(MISTTFirstFailure(state), UInt32(MISTT_FAILURE_COUNTER_OVERFLOW))
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+    }
+
     func testInvalidTimestampClosesSharedGateAndPreservesFirstFailure() {
         let state = MISTTCreateCaptureState()!
         defer { MISTTDestroyCaptureState(state) }

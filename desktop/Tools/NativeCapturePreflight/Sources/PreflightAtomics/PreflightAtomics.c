@@ -50,6 +50,7 @@ struct MISTTAtomicCapture {
     _Atomic uint64_t open_ns;
     _Atomic uint64_t cutoff_ns;
     _Atomic uint32_t first_failure;
+    _Atomic uint32_t callbacks_in_flight[2];
     SourceMetrics source[2];
 };
 
@@ -242,6 +243,7 @@ MISTTAtomicCapture *MISTTCreateCaptureState(void) {
     atomic_init(&state->cutoff_ns, UINT64_MAX);
     atomic_init(&state->first_failure, MISTT_FAILURE_NONE);
     for (uint32_t i = 0; i < 2; ++i) {
+        atomic_init(&state->callbacks_in_flight[i], 0);
         SourceMetrics *m = &state->source[i];
         atomic_init(&m->buffers, 0);
         atomic_init(&m->frames, 0);
@@ -323,6 +325,39 @@ void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns) {
         }
         atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
     }
+}
+
+bool MISTTCallbackEnter(MISTTAtomicCapture *state, uint32_t source) {
+    if (state == NULL || source > 1) return false;
+    _Atomic uint32_t *count = &state->callbacks_in_flight[source];
+    uint32_t current = atomic_load_explicit(count, memory_order_seq_cst);
+    for (;;) {
+        if (current == UINT32_MAX) {
+            fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+            return false;
+        }
+        if (atomic_compare_exchange_weak_explicit(count, &current, current + 1,
+                                                  memory_order_seq_cst, memory_order_seq_cst)) return true;
+    }
+}
+
+bool MISTTCallbackExit(MISTTAtomicCapture *state, uint32_t source) {
+    if (state == NULL || source > 1) return false;
+    _Atomic uint32_t *count = &state->callbacks_in_flight[source];
+    uint32_t current = atomic_load_explicit(count, memory_order_seq_cst);
+    for (;;) {
+        if (current == 0) {
+            fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+            return false;
+        }
+        if (atomic_compare_exchange_weak_explicit(count, &current, current - 1,
+                                                  memory_order_seq_cst, memory_order_seq_cst)) return true;
+    }
+}
+
+uint32_t MISTTCallbackInFlight(const MISTTAtomicCapture *state, uint32_t source) {
+    if (state == NULL || source > 1) return 0;
+    return atomic_load_explicit(&state->callbacks_in_flight[source], memory_order_seq_cst);
 }
 
 bool MISTTCaptureGateIsOpen(const MISTTAtomicCapture *state) {
