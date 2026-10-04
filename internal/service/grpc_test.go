@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"testing"
@@ -68,6 +69,57 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 	_, err = client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: initial.Revision, RequestId: "10112233-4455-6677-8899-aabbccddeeff"})
 	if status.Code(err) != codes.Aborted {
 		t.Fatalf("stale revision should abort, got %v", err)
+	}
+}
+
+func TestMuteRequestCacheEvictsCompletedEntriesBeforeInsert(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	for i := 1; i <= 130; i++ {
+		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i, i)
+		if _, err := s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: id, Muted: true, ExpectedRevision: 1}); err != nil {
+			t.Fatalf("completed request %d was rejected: %v", i, err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.muteRequests) != 128 {
+		t.Fatalf("completed request cache exceeded or underfilled bound: %d", len(s.muteRequests))
+	}
+	if _, ok := s.muteRequests[fmt.Sprintf("%08x-0000-4000-8000-%012x", 1, 1)]; ok {
+		t.Fatal("oldest completed idempotency record was not evicted")
+	}
+	if _, ok := s.muteRequests[fmt.Sprintf("%08x-0000-4000-8000-%012x", 130, 130)]; !ok {
+		t.Fatal("newest completed idempotency record was lost")
+	}
+}
+
+func TestMuteRequestCacheRejectsWhenAllEntriesArePending(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	for i := 1; i <= 128; i++ {
+		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i, i)
+		s.muteRequests[id] = &muteRecord{payload: "pending", done: make(chan struct{})}
+		s.muteOrder = append(s.muteOrder, id)
+	}
+	_, err = s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: "00000081-0000-4000-8000-000000000081", Muted: true, ExpectedRevision: 1})
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("full pending cache should reject without evicting in-flight requests, got %v", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.muteRequests) != 128 {
+		t.Fatalf("pending request cache exceeded bound: %d", len(s.muteRequests))
 	}
 }
 
