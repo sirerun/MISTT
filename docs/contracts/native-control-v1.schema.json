@@ -69,6 +69,12 @@
     },
     {
       "$ref": "#/$defs/heartbeat"
+    },
+    {
+      "$ref": "#/$defs/native_prepare_update"
+    },
+    {
+      "$ref": "#/$defs/native_cancel_update"
     }
   ],
   "$defs": {
@@ -193,7 +199,9 @@
         "capturing",
         "connected_clients",
         "reason",
-        "revision"
+        "revision",
+        "update_ready",
+        "update_reserved"
       ],
       "properties": {
         "muted": {
@@ -215,6 +223,12 @@
         },
         "revision": {
           "$ref": "#/$defs/uint64"
+        },
+        "update_ready": {
+          "type": "boolean"
+        },
+        "update_reserved": {
+          "type": "boolean"
         }
       }
     },
@@ -283,14 +297,20 @@
           "allOf": [
             {
               "if": {
-                "required": ["include_helper_executables"],
+                "required": [
+                  "include_helper_executables"
+                ],
                 "properties": {
-                  "include_helper_executables": {"minItems": 1}
+                  "include_helper_executables": {
+                    "minItems": 1
+                  }
                 }
               },
               "then": {
                 "properties": {
-                  "bundle_id": {"const": "com.tiktok.livestudio.desktop"}
+                  "bundle_id": {
+                    "const": "com.tiktok.livestudio.desktop"
+                  }
                 }
               }
             }
@@ -650,7 +670,9 @@
         "capturing",
         "connected_clients",
         "reason",
-        "revision"
+        "revision",
+        "update_ready",
+        "update_reserved"
       ],
       "properties": {
         "type": {
@@ -675,6 +697,12 @@
         },
         "revision": {
           "$ref": "#/$defs/uint64"
+        },
+        "update_ready": {
+          "type": "boolean"
+        },
+        "update_reserved": {
+          "type": "boolean"
         }
       }
     },
@@ -735,6 +763,60 @@
           }
         }
       ]
+    },
+    "native_prepare_update": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "command_sequence",
+        "expected_status_revision"
+      ],
+      "properties": {
+        "type": {
+          "const": "native_prepare_update"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "command_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "expected_status_revision": {
+          "$ref": "#/$defs/uint64"
+        }
+      }
+    },
+    "native_cancel_update": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "command_sequence",
+        "expected_status_revision"
+      ],
+      "properties": {
+        "type": {
+          "const": "native_cancel_update"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "command_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "expected_status_revision": {
+          "$ref": "#/$defs/uint64"
+        }
+      }
     }
   },
   "x-examples": [
@@ -851,7 +933,9 @@
         "capturing": false,
         "connected_clients": 1,
         "reason": "user",
-        "revision": 12
+        "revision": 12,
+        "update_ready": true,
+        "update_reserved": false
       },
       "error": null
     },
@@ -870,7 +954,9 @@
       "capturing": false,
       "connected_clients": 1,
       "reason": "user",
-      "revision": 13
+      "revision": 13,
+      "update_ready": true,
+      "update_reserved": false
     },
     {
       "type": "heartbeat",
@@ -884,7 +970,9 @@
         "capturing": true,
         "connected_clients": 1,
         "reason": "user",
-        "revision": 13
+        "revision": 13,
+        "update_ready": false,
+        "update_reserved": false
       },
       "error": {
         "code": "stale_command",
@@ -899,12 +987,26 @@
         "capturing": true,
         "connected_clients": 1,
         "reason": "user",
-        "revision": 13
+        "revision": 13,
+        "update_ready": false,
+        "update_reserved": false
       },
       "error": {
         "code": "status_conflict",
         "detail": "expected status revision is stale; relay state was not changed"
       }
+    },
+    {
+      "type": "native_prepare_update",
+      "request_id": "00000000-0000-4000-8000-000000000001",
+      "command_sequence": 100,
+      "expected_status_revision": 4
+    },
+    {
+      "type": "native_cancel_update",
+      "request_id": "00000000-0000-4000-8000-000000000002",
+      "command_sequence": 101,
+      "expected_status_revision": 4
     }
   ],
   "x-closure_and_ordering_rules": [
