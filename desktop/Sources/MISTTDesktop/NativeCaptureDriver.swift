@@ -100,7 +100,9 @@ final class NativeCaptureDriver {
                     Task { @MainActor in self?.pumpFailed(generation: token, request: request, writer: writer) }
                 })
                 self.pump = relayPump
-                let unixMS = Int64(Date().timeIntervalSince1970 * 1_000)
+                guard let unixMS = Self.unixMilliseconds(correlatedToHostNanoseconds: epoch) else {
+                    throw CaptureStartError.unsupportedTapFormat
+                }
                 writer.enqueueControl(CaptureStarted(requestId: request.requestId, sessionId: request.sessionId,
                                                        captureEpochHostNs: epoch, captureEpochUnixMs: unixMS,
                                                        sources: Self.sources))
@@ -148,8 +150,8 @@ final class NativeCaptureDriver {
         guard let capture else { return }
         let cutoff = PairedCutoff.now()
         preclosedCutoff = cutoff
-        pump?.pauseAtCutoff()
         capture.closeGate(at: cutoff)
+        pump?.pauseAtCutoff()
         if busy { capture.cancelStart(generation: generation, cutoff: cutoff) }
     }
 
@@ -172,8 +174,8 @@ final class NativeCaptureDriver {
         guard let capture, let pump, !busy else { completion(false); return }
         busy = true
         let token = generation
-        pump.pauseAtCutoff()
         capture.closeGate(at: cutoff)
+        pump.pauseAtCutoff()
         startWatchdog?.cancel(); startWatchdog = nil
         watchdog?.cancel()
         watchdog = Task { [weak self] in
@@ -218,6 +220,7 @@ final class NativeCaptureDriver {
         let cutoff = preclosedCutoff ?? PairedCutoff.now()
         pump?.pauseAtCutoff()
         capture.closeGate(at: cutoff)
+        pump?.pauseAtCutoff()
         capture.cancelStart(generation: generation, cutoff: cutoff)
         capture.stop(reason: "relay connection lost", cutoff: cutoff, deadline: 1.0)
         pump = nil; self.capture = nil; currentStartRequest = nil; preclosedCutoff = nil
@@ -251,6 +254,15 @@ final class NativeCaptureDriver {
             guard !Task.isCancelled, let self, self.generation == token, !self.busy else { return }
             _exit(72)
         }
+    }
+
+    private static func unixMilliseconds(correlatedToHostNanoseconds epoch: UInt64) -> Int64? {
+        let nowHost = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime())
+        let delta = epoch >= nowHost ? Double(epoch - nowHost) / 1_000_000
+                                     : -Double(nowHost - epoch) / 1_000_000
+        let value = Date().timeIntervalSince1970 * 1_000 + delta
+        guard value.isFinite, value >= Double(Int64.min), value <= Double(Int64.max) else { return nil }
+        return Int64(value.rounded())
     }
 
     private static let sources = [

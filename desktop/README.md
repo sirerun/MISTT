@@ -1,36 +1,41 @@
-# MISTT desktop shell
+# MISTT macOS desktop
 
-This is a Swift Package Manager macOS app shell for the frozen T2.0 bridge contract. It targets macOS 14+ and Apple Silicon, uses SwiftUI/AppKit, and has no third-party Swift dependencies. The only normal-window content is the selected logo-3 microphone button, its On/Muted state, and the relay's actual connected-client count.
+MISTT is a small macOS menu-window client with one Logo 3 mute toggle and the
+relay client count. It starts muted. The toggle controls both the microphone
+and the selected application audio as one paired session; capture starts only
+when the relay admits a `capture_start` request for both sources.
 
-The app starts one owned child process directly with `Process`, without a shell:
+The app owns microphone permission, a private inclusion-only ScreenCaptureKit
+process tap for the validated TikTok LIVE Studio helper, and the shared host
+clock. Audio callbacks copy Float32 samples into independent bounded native
+queues. A worker converts each source to mono 16 kHz signed 16-bit little-endian
+PCM, emits at most 100 ms per frame, and writes framed IPC to the bundled relay.
+No transcript or PCM is written to disk. Target ownership, generation identity,
+permission failure, queue overflow, relay loss, and unknown I/O closure all fail
+closed.
 
-```text
-Contents/MacOS/mistt desktop --config <path>
-```
+The relay is launched from `Contents/MacOS/mistt` with structured arguments.
+The app reads a private, owner-owned `~/Library/Application Support/MISTT/config.json` at launch. `MISTT_CONFIG` may override its path for controlled launches. The file is a flat JSON object whose keys are the allowlisted `MISTT_*` relay environment names and whose values are strings; it must be a regular file owned by the current user with mode `0600`. It stores the DGX endpoint and token file path, never token contents. Unknown keys, malformed JSON, and insecure file permissions fail closed. Use the release provisioning helper to create it. Relay stdout is bounded
+JSON Lines for status and capture requests. Native stdin messages use the
+four-byte big-endian length plus kind byte protocol in
+[`../contracts/desktop-dgx-v1.md`](../contracts/desktop-dgx-v1.md).
 
-Configuration comes from `MISTT_CONFIG` when set; otherwise it is `~/Library/Application Support/MISTT/config.yaml`. The app does not create a default config or include credentials. A missing file, child executable, malformed status line, timeout, or child failure leaves the control muted and unavailable. Status JSON on stdout is authoritative. Stdin receives newline `{"muted":true}` / `{"muted":false}` commands; the UI changes only after a newer relay revision confirms the requested state. Per-process revision state resets on launch. Status delivery is coalesced off the main thread and each line is capped at 16 KiB.
+The package pins Sparkle 2.10.0 and the exact source revision in
+[`Package.resolved`](Package.resolved). Automatic updates stay disabled until
+a release provides both `SUFeedURL` and a valid `SUPublicEDKey`; the local app
+Info.plist explicitly disables automatic updates. Update installation also
+requires a correlated native/relay idle reservation and confirmed local
+closure.
 
-Closing the window does not start or mute the service. Quitting closes child stdin to request relay EOF/shutdown, then force-terminates the owned process after a bounded grace period if needed. The stderr stream goes to the null device so an unread diagnostic pipe cannot block capture; failures are shown through a short sanitized accessible reason.
+## Local verification
 
-## Build and test
+Use `Scripts/test.sh` for XCTest and `Scripts/build-app.sh` for an arm64 local
+ad-hoc bundle. Both require `/Volumes/BuildOffload` to be mounted with adequate
+free space, reject a one-minute host load above 10, and hold the shared build
+lease around SwiftPM work. Set `MISTT_BUILD_ROOT` and
+`MISTT_ARTIFACT_ROOT` only to paths on that external volume. Supply an already
+built executable Go relay with `MISTT_RELAY_BINARY`.
 
-Keep SwiftPM scratch space and app output on the external SSD. For example:
-
-```sh
-MISTT_BUILD_ROOT=/Volumes/BuildOffload/build/MISTT-desktop-20261003 \
-  desktop/Scripts/test.sh
-```
-
-The XCTest target uses `Tests/MISTTDesktopTests/Fixtures/fake-mistt`; production code never selects that fixture. Tests do not open the microphone. Bundle after the Go relay binary is available:
-
-```sh
-MISTT_BUILD_ROOT=/Volumes/BuildOffload/build/MISTT-desktop-20261003 \
-MISTT_RELAY_BINARY=/absolute/path/to/arm64/mistt \
-  desktop/Scripts/build-app.sh
-```
-
-The bundle script places the app outside the repository at `/Volumes/BuildOffload/artifacts/MISTT-desktop-20261003/MISTT.app` by default and uses an ad-hoc signature for local integration only. It is not a Developer ID release and is not notarized.
-
-## Microphone permission gate
-
-`Info.plist` contains `NSMicrophoneUsageDescription`. The Hardened Runtime signing entitlements include `com.apple.security.device.audio-input`; neither item grants permission without the user's choice. Apple documents the usage description and entitlement, but this lane has not established which TCC identity macOS assigns when the bundled Go/malgo executable requests microphone access as a `Process` child of the Swift app. A physical-Mac permission prompt, grant/deny behavior, and stable signing identity remain coordinator-owned acceptance checks. This source-only lane never requests microphone access.
+A local ad-hoc app is not a signed release and does not qualify updater, CI,
+Core Audio permissions, or hardware acceptance. Do not use the preflight meter
+prototype as evidence that production PCM delivery works.

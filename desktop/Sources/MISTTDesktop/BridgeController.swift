@@ -36,7 +36,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     private var shutdownControlContinuation: CheckedContinuation<Bool, Never>?
 
     init(relayExecutableURL: URL = BridgeController.bundledRelayURL,
-         configurationURL: URL = BridgeController.configuredPath(),
+         configurationURL: URL = RelayConfiguration.configuredURL(environment: ProcessInfo.processInfo.environment),
          fileManager: FileManager = .default) {
         self.relayExecutableURL = relayExecutableURL
         self.configurationURL = configurationURL
@@ -46,14 +46,6 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     static var bundledRelayURL: URL {
         let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
         return executable.deletingLastPathComponent().appendingPathComponent("mistt", isDirectory: false)
-    }
-
-    static func configuredPath(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let override = environment["MISTT_CONFIG"], !override.isEmpty {
-            return URL(fileURLWithPath: override).standardizedFileURL
-        }
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return root.appendingPathComponent("MISTT/config.yaml")
     }
 
     var updateReservationReady: Bool {
@@ -69,7 +61,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         revisionGate.reset()
         updateReservationConfirmed = false
         updateReservationRevision = nil
-        guard fileManager.fileExists(atPath: configurationURL.path),
+        guard let configuredEnvironment = try? RelayConfiguration.load(from: configurationURL),
               fileManager.isExecutableFile(atPath: relayExecutableURL.path) else {
             failClosed("MISTT relay or configuration is unavailable.")
             return
@@ -79,6 +71,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         let stdout = Pipe()
         child.executableURL = relayExecutableURL
         child.arguments = ["desktop", "--config", configurationURL.path]
+        child.environment = ProcessInfo.processInfo.environment.merging(configuredEnvironment) { _, configured in configured }
         child.standardInput = stdin
         child.standardOutput = stdout
         child.standardError = FileHandle.nullDevice

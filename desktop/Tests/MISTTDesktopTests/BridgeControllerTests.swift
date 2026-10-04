@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import Darwin
 @testable import MISTTDesktop
 
 final class BridgeControllerTests: XCTestCase {
@@ -42,8 +43,39 @@ final class BridgeControllerTests: XCTestCase {
     }
 
     func testConfiguredPathHonorsExternalProvisioning() {
-        let path = BridgeController.configuredPath(environment: ["MISTT_CONFIG": "/tmp/private/mistt.yaml"])
-        XCTAssertEqual(path.path, "/tmp/private/mistt.yaml")
+        let path = RelayConfiguration.configuredURL(environment: ["MISTT_CONFIG": "/tmp/private/mistt.json"])
+        XCTAssertEqual(path.path, "/tmp/private/mistt.json")
+    }
+
+    func testRelayConfigurationLoadsOnlyAllowlistedStringValuesFromPrivateFile() throws {
+        let file = try privateConfigFile(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio","MISTT_TOKEN_FILE":"/private/token"}"#)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        XCTAssertEqual(try RelayConfiguration.load(from: file), [
+            "MISTT_DGX_ENDPOINT": "wss://example.test/audio", "MISTT_TOKEN_FILE": "/private/token",
+        ])
+    }
+
+    func testRelayConfigurationRejectsUnknownMalformedAndNonStringValues() throws {
+        for content in [#"{"UNKNOWN":"value"}"#, "not json", #"{"MISTT_LANGUAGE":false}"#] {
+            let file = try privateConfigFile(content)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            XCTAssertThrowsError(try RelayConfiguration.load(from: file))
+        }
+    }
+
+    func testRelayConfigurationRejectsGroupReadableFile() throws {
+        let file = try privateConfigFile(#"{"MISTT_LANGUAGE":"en"}"#, permissions: 0o640)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        XCTAssertThrowsError(try RelayConfiguration.load(from: file))
+    }
+
+    private func privateConfigFile(_ contents: String, permissions: Int16 = 0o600) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("config.json")
+        try Data(contents.utf8).write(to: file)
+        XCTAssertEqual(chmod(file.path, mode_t(permissions)), 0)
+        return file
     }
 
     func testStatusLineReaderPreservesControlMessagesInOrder() throws {
