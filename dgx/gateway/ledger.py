@@ -14,6 +14,7 @@ class SourceLedger:
     max_audio_samples: int
     last_sequence: int = 0
     total_samples: int = 0
+    _first_capture_offset_ns: int | None = None
     _anchors: list[tuple[int, int, int]] = field(default_factory=list)
 
     def accept(self, frame: AudioFrame) -> None:
@@ -25,7 +26,14 @@ class SourceLedger:
             raise ProtocolError("sequence_error")
         if frame.capture_offset_ns > UINT64_MAX or frame.capture_offset_ns < 0:
             raise ProtocolError("invalid_timestamp")
-        if self._anchors and frame.capture_offset_ns <= self._anchors[-1][1]:
+        if self._first_capture_offset_ns is None:
+            expected_offset_ns = frame.capture_offset_ns
+        else:
+            sample_delta_ns = frame.start_sample * SAMPLE_NS
+            if sample_delta_ns > UINT64_MAX - self._first_capture_offset_ns:
+                raise ProtocolError("invalid_timestamp")
+            expected_offset_ns = self._first_capture_offset_ns + sample_delta_ns
+        if frame.capture_offset_ns != expected_offset_ns:
             raise ProtocolError("invalid_timestamp")
         new_total = self.total_samples + frame.sample_count
         if new_total > self.max_audio_samples or new_total > UINT64_MAX:
@@ -34,6 +42,8 @@ class SourceLedger:
         if frame.capture_offset_ns > UINT64_MAX - last_delta:
             raise ProtocolError("invalid_timestamp")
         self._anchors.append((frame.start_sample, frame.capture_offset_ns, frame.sample_count))
+        if self._first_capture_offset_ns is None:
+            self._first_capture_offset_ns = frame.capture_offset_ns
         self.last_sequence = frame.source_sequence
         self.total_samples = new_total
 
@@ -63,4 +73,3 @@ class SourceLedger:
         if delta > UINT64_MAX - anchor_ns:
             raise ProtocolError("invalid_timestamp")
         return anchor_ns + delta
-

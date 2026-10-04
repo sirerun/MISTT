@@ -168,9 +168,12 @@ class LedgerTests(unittest.TestCase):
         frame = AudioFrame(SESSION, "microphone", 1, 0, 20_000_000, 3, b"\0" * 6)
         ledger = SourceLedger(SESSION, "microphone", 16_000)
         ledger.accept(frame)
-        ledger.finish(1, 3, 20_125_001)
+        contiguous = AudioFrame(SESSION, "microphone", 2, 3, 20_187_500, 2, b"\0" * 4)
+        ledger.accept(contiguous)
+        ledger.finish(2, 5, 20_312_501)
         self.assertEqual(ledger.capture_offset_for_sample(0), 20_000_000)
         self.assertEqual(ledger.capture_offset_for_sample(3), 20_187_500)
+        self.assertEqual(ledger.capture_offset_for_sample(5), 20_312_500)
 
         for invalid in (
             AudioFrame(SESSION, "microphone", 1, 0, 30_000_000, 1, b"\0\0"),
@@ -180,6 +183,13 @@ class LedgerTests(unittest.TestCase):
             target = SourceLedger(SESSION, "microphone", 16_000)
             target.accept(frame)
             with self.subTest(invalid=invalid), self.assertRaises(ProtocolError): target.accept(invalid)
+
+        # Monotonicity alone is insufficient: the new anchor must agree with
+        # the first timestamp plus the contiguous 16 kHz sample position.
+        target = SourceLedger(SESSION, "microphone", 16_000)
+        target.accept(frame)
+        with self.assertRaises(ProtocolError):
+            target.accept(AudioFrame(SESSION, "microphone", 2, 3, 20_200_000, 1, b"\0\0"))
 
     def test_cutoff_is_exclusive_and_uses_sample_instants(self) -> None:
         positive = SourceLedger(SESSION, "microphone", 16_000)
