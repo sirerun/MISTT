@@ -32,6 +32,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     private var updateReservationConfirmed = false
     private var updateReservationRevision: UInt64?
     private var updateContinuation: CheckedContinuation<Bool, Never>?
+    private var updateCommandType: String?
     private var updateTimeout: Task<Void, Never>?
     private var shutdownControlContinuation: CheckedContinuation<Bool, Never>?
 
@@ -129,17 +130,27 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         guard !isShuttingDown else { shutdownCompletion = completion; return }
         isShuttingDown = true
         shutdownCompletion = completion
+        let shutdownDeadline = ContinuousClock.now + .seconds(8)
         Task { [weak self] in
             guard let self else { return }
+            while self.pendingCommandID != nil && ContinuousClock.now < shutdownDeadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard self.pendingCommandID == nil, self.updateContinuation == nil else {
+                self.finishShutdown(false); return
+            }
             guard let status = self.revisionGate.latest else { self.finishShutdown(false); return }
             if !self.updateReservationReady {
                 // Close native sample gates before waiting for the relay's
                 // correlated stop path. The relay supplies the real stop identity.
                 self.captureDriver.closeGateImmediately()
                 let muted = await self.sendMuteAndWait(true, expectedRevision: status.revision)
-                guard muted, self.captureDriver.isClosed,
-                      await self.waitForSafeIdleStatus(), self.revisionGate.latest?.muted == true,
+                guard muted, await self.waitForSafeIdleStatus(until: shutdownDeadline),
+                      self.captureDriver.isClosed, self.revisionGate.latest?.muted == true,
                       self.revisionGate.latest?.capturing == false else {
+                    self.finishShutdown(false); return
+                }
+                guard await self.reserveUpdateForShutdown(until: shutdownDeadline) else {
                     self.finishShutdown(false); return
                 }
             }
@@ -156,13 +167,23 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
 
     func requestUpdateReservation() async -> Bool {
         guard captureDriver.isClosed, !isShuttingDown, pendingCommandID == nil,
-              let status = revisionGate.latest, status.muted, !status.capturing, status.updateReady else { return false }
+              let status = revisionGate.latest, status.muted, !status.capturing, status.updateReady,
+              !status.updateReserved else { return false }
+        return await requestUpdateReservation(expectedRevision: status.revision)
+    }
+
+    private func requestUpdateReservation(expectedRevision: UInt64,
+                                          timeout: Duration = .seconds(3)) async -> Bool {
+        guard captureDriver.isClosed, pendingCommandID == nil,
+              let status = revisionGate.latest, status.revision == expectedRevision,
+              status.muted, !status.capturing, status.updateReady, !status.updateReserved,
+              timeout > .zero else { return false }
         let accepted = await withCheckedContinuation { continuation in
             updateContinuation = continuation
-            sendUpdateCommand("native_prepare_update", expectedRevision: status.revision)
+            sendUpdateCommand("native_prepare_update", expectedRevision: expectedRevision)
             updateTimeout?.cancel()
             updateTimeout = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: timeout)
                 guard !Task.isCancelled else { return }
                 self?.resolveUpdateReservation(false)
             }
@@ -170,9 +191,30 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         return accepted && updateReservationReady
     }
 
+    private func reserveUpdateForShutdown(until deadline: ContinuousClock.Instant) async -> Bool {
+        while ContinuousClock.now < deadline {
+            guard let status = revisionGate.latest else { return false }
+            if updateReservationReady { return true }
+            if captureDriver.isClosed, status.updateReady, status.muted, !status.capturing,
+               !status.updateReserved, pendingCommandID == nil {
+                let remaining = ContinuousClock.now.duration(to: deadline)
+                return await requestUpdateReservation(expectedRevision: status.revision,
+                                                      timeout: min(.seconds(3), remaining))
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
     func cancelUpdateReservation() async {
-        guard pendingCommandID == nil, let status = revisionGate.latest else {
-            updateReservationConfirmed = false; updateReservationRevision = nil; return
+        guard captureDriver.isClosed, pendingCommandID == nil, let status = revisionGate.latest,
+              status.updateReady, status.muted, !status.capturing else {
+            return
+        }
+        guard status.updateReserved else {
+            updateReservationConfirmed = false
+            updateReservationRevision = nil
+            return
         }
         _ = await withCheckedContinuation { continuation in
             updateContinuation = continuation
@@ -184,8 +226,6 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
                 self?.resolveUpdateReservation(false)
             }
         }
-        updateReservationConfirmed = false
-        updateReservationRevision = nil
     }
 
     private func sendMute(_ muted: Bool, expectedRevision: UInt64) {
@@ -201,10 +241,10 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         armCommandTimeout(requestID)
     }
 
-    private func waitForSafeIdleStatus() async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(2)
+    private func waitForSafeIdleStatus(until deadline: ContinuousClock.Instant) async -> Bool {
         while ContinuousClock.now < deadline {
-            if let status = revisionGate.latest, status.updateReady, status.muted, !status.capturing { return true }
+            if RelayShutdownReadiness.isReady(status: revisionGate.latest,
+                                              localCaptureClosed: captureDriver.isClosed) { return true }
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
@@ -221,6 +261,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         guard let writer else { resolveUpdateReservation(false); return }
         commandSequence &+= 1
         let requestID = UUID()
+        updateCommandType = type
         pendingCommandID = requestID
         writer.enqueueControl(NativeUpdateCommand(type: type, requestId: requestID,
                                                   commandSequence: commandSequence,
@@ -253,12 +294,28 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
                 presentation = RelayPresentation(status: status, unavailableReason: nil, isStarting: false, controlPending: false)
             }
             let succeeded = response.error == nil && response.status != nil
-            let isPrepare = updateContinuation != nil && response.status?.updateReserved == true && response.status?.updateReady == true
-            if updateContinuation != nil { updateReservationConfirmed = isPrepare; updateReservationRevision = isPrepare ? response.status?.revision : nil; resolveUpdateReservation(succeeded && isPrepare) }
+            if let operation = updateCommandType, updateContinuation != nil {
+                let status = response.status
+                let safeStatus = status?.updateReady == true && status?.muted == true && status?.capturing == false
+                if operation == "native_prepare_update" {
+                    let prepared = succeeded && safeStatus && status?.updateReserved == true
+                    updateReservationConfirmed = prepared
+                    updateReservationRevision = prepared ? status?.revision : nil
+                    resolveUpdateReservation(prepared)
+                } else {
+                    let cancelled = succeeded && safeStatus && status?.updateReserved == false
+                    if cancelled {
+                        updateReservationConfirmed = false
+                        updateReservationRevision = nil
+                    }
+                    resolveUpdateReservation(cancelled)
+                }
+            }
             if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: succeeded && response.status?.muted == true) }
         case .heartbeat:
             lastHeartbeat = .now
         case .captureStart(let request):
+            guard !isShuttingDown else { sendCaptureFailure(request, code: "shutdown"); return }
             guard request.type == "capture_start", activeSession == nil else {
                 sendCaptureFailure(request, code: "busy"); return
             }
@@ -290,8 +347,9 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
 
     private func resolveUpdateReservation(_ result: Bool) {
         updateTimeout?.cancel(); updateTimeout = nil
+        updateCommandType = nil
         let continuation = updateContinuation; updateContinuation = nil
-        continuation?.resume(returning: result && updateReservationReady)
+        continuation?.resume(returning: result)
     }
 
     private func commandTimedOut(_ id: UUID) {
@@ -347,6 +405,10 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         guard let completion = shutdownCompletion else { return }
         shutdownCompletion = nil
         isShuttingDown = false
+        if !clean, process?.isRunning == true,
+           RelayShutdownReadiness.isReady(status: revisionGate.latest, localCaptureClosed: captureDriver.isClosed) {
+            Task { [weak self] in await self?.cancelUpdateReservation() }
+        }
         completion(clean)
     }
 }

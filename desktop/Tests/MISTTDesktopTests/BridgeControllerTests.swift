@@ -42,6 +42,16 @@ final class BridgeControllerTests: XCTestCase {
         XCTAssertNoThrow(try valid.validate())
     }
 
+    func testShutdownWaitsForBothNativeAndRelayClosure() {
+        let safeStatus = RelayStatus(muted: true, capturing: false, connectedClients: 0, reason: "user",
+                                     revision: 2, updateReady: true, updateReserved: false)
+        XCTAssertFalse(RelayShutdownReadiness.isReady(status: safeStatus, localCaptureClosed: false))
+        XCTAssertTrue(RelayShutdownReadiness.isReady(status: safeStatus, localCaptureClosed: true))
+        let stillCapturing = RelayStatus(muted: true, capturing: true, connectedClients: 0, reason: "user",
+                                         revision: 3, updateReady: false, updateReserved: false)
+        XCTAssertFalse(RelayShutdownReadiness.isReady(status: stillCapturing, localCaptureClosed: true))
+    }
+
     func testConfiguredPathHonorsExternalProvisioning() {
         let path = RelayConfiguration.configuredURL(environment: ["MISTT_CONFIG": "/tmp/private/mistt.json"])
         XCTAssertEqual(path.path, "/tmp/private/mistt.json")
