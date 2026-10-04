@@ -25,12 +25,14 @@ final class NativeIPCWriter: @unchecked Sendable {
     private var callAudioBytes = 0
     private var failed = false
     private var closed = false
+    private var idleWaiters: [(Result<Void, Failure>) -> Void] = []
 
     init(fileHandle: FileHandle, onFailure: @escaping @Sendable (Failure) -> Void) throws {
         descriptor = fileHandle.fileDescriptor
         self.onFailure = onFailure
         let flags = fcntl(descriptor, F_GETFL)
-        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else { throw Failure.invalidDescriptor }
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0,
+              fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 else { throw Failure.invalidDescriptor }
         writeSource = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: callbackQueue)
         writeSource.setEventHandler { [weak self] in self?.drive() }
         writeSource.setCancelHandler { fileHandle.closeFile() }
@@ -45,8 +47,14 @@ final class NativeIPCWriter: @unchecked Sendable {
     func enqueueControlFrame(_ frame: Data) throws {
         lock.lock()
         guard !failed, !closed else { lock.unlock(); throw Failure.pipeClosed }
-        guard controls.count < 128, controlBytes <= 1_048_576 - frame.count else {
-            failed = true; lock.unlock(); onFailure(.queueFull); throw Failure.queueFull
+        guard controls.count < 128, frame.count <= 1_048_576,
+              controlBytes <= 1_048_576 - frame.count else {
+            failed = true
+            let waiters = idleWaiters; idleWaiters.removeAll()
+            lock.unlock()
+            onFailure(.queueFull)
+            for waiter in waiters { waiter(.failure(.queueFull)) }
+            throw Failure.queueFull
         }
         controls.append(frame)
         controlBytes += frame.count
@@ -81,6 +89,15 @@ final class NativeIPCWriter: @unchecked Sendable {
         } catch { fail(.queueFull) }
     }
 
+    func whenIdle(_ completion: @escaping (Result<Void, Failure>) -> Void) {
+        lock.lock()
+        if failed { lock.unlock(); completion(.failure(.pipeClosed)); return }
+        if isIdleLocked { lock.unlock(); completion(.success(())); return }
+        idleWaiters.append(completion)
+        lock.unlock()
+        drive()
+    }
+
     func close() {
         lock.lock()
         guard !closed else { lock.unlock(); return }
@@ -97,7 +114,13 @@ final class NativeIPCWriter: @unchecked Sendable {
                 current = selectNextLocked()
                 offset = 0
             }
-            guard let item = current else { lock.unlock(); return }
+            guard let item = current else {
+                let waiters = isIdleLocked ? idleWaiters : []
+                if !waiters.isEmpty { idleWaiters.removeAll() }
+                lock.unlock()
+                for waiter in waiters { waiter(.success(())) }
+                return
+            }
             let result = item.data.withUnsafeBytes { raw -> Int in
                 guard let base = raw.baseAddress else { return -1 }
                 return Darwin.write(descriptor, base.advanced(by: offset), item.data.count - offset)
@@ -120,8 +143,11 @@ final class NativeIPCWriter: @unchecked Sendable {
             if result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { lock.unlock(); return }
             failed = true
             let error = result == 0 ? Failure.pipeClosed : Failure.writeFailed(errno)
+            let waiters = idleWaiters
+            idleWaiters.removeAll()
             lock.unlock()
             onFailure(error)
+            for waiter in waiters { waiter(.failure(error)) }
             return
         }
     }
@@ -143,11 +169,19 @@ final class NativeIPCWriter: @unchecked Sendable {
         return nil
     }
 
+    private var isIdleLocked: Bool {
+        current == nil && controls.isEmpty && microphone.isEmpty && callAudio.isEmpty &&
+        microphoneEnd == nil && callAudioEnd == nil && controlBytes == 0 &&
+        microphoneBytes == 0 && callAudioBytes == 0
+    }
+
     private func fail(_ error: Failure) {
         lock.lock()
         guard !failed && !closed else { lock.unlock(); return }
         failed = true
+        let waiters = idleWaiters; idleWaiters.removeAll()
         lock.unlock()
         onFailure(error)
+        for waiter in waiters { waiter(.failure(error)) }
     }
 }

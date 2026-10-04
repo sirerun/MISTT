@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import NativeAudioQueue
 @testable import MISTTDesktop
 
 final class NativeProtocolTests: XCTestCase {
@@ -18,7 +19,7 @@ final class NativeProtocolTests: XCTestCase {
     func testSampleInstantCutoffExcludesFirstSampleAtOrAfterCutoff() {
         XCTAssertEqual(AudioSampleInstant.retainedSampleCount(startNanoseconds: 0, total: 10, rate: 10,
                                                                gateNanoseconds: 150_000_000,
-                                                               cutoffNanoseconds: 750_000_000), 2..<7)
+                                                               cutoffNanoseconds: 750_000_000), 2..<8)
         XCTAssertEqual(AudioSampleInstant.retainedSampleCount(startNanoseconds: 0, total: 10, rate: 10,
                                                                gateNanoseconds: 1_000_000_000,
                                                                cutoffNanoseconds: nil), 10..<10)
@@ -27,6 +28,35 @@ final class NativeProtocolTests: XCTestCase {
     func testDuplicateJSONKeysAndFractionalIntegerFieldsFailClosed() {
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(#"{"type":"status","type":"heartbeat"}"#.utf8)))
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(#"{"revision":1.5}"#.utf8)))
+    }
+
+    func testNativeCallbackQueueTrimsAtExclusiveSampleInstants() throws {
+        guard let queue = MISTTAudioQueueCreate(4, 32) else { return XCTFail("queue allocation failed") }
+        defer { MISTTAudioQueueDestroy(queue) }
+        MISTTAudioQueueOpenGate(queue, 150_000)
+        let inputLeft = (0..<16).map(Float.init)
+        let inputRight = (0..<16).map { Float(100 + $0) }
+        let pushed = inputLeft.withUnsafeBufferPointer { left in
+            inputRight.withUnsafeBufferPointer { right in
+                MISTTAudioQueuePushFloat32(queue, left.baseAddress, right.baseAddress,
+                                           16, 2, 16_000, 0)
+            }
+        }
+        XCTAssertTrue(pushed)
+        MISTTAudioQueueCloseGate(queue, 468_750)
+        var outputLeft = [Float](repeating: 0, count: 32)
+        var outputRight = [Float](repeating: 0, count: 32)
+        var block = MISTTAudioBlock()
+        let popped = outputLeft.withUnsafeMutableBufferPointer { left in
+            outputRight.withUnsafeMutableBufferPointer { right in
+                MISTTAudioQueuePop(queue, left.baseAddress, right.baseAddress, 32, &block)
+            }
+        }
+        XCTAssertTrue(popped)
+        XCTAssertEqual(block.frameCount, 5)
+        XCTAssertEqual(block.host_start_ns, 187_500)
+        XCTAssertEqual(Array(outputLeft.prefix(5)), [3, 4, 5, 6, 7])
+        XCTAssertEqual(Array(outputRight.prefix(5)), [103, 104, 105, 106, 107])
     }
 
     func testPairedSourceContractRejectsOversizedFrame() throws {
