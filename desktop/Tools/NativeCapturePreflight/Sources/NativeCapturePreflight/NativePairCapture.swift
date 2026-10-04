@@ -132,6 +132,7 @@ final class NativePairCapture: @unchecked Sendable {
 
     func start(
         targets: [AudioClient],
+        validateTargets: @escaping @Sendable () throws -> [AudioClient],
         generation expectedGeneration: UInt64,
         onStop: @escaping @Sendable (CaptureSnapshot) -> Void
     ) throws {
@@ -169,7 +170,9 @@ final class NativePairCapture: @unchecked Sendable {
 
         do {
             try ensureStartCurrent(expectedGeneration)
-            try createTapAndAggregate(targets: targets)
+            let validatedTargets = try validateTargets()
+            guard validatedTargets == targets else { throw CaptureStartError.targetChanged }
+            try createTapAndAggregate(targets: validatedTargets)
             try ensureStartCurrent(expectedGeneration)
             try startTapIO()
             try ensureStartCurrent(expectedGeneration)
@@ -600,6 +603,7 @@ enum CaptureStartError: Error, LocalizedError {
     case alreadyRunning
     case cancelled
     case targetMissing
+    case targetChanged
     case coreAudio(String, OSStatus)
     case microphoneUnavailable
     case unsupportedTapFormat
@@ -610,6 +614,7 @@ enum CaptureStartError: Error, LocalizedError {
         case .alreadyRunning: "A paired capture start or session is already active."
         case .cancelled: "The paired capture start was cancelled."
         case .targetMissing: "No selected app process exists to tap."
+        case .targetChanged: "The validated audio producer changed before Core Audio tap creation."
         case let .coreAudio(step, status): "Core Audio failed while \(step) (\(status))."
         case .microphoneUnavailable: "Microphone capture could not start. Check microphone permission and device availability."
         case .unsupportedTapFormat: "The private process tap did not expose a readable input stream format."
