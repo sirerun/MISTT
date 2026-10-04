@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-04: CI could not start the native probe
+
+**Type:** finding
+**Tags:** CI, native-capture, admission
+
+**Problem:** [Native preflight run 37179186700](https://github.com/sirerun/MISTT/actions/runs/37179186700) at `941bde01f3370a6a9a47615dcc25f593623bcb79` failed before runner assignment, with zero steps and no build log.
+**Root cause:** GitHub’s check annotation reports the account is locked due to a billing issue. A separate notice warns of macOS arm64 capacity constraints; it is not the failure reason.
+**Fix:** Owner notified; no billing/payment settings changed. Continue local build admission checks and preserve the CI gate. The probe and contracts are banked in draft PR #2.
+**Impact:** No CI compilation or tests ran. Required CI and all actual native/MVP/release gates remain open; local evidence cannot be represented as CI success.
+
 ## 2026-10-04: Exact cutoff, EOF and conflict-response rules
 
 **Type:** finding

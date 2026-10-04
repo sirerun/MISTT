@@ -22,6 +22,12 @@ jobs:
       MISTT_DEV_SIGN_IDENTITY: '-'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record runner toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          echo "Runner image: $ImageOS $ImageVersion"
       - name: Set temporary build paths
         run: |
           echo "MISTT_PREFLIGHT_BUILD_ROOT=$RUNNER_TEMP/mistt-native-preflight-build" >> "$GITHUB_ENV"
