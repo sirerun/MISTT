@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import math
 import time
 from contextlib import asynccontextmanager
@@ -37,6 +36,7 @@ from .protocol import (
     validate_capture_started,
     validate_source_end,
     validate_start,
+    strict_json_loads,
     decode_frame,
 )
 from .resample import StatefulLinearResampler
@@ -206,6 +206,10 @@ def create_app(
                   openapi_url=None, lifespan=lifespan)
     app.state.model_manager = manager
 
+    @app.get("/mistt/healthz")
+    async def healthz():
+        return {"status": "ok"}
+
     @app.get("/mistt/v1/capabilities")
     async def capabilities(authorization: str | None = Header(default=None)):
         if not _auth_ok(authorization, settings.token):
@@ -267,9 +271,9 @@ def create_app(
                 await send_error(terminal_reason)
                 return
             try:
-                start = json.loads(start_text)
+                start = strict_json_loads(start_text)
                 session_id = validate_start(start)
-            except (json.JSONDecodeError, ProtocolError):
+            except ProtocolError:
                 terminal_reason = "invalid_config"
                 await send_error(terminal_reason)
                 return
@@ -499,7 +503,7 @@ def create_app(
                     terminal_reason = "invalid_config"
                     break
                 try:
-                    control = json.loads(text)
+                    control = strict_json_loads(text)
                     if not capture_started:
                         capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_started(control, session_id)
                         capture_started = True
@@ -522,9 +526,6 @@ def create_app(
                                 lambda source_name=source_name: finish_source(source_name),
                             )
                         scheduler.stop_when_empty()
-                except json.JSONDecodeError:
-                    terminal_reason = "invalid_config"
-                    break
                 except ProtocolError as error:
                     terminal_reason = error.args[0] if error.args else "invalid_config"
                     break

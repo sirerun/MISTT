@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 import uuid
 from dataclasses import dataclass
@@ -24,6 +25,25 @@ EXPECTED_FORMATS = [
 
 class ProtocolError(ValueError):
     """A malformed or out-of-contract peer message."""
+
+
+def strict_json_loads(value: str) -> object:
+    """Decode control JSON without duplicate keys or nonstandard numbers."""
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, item in pairs:
+            if key in result:
+                raise ProtocolError("invalid_config")
+            result[key] = item
+        return result
+
+    def reject_constant(_value: str) -> object:
+        raise ProtocolError("invalid_config")
+
+    try:
+        return json.loads(value, object_pairs_hook=unique_object, parse_constant=reject_constant)
+    except (json.JSONDecodeError, RecursionError) as error:
+        raise ProtocolError("invalid_config") from error
 
 
 @dataclass(frozen=True)
@@ -154,7 +174,7 @@ def validate_source_end(value: object, expected_session: uuid.UUID) -> tuple[str
     if value["type"] != "source_end" or parse_uuid(value["session_id"]) != expected_session:
         raise ProtocolError("stale_session")
     source = value["source"]
-    if source not in SOURCES:
+    if not isinstance(source, str) or source not in SOURCES:
         raise ProtocolError("invalid_config")
     sequence = _uint(value["last_sequence"], UINT64_MAX)
     total_samples = _uint(value["total_samples"], UINT64_MAX)
