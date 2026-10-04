@@ -1,0 +1,17 @@
+#!/bin/sh
+# Test-only newline JSON bridge fixture. The production bundle never uses this file.
+[ "$1" = "desktop" ] || exit 31
+[ "$2" = "--config" ] || exit 32
+[ -f "$3" ] || exit 33
+printf '%s\n' '{"muted":true,"connected_clients":0,"capturing":false,"reason":"user","revision":1}'
+while IFS= read -r command; do
+    case "$command" in
+        '{"muted":false}')
+            printf '%s\n' '{"muted":false,"connected_clients":2,"capturing":true,"reason":"","revision":2}'
+            ;;
+        '{"muted":true}')
+            printf '%s\n' '{"muted":true,"connected_clients":2,"capturing":false,"reason":"user","revision":3}'
+            ;;
+        *) exit 34 ;;
+    esac
+done
