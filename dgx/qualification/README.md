@@ -1,0 +1,17 @@
+# VibeVoice DGX qualification harness
+
+This harness qualifies upstream streaming inference, not the production gateway or desktop app. See [observed results](../../docs/qualification/vibevoice-streaming-asr.md) and the [delivery plan](../../docs/plan.md).
+
+Local contract tests need Python 3 and NumPy: `python3 -m unittest discover -s tests -p test_stream_probe.py -v`. They use a local stdlib HTTP/WebSocket fixture, no microphone or GPU. The probe accepts `--url`, `--wav`, `--output`, `--expected-text`, `--expected-tail-phrase`, finite connection/session/drain timeouts, and a frame-boundary `--cancel-after` transport drop. It normalizes WAV to model-advertised mono little-endian float32 and sends paced 100 ms frames. Cumulative text replaces the previous snapshot.
+
+Reproduce with Spark, using an isolated ARM64/GB10 task directory mounted as `/task`, never a home or credential directory. Render both placeholders in `pod.json.in` before submission; Spark does not expand them. Check current host health/admission first. Place the pinned GitHub commit archive at `/task/vibevoice-1541f590.tar.gz`, `bootstrap.sh` at `/task/bootstrap.sh`, and an owned known-speech PCM WAV at `/task/fixture.wav`. Prepare task-owned `cache` and `evidence` directories. The checked-in model/image pins match the observed run; the source commit is `1541f590c7099820f10ea012f48d2399282df69f`.
+
+Submit through Spark's pod API. Bootstrap preserves the NVIDIA container's CUDA PyTorch in a system-site-packages venv, installs pinned Python dependencies and downloads the pinned checkpoint. It marks `bootstrap-ready` and holds the pod for bounded coordinator execution. The submitted pod command has a 2400-second overall limit. The hold does not release the allocation; the coordinator must delete the exact task pod after evidence collection.
+
+After bootstrap is ready, start `server_wrapper.py` through Spark exec with a finite process timeout. It loads the pinned local checkpoint, invokes upstream's unmodified FastAPI inference functions with SDPA, binds only pod loopback and records load/window timing plus Torch allocator/process RSS metrics. Execute the probe in the same pod against `http://127.0.0.1:7870`. Run paced full speech, partial-tail EOF, a four-second TCP drop and a new full session. Collect evidence and delete only the recorded task pod. Preserve caches in the task directory for repeatability; they contain model weights, not a running model service.
+
+## Evidence limits
+
+The EOF timestamp is the client's end-frame send, not a server acknowledgement. A post-end receipt alone cannot prove EOF caused the text. For this checkpoint, corroborate the final chunk against `chunk_samples=70400`, `window_samples=83200` and input sample count: unflushed input permits only full windows, while EOF enables the padded final window. The observed final phrase was delivered in that extra sixth chunk. Do not equate chunk completion to production utterance finality.
+
+Connect/preflight/file loading precede the session clock. Audio-duration rejection occurs after WAV loading/resampling; use small owned fixtures, not untrusted files. Cancellation is frame-boundary TCP termination and does not establish desktop capture-stop behavior. These tests do not qualify concurrent GPU clients, indefinite context, authentication, real microphone permissions or production recovery. The shipping backend must have its own gateway/admission/limits and lifecycle acceptance.

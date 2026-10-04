@@ -1,0 +1,1331 @@
+{
+  "timing_scope": "Session seconds start after health/config preflight and WAV decode/resample.",
+  "limitations": [
+    "--max-audio-seconds is checked after WAV decode and resampling; it is not a pre-load file-size bound.",
+    "--cancel-after is checked at audio frame boundaries and cannot interrupt an in-flight socket send."
+  ],
+  "upstream": {
+    "repository": "microsoft/VibeVoice",
+    "commit": "1541f590c7099820f10ea012f48d2399282df69f",
+    "path": "demo/vibevoice_asr_streaming_fastapi_demo.py"
+  },
+  "endpoint": {
+    "base_url": "http://127.0.0.1:7870",
+    "health": {
+      "status": "ok"
+    },
+    "config": {
+      "sample_rate": 24000,
+      "chunk_seconds": 2.933333333333333
+    }
+  },
+  "input": {
+    "channels": 1,
+    "sample_width_bits": 16,
+    "sample_count_original": 261861,
+    "sample_rate_original": 16000,
+    "duration_seconds_original": 16.3663125,
+    "sample_rate_sent": 24000,
+    "sample_count_sent": 392792,
+    "duration_seconds_sent": 16.366333333333333,
+    "tail_test_appended_silence_samples": 0,
+    "tail_test_appended_silence_seconds": 0.0,
+    "tail_test_expected_mid_chunk_end": false
+  },
+  "options": {
+    "context_info": null,
+    "max_tokens": 256,
+    "temperature": 0.0
+  },
+  "started_at_utc": "2026-10-04T02:13:52.647261+00:00",
+  "send_events": [
+    {
+      "kind": "options",
+      "seconds": 0.0018241310026496649
+    },
+    {
+      "kind": "audio",
+      "sample_start": 0,
+      "sample_count": 2400,
+      "seconds": 0.0025808109930949286,
+      "send_duration_seconds": 0.00045485299779102206
+    },
+    {
+      "kind": "audio",
+      "sample_start": 2400,
+      "sample_count": 2400,
+      "seconds": 0.10345996500109322,
+      "send_duration_seconds": 0.0009051939996425062
+    },
+    {
+      "kind": "audio",
+      "sample_start": 4800,
+      "sample_count": 2400,
+      "seconds": 0.20348514200304635,
+      "send_duration_seconds": 0.0009090980020118877
+    },
+    {
+      "kind": "audio",
+      "sample_start": 7200,
+      "sample_count": 2400,
+      "seconds": 0.303231660000165,
+      "send_duration_seconds": 0.0009192099969368428
+    },
+    {
+      "kind": "audio",
+      "sample_start": 9600,
+      "sample_count": 2400,
+      "seconds": 0.40320888299902435,
+      "send_duration_seconds": 0.0008977850084193051
+    },
+    {
+      "kind": "audio",
+      "sample_start": 12000,
+      "sample_count": 2400,
+      "seconds": 0.50348422100069,
+      "send_duration_seconds": 0.0009135770087596029
+    },
+    {
+      "kind": "audio",
+      "sample_start": 14400,
+      "sample_count": 2400,
+      "seconds": 0.6037867739942158,
+      "send_duration_seconds": 0.0008921219996409491
+    },
+    {
+      "kind": "audio",
+      "sample_start": 16800,
+      "sample_count": 2400,
+      "seconds": 0.7037867670005653,
+      "send_duration_seconds": 0.0008733529975870624
+    },
+    {
+      "kind": "audio",
+      "sample_start": 19200,
+      "sample_count": 2400,
+      "seconds": 0.8038280859909719,
+      "send_duration_seconds": 0.0008999449928523973
+    },
+    {
+      "kind": "audio",
+      "sample_start": 21600,
+      "sample_count": 2400,
+      "seconds": 0.9031732540024677,
+      "send_duration_seconds": 0.0008784410019870847
+    },
+    {
+      "kind": "audio",
+      "sample_start": 24000,
+      "sample_count": 2400,
+      "seconds": 1.003861876000883,
+      "send_duration_seconds": 0.000922649007407017
+    },
+    {
+      "kind": "audio",
+      "sample_start": 26400,
+      "sample_count": 2400,
+      "seconds": 1.1038311939919367,
+      "send_duration_seconds": 0.0009066499915206805
+    },
+    {
+      "kind": "audio",
+      "sample_start": 28800,
+      "sample_count": 2400,
+      "seconds": 1.20376699299959,
+      "send_duration_seconds": 0.0008718330063857138
+    },
+    {
+      "kind": "audio",
+      "sample_start": 31200,
+      "sample_count": 2400,
+      "seconds": 1.3038180729927262,
+      "send_duration_seconds": 0.0008977690013125539
+    },
+    {
+      "kind": "audio",
+      "sample_start": 33600,
+      "sample_count": 2400,
+      "seconds": 1.4038306069996906,
+      "send_duration_seconds": 0.0009018810087582096
+    },
+    {
+      "kind": "audio",
+      "sample_start": 36000,
+      "sample_count": 2400,
+      "seconds": 1.5036813789920416,
+      "send_duration_seconds": 0.0009321059915237129
+    },
+    {
+      "kind": "audio",
+      "sample_start": 38400,
+      "sample_count": 2400,
+      "seconds": 1.6038691120047588,
+      "send_duration_seconds": 0.0009087770013138652
+    },
+    {
+      "kind": "audio",
+      "sample_start": 40800,
+      "sample_count": 2400,
+      "seconds": 1.7037523509934545,
+      "send_duration_seconds": 0.0008612249948782846
+    },
+    {
+      "kind": "audio",
+      "sample_start": 43200,
+      "sample_count": 2400,
+      "seconds": 1.803925251995679,
+      "send_duration_seconds": 0.0009143780043814331
+    },
+    {
+      "kind": "audio",
+      "sample_start": 45600,
+      "sample_count": 2400,
+      "seconds": 1.903816858000937,
+      "send_duration_seconds": 0.000893593009095639
+    },
+    {
+      "kind": "audio",
+      "sample_start": 48000,
+      "sample_count": 2400,
+      "seconds": 2.0038231030048337,
+      "send_duration_seconds": 0.0008976580138551071
+    },
+    {
+      "kind": "audio",
+      "sample_start": 50400,
+      "sample_count": 2400,
+      "seconds": 2.1038167889928445,
+      "send_duration_seconds": 0.0008961049898061901
+    },
+    {
+      "kind": "audio",
+      "sample_start": 52800,
+      "sample_count": 2400,
+      "seconds": 2.203705466003157,
+      "send_duration_seconds": 0.0008868260047165677
+    },
+    {
+      "kind": "audio",
+      "sample_start": 55200,
+      "sample_count": 2400,
+      "seconds": 2.303775262000272,
+      "send_duration_seconds": 0.0008638489962322637
+    },
+    {
+      "kind": "audio",
+      "sample_start": 57600,
+      "sample_count": 2400,
+      "seconds": 2.4038125810038764,
+      "send_duration_seconds": 0.0008910660108085722
+    },
+    {
+      "kind": "audio",
+      "sample_start": 60000,
+      "sample_count": 2400,
+      "seconds": 2.5038205519958865,
+      "send_duration_seconds": 0.0008926330046961084
+    },
+    {
+      "kind": "audio",
+      "sample_start": 62400,
+      "sample_count": 2400,
+      "seconds": 2.603832970999065,
+      "send_duration_seconds": 0.0009024089958984405
+    },
+    {
+      "kind": "audio",
+      "sample_start": 64800,
+      "sample_count": 2400,
+      "seconds": 2.703823742995155,
+      "send_duration_seconds": 0.0009038179996423423
+    },
+    {
+      "kind": "audio",
+      "sample_start": 67200,
+      "sample_count": 2400,
+      "seconds": 2.8037974600010784,
+      "send_duration_seconds": 0.0008733690046938136
+    },
+    {
+      "kind": "audio",
+      "sample_start": 69600,
+      "sample_count": 2400,
+      "seconds": 2.903814582998166,
+      "send_duration_seconds": 0.000893464995897375
+    },
+    {
+      "kind": "audio",
+      "sample_start": 72000,
+      "sample_count": 2400,
+      "seconds": 3.0038247630000114,
+      "send_duration_seconds": 0.0008942010026657954
+    },
+    {
+      "kind": "audio",
+      "sample_start": 74400,
+      "sample_count": 2400,
+      "seconds": 3.1038131349923788,
+      "send_duration_seconds": 0.0008932259952416644
+    },
+    {
+      "kind": "audio",
+      "sample_start": 76800,
+      "sample_count": 2400,
+      "seconds": 3.2038260650006123,
+      "send_duration_seconds": 0.0008970170019892976
+    },
+    {
+      "kind": "audio",
+      "sample_start": 79200,
+      "sample_count": 2400,
+      "seconds": 3.303757093992317,
+      "send_duration_seconds": 0.0008610980003140867
+    },
+    {
+      "kind": "audio",
+      "sample_start": 81600,
+      "sample_count": 2400,
+      "seconds": 3.4038434809917817,
+      "send_duration_seconds": 0.0008682329935254529
+    },
+    {
+      "kind": "audio",
+      "sample_start": 84000,
+      "sample_count": 2400,
+      "seconds": 3.5035238639975432,
+      "send_duration_seconds": 0.0009234659955836833
+    },
+    {
+      "kind": "audio",
+      "sample_start": 86400,
+      "sample_count": 2400,
+      "seconds": 3.6037138999963645,
+      "send_duration_seconds": 0.0010734029929153621
+    },
+    {
+      "kind": "audio",
+      "sample_start": 88800,
+      "sample_count": 2400,
+      "seconds": 3.70353525999235,
+      "send_duration_seconds": 0.000956985997618176
+    },
+    {
+      "kind": "audio",
+      "sample_start": 91200,
+      "sample_count": 2400,
+      "seconds": 3.8034647649910767,
+      "send_duration_seconds": 0.0009030329965753481
+    },
+    {
+      "kind": "audio",
+      "sample_start": 93600,
+      "sample_count": 2400,
+      "seconds": 3.9034294390003197,
+      "send_duration_seconds": 0.0008853690087562427
+    },
+    {
+      "kind": "audio",
+      "sample_start": 96000,
+      "sample_count": 2400,
+      "seconds": 4.003402672999073,
+      "send_duration_seconds": 0.0008594969986006618
+    },
+    {
+      "kind": "audio",
+      "sample_start": 98400,
+      "sample_count": 2400,
+      "seconds": 4.103433283002232,
+      "send_duration_seconds": 0.0008823450043564662
+    },
+    {
+      "kind": "audio",
+      "sample_start": 100800,
+      "sample_count": 2400,
+      "seconds": 4.203400868995232,
+      "send_duration_seconds": 0.0008480569958919659
+    },
+    {
+      "kind": "audio",
+      "sample_start": 103200,
+      "sample_count": 2400,
+      "seconds": 4.303390518995002,
+      "send_duration_seconds": 0.000854504993185401
+    },
+    {
+      "kind": "audio",
+      "sample_start": 105600,
+      "sample_count": 2400,
+      "seconds": 4.403394263994414,
+      "send_duration_seconds": 0.0008504729921696708
+    },
+    {
+      "kind": "audio",
+      "sample_start": 108000,
+      "sample_count": 2400,
+      "seconds": 4.503379464003956,
+      "send_duration_seconds": 0.0008400570077355951
+    },
+    {
+      "kind": "audio",
+      "sample_start": 110400,
+      "sample_count": 2400,
+      "seconds": 4.603388249001,
+      "send_duration_seconds": 0.0008523290016455576
+    },
+    {
+      "kind": "audio",
+      "sample_start": 112800,
+      "sample_count": 2400,
+      "seconds": 4.7034000249987,
+      "send_duration_seconds": 0.000857816994539462
+    },
+    {
+      "kind": "audio",
+      "sample_start": 115200,
+      "sample_count": 2400,
+      "seconds": 4.80336943299335,
+      "send_duration_seconds": 0.0008405209955526516
+    },
+    {
+      "kind": "audio",
+      "sample_start": 117600,
+      "sample_count": 2400,
+      "seconds": 4.903763038004399,
+      "send_duration_seconds": 0.000861961001646705
+    },
+    {
+      "kind": "audio",
+      "sample_start": 120000,
+      "sample_count": 2400,
+      "seconds": 5.003863902995363,
+      "send_duration_seconds": 0.000873448996571824
+    },
+    {
+      "kind": "audio",
+      "sample_start": 122400,
+      "sample_count": 2400,
+      "seconds": 5.103813630994409,
+      "send_duration_seconds": 0.0008926970040192828
+    },
+    {
+      "kind": "audio",
+      "sample_start": 124800,
+      "sample_count": 2400,
+      "seconds": 5.203818975001923,
+      "send_duration_seconds": 0.0008961370040196925
+    },
+    {
+      "kind": "audio",
+      "sample_start": 127200,
+      "sample_count": 2400,
+      "seconds": 5.303827486990485,
+      "send_duration_seconds": 0.0008995129901450127
+    },
+    {
+      "kind": "audio",
+      "sample_start": 129600,
+      "sample_count": 2400,
+      "seconds": 5.403693917993223,
+      "send_duration_seconds": 0.0008702810009708628
+    },
+    {
+      "kind": "audio",
+      "sample_start": 132000,
+      "sample_count": 2400,
+      "seconds": 5.503808845998719,
+      "send_duration_seconds": 0.000880217005033046
+    },
+    {
+      "kind": "audio",
+      "sample_start": 134400,
+      "sample_count": 2400,
+      "seconds": 5.603792859998066,
+      "send_duration_seconds": 0.0008835460030240938
+    },
+    {
+      "kind": "audio",
+      "sample_start": 136800,
+      "sample_count": 2400,
+      "seconds": 5.703820698996424,
+      "send_duration_seconds": 0.0008927129965741187
+    },
+    {
+      "kind": "audio",
+      "sample_start": 139200,
+      "sample_count": 2400,
+      "seconds": 5.803450644991244,
+      "send_duration_seconds": 0.0008735769952181727
+    },
+    {
+      "kind": "audio",
+      "sample_start": 141600,
+      "sample_count": 2400,
+      "seconds": 5.903169393990538,
+      "send_duration_seconds": 0.0008649209921713918
+    },
+    {
+      "kind": "audio",
+      "sample_start": 144000,
+      "sample_count": 2400,
+      "seconds": 6.003805190994171,
+      "send_duration_seconds": 0.0008754329901421443
+    },
+    {
+      "kind": "audio",
+      "sample_start": 146400,
+      "sample_count": 2400,
+      "seconds": 6.103820406002342,
+      "send_duration_seconds": 0.0008952900097938254
+    },
+    {
+      "kind": "audio",
+      "sample_start": 148800,
+      "sample_count": 2400,
+      "seconds": 6.203820595997968,
+      "send_duration_seconds": 0.0008933859935496002
+    },
+    {
+      "kind": "audio",
+      "sample_start": 151200,
+      "sample_count": 2400,
+      "seconds": 6.3038242109905696,
+      "send_duration_seconds": 0.0009016259864438325
+    },
+    {
+      "kind": "audio",
+      "sample_start": 153600,
+      "sample_count": 2400,
+      "seconds": 6.4034895329969,
+      "send_duration_seconds": 0.0009216579928761348
+    },
+    {
+      "kind": "audio",
+      "sample_start": 156000,
+      "sample_count": 2400,
+      "seconds": 6.503456873004325,
+      "send_duration_seconds": 0.0009021050063893199
+    },
+    {
+      "kind": "audio",
+      "sample_start": 158400,
+      "sample_count": 2400,
+      "seconds": 6.603421749998233,
+      "send_duration_seconds": 0.0008741369965719059
+    },
+    {
+      "kind": "audio",
+      "sample_start": 160800,
+      "sample_count": 2400,
+      "seconds": 6.703327986004297,
+      "send_duration_seconds": 0.0009947140060830861
+    },
+    {
+      "kind": "audio",
+      "sample_start": 163200,
+      "sample_count": 2400,
+      "seconds": 6.803471039995202,
+      "send_duration_seconds": 0.0008996090036816895
+    },
+    {
+      "kind": "audio",
+      "sample_start": 165600,
+      "sample_count": 2400,
+      "seconds": 6.903145210002549,
+      "send_duration_seconds": 0.0008603450114605948
+    },
+    {
+      "kind": "audio",
+      "sample_start": 168000,
+      "sample_count": 2400,
+      "seconds": 7.003429114003666,
+      "send_duration_seconds": 0.0008761690114624798
+    },
+    {
+      "kind": "audio",
+      "sample_start": 170400,
+      "sample_count": 2400,
+      "seconds": 7.103422006999608,
+      "send_duration_seconds": 0.0008701049955561757
+    },
+    {
+      "kind": "audio",
+      "sample_start": 172800,
+      "sample_count": 2400,
+      "seconds": 7.203402835992165,
+      "send_duration_seconds": 0.0008572569931857288
+    },
+    {
+      "kind": "audio",
+      "sample_start": 175200,
+      "sample_count": 2400,
+      "seconds": 7.303405040991493,
+      "send_duration_seconds": 0.0008533849904779345
+    },
+    {
+      "kind": "audio",
+      "sample_start": 177600,
+      "sample_count": 2400,
+      "seconds": 7.403831440999056,
+      "send_duration_seconds": 0.0009003300074255094
+    },
+    {
+      "kind": "audio",
+      "sample_start": 180000,
+      "sample_count": 2400,
+      "seconds": 7.5038249240024015,
+      "send_duration_seconds": 0.0009006500040413812
+    },
+    {
+      "kind": "audio",
+      "sample_start": 182400,
+      "sample_count": 2400,
+      "seconds": 7.603793526999652,
+      "send_duration_seconds": 0.000862504995893687
+    },
+    {
+      "kind": "audio",
+      "sample_start": 184800,
+      "sample_count": 2400,
+      "seconds": 7.70379928300099,
+      "send_duration_seconds": 0.0008952580101322383
+    },
+    {
+      "kind": "audio",
+      "sample_start": 187200,
+      "sample_count": 2400,
+      "seconds": 7.803915886004688,
+      "send_duration_seconds": 0.0008958170074038208
+    },
+    {
+      "kind": "audio",
+      "sample_start": 189600,
+      "sample_count": 2400,
+      "seconds": 7.903814296994824,
+      "send_duration_seconds": 0.000898489000974223
+    },
+    {
+      "kind": "audio",
+      "sample_start": 192000,
+      "sample_count": 2400,
+      "seconds": 8.003817267992417,
+      "send_duration_seconds": 0.0009011770016513765
+    },
+    {
+      "kind": "audio",
+      "sample_start": 194400,
+      "sample_count": 2400,
+      "seconds": 8.103739918995416,
+      "send_duration_seconds": 0.0008625850023236126
+    },
+    {
+      "kind": "audio",
+      "sample_start": 196800,
+      "sample_count": 2400,
+      "seconds": 8.203797099995427,
+      "send_duration_seconds": 0.0008925860020099208
+    },
+    {
+      "kind": "audio",
+      "sample_start": 199200,
+      "sample_count": 2400,
+      "seconds": 8.30381253399537,
+      "send_duration_seconds": 0.0008917060040403157
+    },
+    {
+      "kind": "audio",
+      "sample_start": 201600,
+      "sample_count": 2400,
+      "seconds": 8.40382603299804,
+      "send_duration_seconds": 0.0008990810019895434
+    },
+    {
+      "kind": "audio",
+      "sample_start": 204000,
+      "sample_count": 2400,
+      "seconds": 8.503827804001048,
+      "send_duration_seconds": 0.0008973540097940713
+    },
+    {
+      "kind": "audio",
+      "sample_start": 206400,
+      "sample_count": 2400,
+      "seconds": 8.60370758800127,
+      "send_duration_seconds": 0.0008735930023249239
+    },
+    {
+      "kind": "audio",
+      "sample_start": 208800,
+      "sample_count": 2400,
+      "seconds": 8.703782637996483,
+      "send_duration_seconds": 0.0008614010002929717
+    },
+    {
+      "kind": "audio",
+      "sample_start": 211200,
+      "sample_count": 2400,
+      "seconds": 8.803814553000848,
+      "send_duration_seconds": 0.0008846819982863963
+    },
+    {
+      "kind": "audio",
+      "sample_start": 213600,
+      "sample_count": 2400,
+      "seconds": 8.903804257992306,
+      "send_duration_seconds": 0.0008845049887895584
+    },
+    {
+      "kind": "audio",
+      "sample_start": 216000,
+      "sample_count": 2400,
+      "seconds": 9.003800202990533,
+      "send_duration_seconds": 0.0008862649992806837
+    },
+    {
+      "kind": "audio",
+      "sample_start": 218400,
+      "sample_count": 2400,
+      "seconds": 9.10348811399308,
+      "send_duration_seconds": 0.0008768089901423082
+    },
+    {
+      "kind": "audio",
+      "sample_start": 220800,
+      "sample_count": 2400,
+      "seconds": 9.203783885997836,
+      "send_duration_seconds": 0.0008624720067018643
+    },
+    {
+      "kind": "audio",
+      "sample_start": 223200,
+      "sample_count": 2400,
+      "seconds": 9.303793881001184,
+      "send_duration_seconds": 0.000890137001988478
+    },
+    {
+      "kind": "audio",
+      "sample_start": 225600,
+      "sample_count": 2400,
+      "seconds": 9.40320325900393,
+      "send_duration_seconds": 0.0008994810050353408
+    },
+    {
+      "kind": "audio",
+      "sample_start": 228000,
+      "sample_count": 2400,
+      "seconds": 9.503486389992759,
+      "send_duration_seconds": 0.0009168729884549975
+    },
+    {
+      "kind": "audio",
+      "sample_start": 230400,
+      "sample_count": 2400,
+      "seconds": 9.603482013990288,
+      "send_duration_seconds": 0.000900744998943992
+    },
+    {
+      "kind": "audio",
+      "sample_start": 232800,
+      "sample_count": 2400,
+      "seconds": 9.703422149992548,
+      "send_duration_seconds": 0.0008714969881111756
+    },
+    {
+      "kind": "audio",
+      "sample_start": 235200,
+      "sample_count": 2400,
+      "seconds": 9.803412349996506,
+      "send_duration_seconds": 0.0008724889921722934
+    },
+    {
+      "kind": "audio",
+      "sample_start": 237600,
+      "sample_count": 2400,
+      "seconds": 9.903414405998774,
+      "send_duration_seconds": 0.0008698970050318167
+    },
+    {
+      "kind": "audio",
+      "sample_start": 240000,
+      "sample_count": 2400,
+      "seconds": 10.003401613997994,
+      "send_duration_seconds": 0.0008618650026619434
+    },
+    {
+      "kind": "audio",
+      "sample_start": 242400,
+      "sample_count": 2400,
+      "seconds": 10.103403221990447,
+      "send_duration_seconds": 0.0008632729877717793
+    },
+    {
+      "kind": "audio",
+      "sample_start": 244800,
+      "sample_count": 2400,
+      "seconds": 10.203407485998468,
+      "send_duration_seconds": 0.0008668249938637018
+    },
+    {
+      "kind": "audio",
+      "sample_start": 247200,
+      "sample_count": 2400,
+      "seconds": 10.303380789002404,
+      "send_duration_seconds": 0.0008446639985777438
+    },
+    {
+      "kind": "audio",
+      "sample_start": 249600,
+      "sample_count": 2400,
+      "seconds": 10.403817840997363,
+      "send_duration_seconds": 0.0008934170036809519
+    },
+    {
+      "kind": "audio",
+      "sample_start": 252000,
+      "sample_count": 2400,
+      "seconds": 10.503822023994871,
+      "send_duration_seconds": 0.0008940249972511083
+    },
+    {
+      "kind": "audio",
+      "sample_start": 254400,
+      "sample_count": 2400,
+      "seconds": 10.60373966100451,
+      "send_duration_seconds": 0.0009238330094376579
+    },
+    {
+      "kind": "audio",
+      "sample_start": 256800,
+      "sample_count": 2400,
+      "seconds": 10.703488785002264,
+      "send_duration_seconds": 0.0008703290077392012
+    },
+    {
+      "kind": "audio",
+      "sample_start": 259200,
+      "sample_count": 2400,
+      "seconds": 10.803778442001203,
+      "send_duration_seconds": 0.0008731289999559522
+    },
+    {
+      "kind": "audio",
+      "sample_start": 261600,
+      "sample_count": 2400,
+      "seconds": 10.903167897995445,
+      "send_duration_seconds": 0.0008626490016467869
+    },
+    {
+      "kind": "audio",
+      "sample_start": 264000,
+      "sample_count": 2400,
+      "seconds": 11.00411324200104,
+      "send_duration_seconds": 0.0009041370067279786
+    },
+    {
+      "kind": "audio",
+      "sample_start": 266400,
+      "sample_count": 2400,
+      "seconds": 11.103911070997128,
+      "send_duration_seconds": 0.0009111940016737208
+    },
+    {
+      "kind": "audio",
+      "sample_start": 268800,
+      "sample_count": 2400,
+      "seconds": 11.203868693002732,
+      "send_duration_seconds": 0.0009222010121447966
+    },
+    {
+      "kind": "audio",
+      "sample_start": 271200,
+      "sample_count": 2400,
+      "seconds": 11.303742649994092,
+      "send_duration_seconds": 0.0008599129942012951
+    },
+    {
+      "kind": "audio",
+      "sample_start": 273600,
+      "sample_count": 2400,
+      "seconds": 11.403864113002783,
+      "send_duration_seconds": 0.0008652890101075172
+    },
+    {
+      "kind": "audio",
+      "sample_start": 276000,
+      "sample_count": 2400,
+      "seconds": 11.503816212993115,
+      "send_duration_seconds": 0.0008947769965743646
+    },
+    {
+      "kind": "audio",
+      "sample_start": 278400,
+      "sample_count": 2400,
+      "seconds": 11.603815066002426,
+      "send_duration_seconds": 0.000900393002666533
+    },
+    {
+      "kind": "audio",
+      "sample_start": 280800,
+      "sample_count": 2400,
+      "seconds": 11.703819262998877,
+      "send_duration_seconds": 0.0008951619965955615
+    },
+    {
+      "kind": "audio",
+      "sample_start": 283200,
+      "sample_count": 2400,
+      "seconds": 11.803182332994766,
+      "send_duration_seconds": 0.0008784730016486719
+    },
+    {
+      "kind": "audio",
+      "sample_start": 285600,
+      "sample_count": 2400,
+      "seconds": 11.903611350004212,
+      "send_duration_seconds": 0.0008723770006326959
+    },
+    {
+      "kind": "audio",
+      "sample_start": 288000,
+      "sample_count": 2400,
+      "seconds": 12.003880813994328,
+      "send_duration_seconds": 0.0008964259905042127
+    },
+    {
+      "kind": "audio",
+      "sample_start": 290400,
+      "sample_count": 2400,
+      "seconds": 12.10382214600395,
+      "send_duration_seconds": 0.000894473007065244
+    },
+    {
+      "kind": "audio",
+      "sample_start": 292800,
+      "sample_count": 2400,
+      "seconds": 12.203817943998729,
+      "send_duration_seconds": 0.0009001059952424839
+    },
+    {
+      "kind": "audio",
+      "sample_start": 295200,
+      "sample_count": 2400,
+      "seconds": 12.303481608003494,
+      "send_duration_seconds": 0.0009048260108102113
+    },
+    {
+      "kind": "audio",
+      "sample_start": 297600,
+      "sample_count": 2400,
+      "seconds": 12.40345250700193,
+      "send_duration_seconds": 0.0008842810057103634
+    },
+    {
+      "kind": "audio",
+      "sample_start": 300000,
+      "sample_count": 2400,
+      "seconds": 12.503415597995627,
+      "send_duration_seconds": 0.0008696889999555424
+    },
+    {
+      "kind": "audio",
+      "sample_start": 302400,
+      "sample_count": 2400,
+      "seconds": 12.60340822499711,
+      "send_duration_seconds": 0.00087588099995628
+    },
+    {
+      "kind": "audio",
+      "sample_start": 304800,
+      "sample_count": 2400,
+      "seconds": 12.703394276002655,
+      "send_duration_seconds": 0.000851689008413814
+    },
+    {
+      "kind": "audio",
+      "sample_start": 307200,
+      "sample_count": 2400,
+      "seconds": 12.803398231000756,
+      "send_duration_seconds": 0.0008550650090910494
+    },
+    {
+      "kind": "audio",
+      "sample_start": 309600,
+      "sample_count": 2400,
+      "seconds": 12.903413737993105,
+      "send_duration_seconds": 0.0008702969935256988
+    },
+    {
+      "kind": "audio",
+      "sample_start": 312000,
+      "sample_count": 2400,
+      "seconds": 13.003427004994592,
+      "send_duration_seconds": 0.0008809689898043871
+    },
+    {
+      "kind": "audio",
+      "sample_start": 314400,
+      "sample_count": 2400,
+      "seconds": 13.103094349004095,
+      "send_duration_seconds": 0.000871321011800319
+    },
+    {
+      "kind": "audio",
+      "sample_start": 316800,
+      "sample_count": 2400,
+      "seconds": 13.203109073991072,
+      "send_duration_seconds": 0.0008896889921743423
+    },
+    {
+      "kind": "audio",
+      "sample_start": 319200,
+      "sample_count": 2400,
+      "seconds": 13.303096003000974,
+      "send_duration_seconds": 0.0008745049999561161
+    },
+    {
+      "kind": "audio",
+      "sample_start": 321600,
+      "sample_count": 2400,
+      "seconds": 13.403084118996048,
+      "send_duration_seconds": 0.0008689209935255349
+    },
+    {
+      "kind": "audio",
+      "sample_start": 324000,
+      "sample_count": 2400,
+      "seconds": 13.5031815609982,
+      "send_duration_seconds": 0.0008811290026642382
+    },
+    {
+      "kind": "audio",
+      "sample_start": 326400,
+      "sample_count": 2400,
+      "seconds": 13.603176506003365,
+      "send_duration_seconds": 0.0008702330087544397
+    },
+    {
+      "kind": "audio",
+      "sample_start": 328800,
+      "sample_count": 2400,
+      "seconds": 13.703823265997926,
+      "send_duration_seconds": 0.0008968890033429489
+    },
+    {
+      "kind": "audio",
+      "sample_start": 331200,
+      "sample_count": 2400,
+      "seconds": 13.803823875001399,
+      "send_duration_seconds": 0.0008962170104496181
+    },
+    {
+      "kind": "audio",
+      "sample_start": 333600,
+      "sample_count": 2400,
+      "seconds": 13.903512353004771,
+      "send_duration_seconds": 0.0008788250124780461
+    },
+    {
+      "kind": "audio",
+      "sample_start": 336000,
+      "sample_count": 2400,
+      "seconds": 14.003776917001233,
+      "send_duration_seconds": 0.0008632410026621073
+    },
+    {
+      "kind": "audio",
+      "sample_start": 338400,
+      "sample_count": 2400,
+      "seconds": 14.103608181001619,
+      "send_duration_seconds": 0.0008682170009706169
+    },
+    {
+      "kind": "audio",
+      "sample_start": 340800,
+      "sample_count": 2400,
+      "seconds": 14.203826263998053,
+      "send_duration_seconds": 0.0008995289972517639
+    },
+    {
+      "kind": "audio",
+      "sample_start": 343200,
+      "sample_count": 2400,
+      "seconds": 14.303812009995454,
+      "send_duration_seconds": 0.000896056997589767
+    },
+    {
+      "kind": "audio",
+      "sample_start": 345600,
+      "sample_count": 2400,
+      "seconds": 14.403813579003327,
+      "send_duration_seconds": 0.0009013700037030503
+    },
+    {
+      "kind": "audio",
+      "sample_start": 348000,
+      "sample_count": 2400,
+      "seconds": 14.503765369998291,
+      "send_duration_seconds": 0.0008671450050314888
+    },
+    {
+      "kind": "audio",
+      "sample_start": 350400,
+      "sample_count": 2400,
+      "seconds": 14.603865274999407,
+      "send_duration_seconds": 0.0008719449979253113
+    },
+    {
+      "kind": "audio",
+      "sample_start": 352800,
+      "sample_count": 2400,
+      "seconds": 14.703813704996719,
+      "send_duration_seconds": 0.0008885209972504526
+    },
+    {
+      "kind": "audio",
+      "sample_start": 355200,
+      "sample_count": 2400,
+      "seconds": 14.803816569998162,
+      "send_duration_seconds": 0.0008977859979495406
+    },
+    {
+      "kind": "audio",
+      "sample_start": 357600,
+      "sample_count": 2400,
+      "seconds": 14.903825433997554,
+      "send_duration_seconds": 0.0009035620023496449
+    },
+    {
+      "kind": "audio",
+      "sample_start": 360000,
+      "sample_count": 2400,
+      "seconds": 15.003719062995515,
+      "send_duration_seconds": 0.0008740890043554828
+    },
+    {
+      "kind": "audio",
+      "sample_start": 362400,
+      "sample_count": 2400,
+      "seconds": 15.103810008993605,
+      "send_duration_seconds": 0.0008760729979258031
+    },
+    {
+      "kind": "audio",
+      "sample_start": 364800,
+      "sample_count": 2400,
+      "seconds": 15.203473268993548,
+      "send_duration_seconds": 0.0009069849911611527
+    },
+    {
+      "kind": "audio",
+      "sample_start": 367200,
+      "sample_count": 2400,
+      "seconds": 15.303412597000715,
+      "send_duration_seconds": 0.0008717210002942011
+    },
+    {
+      "kind": "audio",
+      "sample_start": 369600,
+      "sample_count": 2400,
+      "seconds": 15.403419731999747,
+      "send_duration_seconds": 0.000875529003678821
+    },
+    {
+      "kind": "audio",
+      "sample_start": 372000,
+      "sample_count": 2400,
+      "seconds": 15.50343672199233,
+      "send_duration_seconds": 0.000879016995895654
+    },
+    {
+      "kind": "audio",
+      "sample_start": 374400,
+      "sample_count": 2400,
+      "seconds": 15.603434111995739,
+      "send_duration_seconds": 0.0008810010040178895
+    },
+    {
+      "kind": "audio",
+      "sample_start": 376800,
+      "sample_count": 2400,
+      "seconds": 15.703414685995085,
+      "send_duration_seconds": 0.000860056999954395
+    },
+    {
+      "kind": "audio",
+      "sample_start": 379200,
+      "sample_count": 2400,
+      "seconds": 15.803148744991631,
+      "send_duration_seconds": 0.0008509839972248301
+    },
+    {
+      "kind": "audio",
+      "sample_start": 381600,
+      "sample_count": 2400,
+      "seconds": 15.90320541599067,
+      "send_duration_seconds": 0.0009048249921761453
+    },
+    {
+      "kind": "audio",
+      "sample_start": 384000,
+      "sample_count": 2400,
+      "seconds": 16.003826252999716,
+      "send_duration_seconds": 0.0009194180020131171
+    },
+    {
+      "kind": "audio",
+      "sample_start": 386400,
+      "sample_count": 2400,
+      "seconds": 16.103561715994147,
+      "send_duration_seconds": 0.0008923610002966598
+    },
+    {
+      "kind": "audio",
+      "sample_start": 388800,
+      "sample_count": 2400,
+      "seconds": 16.203844888994354,
+      "send_duration_seconds": 0.0009026499901665375
+    },
+    {
+      "kind": "audio",
+      "sample_start": 391200,
+      "sample_count": 1592,
+      "seconds": 16.303558466999675,
+      "send_duration_seconds": 0.0006457499985117465
+    },
+    {
+      "kind": "end",
+      "started_seconds": 16.36928840399196,
+      "seconds": 16.36937536500045
+    }
+  ],
+  "received_messages": [
+    {
+      "seconds": 4.833965622994583,
+      "message": {
+        "chunks": 1,
+        "text": " \n Speaker 0:This is a live speech recognition test. The "
+      }
+    },
+    {
+      "seconds": 7.315339931999915,
+      "message": {
+        "chunks": 2,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am "
+      }
+    },
+    {
+      "seconds": 10.322754077002173,
+      "message": {
+        "chunks": 3,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. "
+      }
+    },
+    {
+      "seconds": 13.068261142994743,
+      "message": {
+        "chunks": 4,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio "
+      }
+    },
+    {
+      "seconds": 15.968528547993628,
+      "message": {
+        "chunks": 5,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue "
+      }
+    },
+    {
+      "seconds": 17.08479308099777,
+      "message": {
+        "chunks": 6,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley."
+      }
+    },
+    {
+      "seconds": 17.08482257000287,
+      "message": {
+        "chunks": 6,
+        "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley.",
+        "done": true,
+        "total_chunks": 6
+      }
+    }
+  ],
+  "transcript_snapshots": [
+    {
+      "seconds": 4.833965622994583,
+      "text": " \n Speaker 0:This is a live speech recognition test. The ",
+      "chunks": 1,
+      "done": false
+    },
+    {
+      "seconds": 7.315339931999915,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am ",
+      "chunks": 2,
+      "done": false
+    },
+    {
+      "seconds": 10.322754077002173,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. ",
+      "chunks": 3,
+      "done": false
+    },
+    {
+      "seconds": 13.068261142994743,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio ",
+      "chunks": 4,
+      "done": false
+    },
+    {
+      "seconds": 15.968528547993628,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue ",
+      "chunks": 5,
+      "done": false
+    },
+    {
+      "seconds": 17.08479308099777,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley.",
+      "chunks": 6,
+      "done": false
+    },
+    {
+      "seconds": 17.08482257000287,
+      "text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley.",
+      "chunks": 6,
+      "done": true
+    }
+  ],
+  "first_nonempty_transcript_seconds": 4.833965622994583,
+  "audio_send_complete_seconds": 16.369217491999734,
+  "first_nonempty_before_audio_send_complete": true,
+  "text_before_audio_send_complete": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue ",
+  "end_send_started_seconds": 16.36928840399196,
+  "end_send_complete_seconds": 16.36937536500045,
+  "text_before_end_send": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue ",
+  "expected_tail_phrase": "blue skies over the quiet valley",
+  "expected_tail_phrase_completed_during_drain": true,
+  "expected_tail_phrase_drain_attribution": "received_after_end_frame_send",
+  "expected_tail_phrase_completion_uncertain": false,
+  "terminal_flush_seconds": 17.08482257000287,
+  "final_text": " \n Speaker 0:This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley.",
+  "websocket_cleanup": {
+    "done_message_received": true,
+    "close_frame_received": true,
+    "client_close_sent": true,
+    "client_abrupt_disconnect": false,
+    "transport_closed": true
+  },
+  "connected_seconds": 0.0017921629914781079,
+  "audio_frames_sent": 164,
+  "expected_text": "This is a live speech recognition test. The microphone sends audio to the server while I am speaking. Three clients receive the same words. When I mute the microphone, the audio stops immediately. The final sentence is blue skies over the quiet valley.",
+  "word_error_rate": {
+    "reference_words": 43,
+    "hypothesis_words": 45,
+    "edit_distance": 2,
+    "wer": 0.046511627906976744
+  },
+  "transcript_revision_count": 7,
+  "transcript_revised": true,
+  "status": "complete",
+  "completed_at_utc": "2026-10-04T02:14:09.733471+00:00",
+  "elapsed_seconds": 17.08482257000287
+}

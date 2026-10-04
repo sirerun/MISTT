@@ -1,0 +1,10 @@
+{
+  "load_seconds": 126.86656818600022,
+  "device": "NVIDIA GB10",
+  "attention": "sdpa",
+  "process_rss_bytes": 979636224,
+  "torch_allocated_bytes": 17348638720,
+  "torch_reserved_bytes": 17368612864,
+  "torch_peak_allocated_bytes": 17348638720,
+  "torch_peak_reserved_bytes": 17368612864
+}
