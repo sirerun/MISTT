@@ -86,9 +86,6 @@ func FromEnv() (Config, error) {
 			*dst = n
 		}
 	}
-	if err := c.Validate(false); err != nil {
-		return Config{}, err
-	}
 	return c, nil
 }
 func (c Config) Validate(requireCredentials bool) error {
