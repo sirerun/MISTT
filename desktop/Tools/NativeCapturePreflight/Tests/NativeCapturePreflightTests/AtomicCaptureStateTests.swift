@@ -47,6 +47,70 @@ final class AtomicCaptureStateTests: XCTestCase {
         }
     }
 
+    func testSequentialOverlapFailsClosedButAllowsOneNanosecondQuantization() {
+        let accepted = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(accepted) }
+        let epoch: UInt64 = 10_000_000
+        let firstStart: UInt64 = 10_100_000
+        let previousDuration: UInt64 = 62_500 // exact 3-frame duration at 48 kHz
+        MISTTOpenCaptureGate(accepted, epoch)
+        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart, 3, 48_000), 0)
+        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + previousDuration - 1, 3, 48_000), 0)
+        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + 2 * previousDuration - 1, 3, 48_000), 0)
+        XCTAssertTrue(MISTTCaptureGateIsOpen(accepted))
+        XCTAssertEqual(MISTTRecordBuffer(accepted, 0, true, firstStart + 3 * previousDuration - 2, 3, 48_000),
+                       Int32(MISTT_FAILURE_BUFFER_OVERLAP))
+        XCTAssertFalse(MISTTCaptureGateIsOpen(accepted))
+        var source = MISTTSourceSnapshot()
+        MISTTReadSource(accepted, 0, &source)
+        XCTAssertEqual(source.buffers, 3)
+        XCTAssertEqual(source.frames, 9)
+        XCTAssertEqual(source.clipped_or_dropped_frames, 3)
+        XCTAssertEqual(source.maximum_anchor_gap_ns, 0)
+
+        let rejected = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(rejected) }
+        MISTTOpenCaptureGate(rejected, epoch)
+        XCTAssertEqual(MISTTRecordBuffer(rejected, 0, true, firstStart, 3, 48_000), 0)
+        XCTAssertEqual(MISTTRecordBuffer(rejected, 0, true, firstStart + previousDuration - 2, 3, 48_000),
+                       Int32(MISTT_FAILURE_BUFFER_OVERLAP))
+        XCTAssertFalse(MISTTCaptureGateIsOpen(rejected))
+        XCTAssertEqual(MISTTFirstFailure(rejected), UInt32(MISTT_FAILURE_BUFFER_OVERLAP))
+    }
+
+    func testImplausibleSampleRatesAndUnboundedCallbackFramesFailClosed() {
+        let cases: [(UInt64, Double)] = [
+            (160, 7_999),
+            (160, 384_001),
+            (160, .nan),
+            (160, .infinity),
+            (1_048_577, 16_000),
+        ]
+        for (frameCount, sampleRate) in cases {
+            let state = MISTTCreateCaptureState()!
+            MISTTOpenCaptureGate(state, 1_000_000)
+            XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_001_000, frameCount, sampleRate),
+                           Int32(MISTT_FAILURE_INVALID_BUFFER))
+            XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+            XCTAssertEqual(MISTTFirstFailure(state), UInt32(MISTT_FAILURE_INVALID_BUFFER))
+            MISTTDestroyCaptureState(state)
+        }
+    }
+
+    func testTimestampAdditionOverflowFailsWithoutWrappingFrameAccounting() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        let epoch = UInt64.max - 100
+        MISTTOpenCaptureGate(state, epoch)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, epoch - 1, 2, 16_000),
+                       Int32(MISTT_FAILURE_COUNTER_OVERFLOW))
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+        var source = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &source)
+        XCTAssertEqual(source.buffers, 0)
+        XCTAssertEqual(source.frames, 0)
+    }
+
     func testCommonCutoffTrimsStraddlingBuffersAndRejectsLaterSamples() {
         let state = MISTTCreateCaptureState()!
         defer { MISTTDestroyCaptureState(state) }
@@ -115,6 +179,18 @@ final class AtomicCaptureStateTests: XCTestCase {
         var mic = MISTTSourceSnapshot()
         MISTTReadSource(state, 0, &mic)
         XCTAssertEqual(mic.frames, 1)
+        XCTAssertEqual(mic.clipped_or_dropped_frames, 1)
+    }
+    func testFractional48kCutoffExcludesSampleWhoseInstantFallsAfterStop() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 3, 48_000), 0)
+        // Sample #2 is at 41,666.667 ns; cutoff 41,666 ns conservatively excludes it.
+        MISTTCloseCaptureGate(state, 1_000_041_666)
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 2)
         XCTAssertEqual(mic.clipped_or_dropped_frames, 1)
     }
 
