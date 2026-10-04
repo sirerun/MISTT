@@ -25,6 +25,7 @@ from dgx.gateway.protocol import (
     validate_capture_started,
     validate_source_end,
     validate_start,
+    strict_json_loads,
 )
 from dgx.gateway.resample import StatefulLinearResampler
 from dgx.gateway.runtime import ModelGeometry, cached_context_tokens
@@ -102,6 +103,11 @@ class FakeRuntime:
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_control_json_rejects_duplicate_keys_and_nonstandard_numbers(self) -> None:
+        for text in ('{"type":"start","type":"source_end"}', '{"value":NaN}'):
+            with self.subTest(text=text), self.assertRaises(ProtocolError):
+                strict_json_loads(text)
+
     def test_golden_frames_round_trip_exactly(self) -> None:
         fixture = json.loads((ROOT / "docs/contracts/fixtures/paired-v1.json").read_text())
         for item in fixture["frames"]:
@@ -260,6 +266,7 @@ class GatewayIntegrationTests(unittest.TestCase):
         fixture = json.loads((ROOT / "docs/contracts/fixtures/paired-v1.json").read_text())
         events: list[dict] = []
         with TestClient(app) as client:
+            self.assertEqual(client.get("/mistt/healthz").json(), {"status": "ok"})
             self.assertEqual(client.get("/mistt/v1/capabilities").status_code, 401)
             caps = client.get("/mistt/v1/capabilities", headers={"Authorization": "Bearer test-bearer"}).json()
             self.assertEqual(caps["protocol"], "mistt.paired.v1")
