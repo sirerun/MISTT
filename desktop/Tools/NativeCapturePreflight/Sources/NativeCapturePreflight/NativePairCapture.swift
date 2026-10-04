@@ -62,7 +62,7 @@ final class NativePairCapture: @unchecked Sendable {
     private let lock = NSLock()
     private let stopQueue = DispatchQueue(label: "com.sirerun.mistt.preflight.stop", qos: .userInitiated)
     private let atomicState = MISTTCreateCaptureState()!
-    private let failureSignal: DispatchSourceUserDataAdd
+    private var failureSignal: DispatchSourceUserDataAdd?
     private var snapshot = CaptureSnapshot(status: "Muted", target: "com.tiktok.livestudio.desktop")
     private var isOpen = false
     private var isStarting = false
@@ -80,6 +80,7 @@ final class NativePairCapture: @unchecked Sendable {
 
     init() {
         let signal = DispatchSource.makeUserDataAddSource(queue: stopQueue)
+        failureSignal = signal
         signal.setEventHandler { [weak self] in
             guard let self else { return }
             let reason: String
@@ -92,12 +93,11 @@ final class NativePairCapture: @unchecked Sendable {
             }
             self.stop(reason: reason)
         }
-        failureSignal = signal
         signal.resume()
     }
 
     deinit {
-        failureSignal.cancel()
+        failureSignal?.cancel()
         MISTTDestroyCaptureState(atomicState)
     }
 
@@ -428,7 +428,7 @@ final class NativePairCapture: @unchecked Sendable {
     private func record(source: AudioSource, validHostTime: Bool, ticks: UInt64, frames: Int, sampleRate: Double, energy: UInt16? = nil) {
         let nanoseconds = ticks == 0 ? 0 : AudioConvertHostTimeToNanos(ticks)
         let failure = MISTTRecordBuffer(atomicState, source.rawValue, validHostTime, nanoseconds, UInt64(max(0, frames)), sampleRate)
-        if failure > 0 { failureSignal.add(data: 1) }
+        if failure > 0 { failureSignal?.add(data: 1) }
         guard failure == 0, validHostTime, nanoseconds > 0, frames > 0, sampleRate > 0,
               let energy else { return }
         let duration = UInt64(ceil(Double(frames) * 1_000_000_000 / sampleRate))

@@ -16,7 +16,7 @@ final class PCMFixtureConverterTests: XCTestCase {
 
     func testEachSourceCanUseItsOwnInputRateAndSampleCounter() {
         let microphone = PCMFixtureConverter.floatToMono16kS16LE([0, 0.5, 1, 0.5, 0], sourceRate: 48_000)
-        let callAudio = PCMFixtureConverter.monoS16ToMono16kS16LE([0, 16_384, 32_767, 16_384, 0], sourceRate: 44_100)
+        let callAudio = PCMFixtureConverter.monoS16ToMono16kS16LE(samples: [0, 16_384, 32_767, 16_384, 0], sourceRate: 44_100)
         XCTAssertEqual(microphone.count, 4)
         XCTAssertEqual(callAudio.count, 4)
         XCTAssertNotEqual(microphone, callAudio)

@@ -88,7 +88,7 @@ final class CaptureController: ObservableObject {
                 )
                 self.selectedTargets = targets
                 let capture = self.capture
-                try await Task.detached(priority: .userInitiated) {
+                try await Task.detached(priority: .userInitiated) { [capture, targets, startGeneration, weak self] in
                     try capture.start(targets: targets, generation: startGeneration) { [weak self] result in
                         Task { @MainActor in
                             guard let self, self.generation == startGeneration || !self.desiredOn else { return }

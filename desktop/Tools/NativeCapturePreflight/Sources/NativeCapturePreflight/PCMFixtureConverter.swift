@@ -13,7 +13,13 @@ enum PCMFixtureConverter {
     }
 
     static func monoS16ToMono16kS16LE(samples: [Int16], sourceRate: Double) -> [UInt8] {
-        floatToMono16kS16LE(samples.map { Float($0) / 32768.0 }, sourceRate: sourceRate)
+        if sourceRate == targetSampleRate {
+            return samples.flatMap { sample in
+                let bits = UInt16(bitPattern: sample)
+                return [UInt8(truncatingIfNeeded: bits), UInt8(truncatingIfNeeded: bits >> 8)]
+            }
+        }
+        return floatToMono16kS16LE(samples.map { Float($0) / 32768.0 }, sourceRate: sourceRate)
     }
 
     static func floatToMono16kS16LE(_ samples: [Float], sourceRate: Double) -> [UInt8] {
