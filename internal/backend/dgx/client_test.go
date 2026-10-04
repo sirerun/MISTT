@@ -1,6 +1,7 @@
 package dgx
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,6 +48,40 @@ func TestStrictJSONRejectsNestedDuplicateFields(t *testing.T) {
 	var value map[string]any
 	if err := strictJSON([]byte(`{"type":"ready","sources":[{"source":"microphone","source":"call_audio"}]}`), &value, "type", "sources"); err == nil {
 		t.Fatal("accepted duplicate nested source field")
+	}
+}
+
+func TestCaptureStartedWireMatchesGatewayNativeAckShape(t *testing.T) {
+	r := readyFixture()
+	requestID := "10112233-4455-6677-8899-aabbccddeeff"
+	wire, err := json.Marshal(captureStartedWire{
+		Type: "capture_started", RequestID: requestID, SessionID: r.SessionID,
+		CaptureEpochHostNS: 123, CaptureEpochUnixMS: 456,
+		Sources:         []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}},
+		MicrophoneReady: true, CallAudioReady: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(wire, &fields); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"type", "request_id", "session_id", "capture_epoch_host_ns", "capture_epoch_unix_ms", "sources", "microphone_ready", "call_audio_ready"}
+	if len(fields) != len(want) {
+		t.Fatalf("capture_started has wrong keyset: %s", wire)
+	}
+	for _, key := range want {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("capture_started lacks %q: %s", key, wire)
+		}
+	}
+	var decoded captureStartedWire
+	if err := json.Unmarshal(wire, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RequestID != requestID || decoded.SessionID != r.SessionID || !decoded.MicrophoneReady || !decoded.CallAudioReady {
+		t.Fatalf("capture_started acknowledgement fields were not preserved: %+v", decoded)
 	}
 }
 

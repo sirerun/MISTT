@@ -146,11 +146,14 @@ type sourceDoneWire struct {
 	Detail    *string      `json:"detail"`
 }
 type captureStartedWire struct {
+	RequestID          string                 `json:"request_id"`
 	Type               string                 `json:"type"`
 	SessionID          string                 `json:"session_id"`
 	CaptureEpochHostNS uint64                 `json:"capture_epoch_host_ns"`
 	CaptureEpochUnixMS int64                  `json:"capture_epoch_unix_ms"`
 	Sources            []backend.SourceFormat `json:"sources"`
+	MicrophoneReady    bool                   `json:"microphone_ready"`
+	CallAudioReady     bool                   `json:"call_audio_ready"`
 }
 
 type ClientSession struct {
@@ -331,12 +334,12 @@ func readStrictJSON(conn *websocket.Conn, dst any, required ...string) error {
 }
 func (s *ClientSession) Ready() backend.Ready         { return s.ready }
 func (s *ClientSession) Events() <-chan backend.Event { return s.events }
-func (s *ClientSession) CaptureStarted(epochHostNS uint64, epochUnixMS int64, sources []backend.SourceFormat) error {
+func (s *ClientSession) CaptureStarted(ack backend.CaptureStarted) error {
 	want := []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}}
-	if epochHostNS == 0 || epochUnixMS <= 0 || len(sources) != 2 || sources[0] != want[0] || sources[1] != want[1] {
-		return errors.New("capture_started requires the canonical paired source formats")
+	if !audio.ValidUUIDText(ack.RequestID) || ack.CaptureEpochHostNS == 0 || ack.CaptureEpochUnixMS <= 0 || !ack.MicrophoneReady || !ack.CallAudioReady || len(ack.Sources) != 2 || ack.Sources[0] != want[0] || ack.Sources[1] != want[1] {
+		return errors.New("capture_started requires correlated request, positive epochs, both ready sources, and canonical paired formats")
 	}
-	return s.writeJSON(captureStartedWire{Type: "capture_started", SessionID: s.ready.SessionID, CaptureEpochHostNS: epochHostNS, CaptureEpochUnixMS: epochUnixMS, Sources: sources})
+	return s.writeJSON(captureStartedWire{Type: "capture_started", RequestID: ack.RequestID, SessionID: s.ready.SessionID, CaptureEpochHostNS: ack.CaptureEpochHostNS, CaptureEpochUnixMS: ack.CaptureEpochUnixMS, Sources: ack.Sources, MicrophoneReady: ack.MicrophoneReady, CallAudioReady: ack.CallAudioReady})
 }
 func (s *ClientSession) QueueFrame(f audio.Frame) error {
 	if err := f.Validate(); err != nil {

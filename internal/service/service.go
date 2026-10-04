@@ -442,7 +442,7 @@ func (s *Service) startPair() error {
 				if m.CaptureEpochUnixMS < 0 {
 					return failStartedRequest(errors.New("native capture epoch wall clock is negative"))
 				}
-				if err := remote.CaptureStarted(m.CaptureEpochHostNS, m.CaptureEpochUnixMS, formatsToBackend(formats)); err != nil {
+				if err := remote.CaptureStarted(backend.CaptureStarted{RequestID: m.RequestID, CaptureEpochHostNS: m.CaptureEpochHostNS, CaptureEpochUnixMS: m.CaptureEpochUnixMS, Sources: formatsToBackend(formats), MicrophoneReady: m.MicrophoneReady, CallAudioReady: m.CallAudioReady}); err != nil {
 					return failStartedRequest(fmt.Errorf("forward capture epoch to DGX: %w", err))
 				}
 				pair := &activePair{id: id, remote: remote, ready: ready, reqID: reqID, epochHostNS: m.CaptureEpochHostNS, epochUnixMS: m.CaptureEpochUnixMS, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}}
