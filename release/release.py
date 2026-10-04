@@ -35,6 +35,24 @@ def run(*args: str, **kwargs) -> str:
                           timeout=kwargs.pop("timeout", 1800), **kwargs).stdout.strip()
 
 
+def run_build(*args: str, **kwargs) -> str:
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return run(*args, **kwargs)
+    run("uptime")
+    if os.getloadavg()[0] > 10:
+        raise ValueError("Shared Mac load exceeds 10; defer the native build")
+    claim_script = required("MISTT_CLAIM_SCRIPT")
+    required("CLAIM_REMOTE")
+    claim = run(claim_script, "claim", "R-build-lease", "--purpose", " ".join(args), cwd=ROOT)
+    fields = claim.split()
+    if len(fields) != 3 or fields[:2] != ["WON:", "R-build-lease"] or not re.fullmatch(r"[0-9a-f]{40}", fields[2]):
+        raise ValueError("Shared build lease was not acquired")
+    try:
+        return run(*args, **kwargs)
+    finally:
+        run(claim_script, "release", "R-build-lease", fields[2], cwd=ROOT)
+
+
 def digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -146,11 +164,11 @@ def build(version: str, build_number: str, output: Path) -> Path:
                TMPDIR=str(cache), CLANG_MODULE_CACHE_PATH=str(cache / "clang"),
                SWIFTPM_MODULECACHE_OVERRIDE=str(cache / "swift-module"), CGO_ENABLED="0", GOARCH="arm64", GOOS="darwin")
     relay = output / "mistt"
-    run("go", "build", "-trimpath", "-o", str(relay), "./cmd/mistt", cwd=ROOT, env=env)
+    run_build("go", "build", "-trimpath", "-o", str(relay), "./cmd/mistt", cwd=ROOT, env=env)
     scratch = cache / "swiftpm"
-    run("swift", "build", "--package-path", str(ROOT / "desktop"), "--scratch-path", str(scratch),
+    run_build("swift", "build", "--package-path", str(ROOT / "desktop"), "--scratch-path", str(scratch),
         "--configuration", "release", "--arch", "arm64", "--jobs", "2", "--product", "MISTTDesktop", env=env)
-    bins = Path(run("swift", "build", "--package-path", str(ROOT / "desktop"), "--scratch-path", str(scratch),
+    bins = Path(run_build("swift", "build", "--package-path", str(ROOT / "desktop"), "--scratch-path", str(scratch),
                     "--configuration", "release", "--arch", "arm64", "--show-bin-path", env=env))
     frameworks = list((scratch / "artifacts").rglob("Sparkle.framework"))
     frameworks = [p for p in frameworks if "macos" in str(p.parent).lower()]
