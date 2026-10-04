@@ -1,0 +1,802 @@
+{
+  "proposal_status": "Draft control contract; source/time semantics accepted; numeric stop/watchdog budgets still require native preflight",
+  "wire": {
+    "native_stdin_framing": {
+      "prefix": "uint32 big-endian byte length of following kind byte plus payload",
+      "json_kind": 1,
+      "json_utf8_body_max_bytes": 65536,
+      "json_framed_length_max_bytes": 65537,
+      "audio_kind": 2,
+      "audio_frame_max_bytes": 3252,
+      "audio_framed_length_max_bytes": 3253,
+      "reject_before_allocation": [
+        "zero length",
+        "over-limit length",
+        "unknown kind",
+        "invalid JSON",
+        "invalid frame"
+      ]
+    },
+    "relay_stdout": {
+      "format": "one UTF-8 JSON object per LF-terminated line",
+      "proposed_max_line_bytes": 65536,
+      "contains": [
+        "status",
+        "capture_start",
+        "capture_stop",
+        "control_result",
+        "heartbeat"
+      ],
+      "never_contains": [
+        "audio",
+        "transcript text",
+        "credentials"
+      ]
+    },
+    "integer_encoding": "Emit counters and timestamps as base-10 JSON integer tokens. Decode directly to bounded signed/unsigned 64-bit fields; reject fractional, exponent, negative-unsigned, overflow, and duplicate-key values. Never decode through floating point.",
+    "uuid_encoding": "Canonical lowercase RFC 4122 UUID text; session_id is the capture generation and request_id is a fresh independent UUID per operation."
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mistt:native-control:v1",
+  "title": "MISTT paired native/relay control messages",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/capture_start"
+    },
+    {
+      "$ref": "#/$defs/capture_started"
+    },
+    {
+      "$ref": "#/$defs/capture_stop"
+    },
+    {
+      "$ref": "#/$defs/capture_stopped"
+    },
+    {
+      "$ref": "#/$defs/capture_failed"
+    },
+    {
+      "$ref": "#/$defs/source_end"
+    },
+    {
+      "$ref": "#/$defs/native_set_muted"
+    },
+    {
+      "$ref": "#/$defs/control_result"
+    },
+    {
+      "$ref": "#/$defs/status"
+    },
+    {
+      "$ref": "#/$defs/heartbeat"
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "Canonical lowercase RFC 4122 version 4 UUID."
+    },
+    "uint32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "uint64": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615,
+      "description": "Must remain an exact integer token through parsing and serialization."
+    },
+    "int64": {
+      "type": "integer",
+      "minimum": -9223372036854775808,
+      "maximum": 9223372036854775807
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "microphone",
+        "call_audio"
+      ]
+    },
+    "source_format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "sample_rate_hz",
+        "channels",
+        "encoding"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "sample_rate_hz": {
+          "const": 16000
+        },
+        "channels": {
+          "const": 1
+        },
+        "encoding": {
+          "const": "s16le"
+        }
+      }
+    },
+    "source_pair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/microphone_format"
+        },
+        {
+          "$ref": "#/$defs/call_audio_format"
+        }
+      ],
+      "items": false,
+      "description": "Exactly two formats in canonical order: microphone, then call_audio."
+    },
+    "microphone_format": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/source_format"
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "microphone"
+            }
+          }
+        }
+      ]
+    },
+    "call_audio_format": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/source_format"
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "call_audio"
+            }
+          }
+        }
+      ]
+    },
+    "bundle_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 255,
+      "pattern": "^(?:[A-Za-z0-9-]+\\.)+[A-Za-z0-9-]+$"
+    },
+    "safe_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_.-]*$"
+    },
+    "safe_detail": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+      "description": "Sanitized bounded diagnostic; must not contain secrets, transcript/audio, paths, or raw remote errors."
+    },
+    "status_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "muted",
+        "capturing",
+        "connected_clients",
+        "reason",
+        "revision"
+      ],
+      "properties": {
+        "muted": {
+          "type": "boolean"
+        },
+        "capturing": {
+          "type": "boolean"
+        },
+        "connected_clients": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[a-z0-9_.-]+$"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint64"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "detail"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/safe_code"
+        },
+        "detail": {
+          "$ref": "#/$defs/safe_detail"
+        }
+      }
+    },
+    "capture_start": {
+      "type": "object",
+      "x-direction": "Go to native",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "session_id",
+        "sources",
+        "microphone",
+        "call_audio"
+      ],
+      "properties": {
+        "type": {
+          "const": "capture_start"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "sources": {
+          "$ref": "#/$defs/source_pair"
+        },
+        "microphone": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "device"
+          ],
+          "properties": {
+            "device": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        },
+        "call_audio": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bundle_id",
+            "include_helpers"
+          ],
+          "properties": {
+            "bundle_id": {
+              "$ref": "#/$defs/bundle_id"
+            },
+            "include_helpers": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/bundle_id"
+              }
+            }
+          }
+        }
+      }
+    },
+    "capture_started": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "session_id",
+        "capture_epoch_host_ns",
+        "capture_epoch_unix_ms",
+        "sources",
+        "microphone_ready",
+        "call_audio_ready"
+      ],
+      "properties": {
+        "type": {
+          "const": "capture_started"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "capture_epoch_host_ns": {
+          "$ref": "#/$defs/uint64"
+        },
+        "capture_epoch_unix_ms": {
+          "$ref": "#/$defs/int64"
+        },
+        "sources": {
+          "$ref": "#/$defs/source_pair"
+        },
+        "microphone_ready": {
+          "const": true
+        },
+        "call_audio_ready": {
+          "const": true
+        }
+      }
+    },
+    "capture_stop": {
+      "type": "object",
+      "x-direction": "Go to native",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "session_id",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "const": "capture_stop"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "muted",
+            "no_clients",
+            "max_duration",
+            "shutdown",
+            "capture_failure",
+            "backend_failure",
+            "native_failure"
+          ]
+        }
+      }
+    },
+    "capture_stopped": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "session_id",
+        "cutoff_host_ns",
+        "microphone_io_stopped",
+        "tap_io_stopped",
+        "tap_destroyed",
+        "aggregate_destroyed"
+      ],
+      "properties": {
+        "type": {
+          "const": "capture_stopped"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "cutoff_host_ns": {
+          "$ref": "#/$defs/uint64"
+        },
+        "microphone_io_stopped": {
+          "const": true
+        },
+        "tap_io_stopped": {
+          "const": true
+        },
+        "tap_destroyed": {
+          "const": true
+        },
+        "aggregate_destroyed": {
+          "const": true
+        }
+      }
+    },
+    "capture_failed": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "session_id",
+        "code",
+        "detail",
+        "closure_confirmed"
+      ],
+      "properties": {
+        "type": {
+          "const": "capture_failed"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "code": {
+          "$ref": "#/$defs/safe_code"
+        },
+        "detail": {
+          "$ref": "#/$defs/safe_detail"
+        },
+        "closure_confirmed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "source_end": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "session_id",
+        "source",
+        "last_sequence",
+        "total_samples"
+      ],
+      "properties": {
+        "type": {
+          "const": "source_end"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "last_sequence": {
+          "$ref": "#/$defs/uint64"
+        },
+        "total_samples": {
+          "$ref": "#/$defs/uint64"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "last_sequence": {
+                "const": 0
+              }
+            },
+            "required": [
+              "last_sequence"
+            ]
+          },
+          "then": {
+            "properties": {
+              "total_samples": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_set_muted": {
+      "type": "object",
+      "x-direction": "Native to Go",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "command_sequence",
+        "expected_status_revision",
+        "muted"
+      ],
+      "properties": {
+        "type": {
+          "const": "native_set_muted"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "command_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "expected_status_revision": {
+          "$ref": "#/$defs/uint64"
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "control_result": {
+      "type": "object",
+      "x-direction": "Go to native",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "status",
+        "error"
+      ],
+      "properties": {
+        "type": {
+          "const": "control_result"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "status": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/status_fields"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/status_fields"
+            },
+            "error": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/error"
+            }
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "x-direction": "Go to native",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "muted",
+        "capturing",
+        "connected_clients",
+        "reason",
+        "revision"
+      ],
+      "properties": {
+        "type": {
+          "const": "status"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "capturing": {
+          "type": "boolean"
+        },
+        "connected_clients": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[a-z0-9_.-]+$"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint64"
+        }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "x-direction": "Go to native",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "counter"
+      ],
+      "properties": {
+        "type": {
+          "const": "heartbeat"
+        },
+        "counter": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      }
+    }
+  },
+  "x-examples": [
+    {
+      "type": "capture_start",
+      "request_id": "11112233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "sources": [
+        {
+          "source": "microphone",
+          "sample_rate_hz": 16000,
+          "channels": 1,
+          "encoding": "s16le"
+        },
+        {
+          "source": "call_audio",
+          "sample_rate_hz": 16000,
+          "channels": 1,
+          "encoding": "s16le"
+        }
+      ],
+      "microphone": {
+        "device": "default"
+      },
+      "call_audio": {
+        "bundle_id": "com.tiktok.livestudio.desktop",
+        "include_helpers": []
+      }
+    },
+    {
+      "type": "capture_started",
+      "request_id": "11112233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "capture_epoch_host_ns": 123456000,
+      "capture_epoch_unix_ms": 1791000000000,
+      "sources": [
+        {
+          "source": "microphone",
+          "sample_rate_hz": 16000,
+          "channels": 1,
+          "encoding": "s16le"
+        },
+        {
+          "source": "call_audio",
+          "sample_rate_hz": 16000,
+          "channels": 1,
+          "encoding": "s16le"
+        }
+      ],
+      "microphone_ready": true,
+      "call_audio_ready": true
+    },
+    {
+      "type": "capture_stop",
+      "request_id": "22222233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "reason": "muted"
+    },
+    {
+      "type": "capture_stopped",
+      "request_id": "22222233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "cutoff_host_ns": 123500000,
+      "microphone_io_stopped": true,
+      "tap_io_stopped": true,
+      "tap_destroyed": true,
+      "aggregate_destroyed": true
+    },
+    {
+      "type": "capture_failed",
+      "request_id": "33332233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "code": "permission_denied",
+      "detail": "paired capture permission was not granted",
+      "closure_confirmed": false
+    },
+    {
+      "type": "capture_failed",
+      "request_id": "66662233-4455-4677-8899-aabbccddeeff",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "code": "stale_session",
+      "detail": "stop request does not name the active capture session",
+      "closure_confirmed": false
+    },
+    {
+      "type": "source_end",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "source": "microphone",
+      "last_sequence": 3,
+      "total_samples": 4000
+    },
+    {
+      "type": "source_end",
+      "session_id": "00112233-4455-4677-8899-aabbccddeeff",
+      "source": "call_audio",
+      "last_sequence": 0,
+      "total_samples": 0
+    },
+    {
+      "type": "native_set_muted",
+      "request_id": "44442233-4455-4677-8899-aabbccddeeff",
+      "command_sequence": 19,
+      "expected_status_revision": 11,
+      "muted": true
+    },
+    {
+      "type": "control_result",
+      "request_id": "44442233-4455-4677-8899-aabbccddeeff",
+      "status": {
+        "muted": true,
+        "capturing": false,
+        "connected_clients": 1,
+        "reason": "user",
+        "revision": 12
+      },
+      "error": null
+    },
+    {
+      "type": "control_result",
+      "request_id": "55552233-4455-4677-8899-aabbccddeeff",
+      "status": null,
+      "error": {
+        "code": "closure_unconfirmed",
+        "detail": "paired capture resources did not confirm closure"
+      }
+    },
+    {
+      "type": "status",
+      "muted": true,
+      "capturing": false,
+      "connected_clients": 1,
+      "reason": "user",
+      "revision": 13
+    },
+    {
+      "type": "heartbeat",
+      "counter": 38
+    }
+  ],
+  "x-closure_and_ordering_rules": [
+    "capture_started is sent only after both sources are usable and the shared epoch/gates are established; no audio precedes it.",
+    "capture_stopped acknowledges cutoff and confirmed resource closure only; it does not acknowledge audio drain or EOF.",
+    "On mute, pause new live DGX WebSocket forwarding immediately, while an independent native IPC reader continues reading into bounded per-source queues. After a verified cutoff ACK, forward only valid retained pre-cutoff frames, then source_end barriers. Do not block the native IPC reader on remote writes.",
+    "Native must trim buffers at the shared cutoff before framing. Go validates each sample interval against the acknowledged cutoff; any sample at/after cutoff or any frame that crosses the cutoff is a pair failure. Go must not silently trim or rewrite sequence/sample ledgers.",
+    "source_end is emitted only after every retained frame for that same source through last_sequence has been completely written to the native-to-Go pipe; other-source PCM may remain queued. Go's remote source_end barrier follows all queued remote audio for that source.",
+    "Control/stop acknowledgement may bypass PCM backlog only before a frame write starts. source_end cannot overtake same-source retained PCM. Preserve per-source FIFO and bounded queues; a partial frame cannot be interrupted or interleaved.",
+    "If a per-source queue fills, fail the pair explicitly; never silently drop audio or exceed the bound. After closure-unconfirmed failure, abort remote input and discard queues; report explicit failure and do not fabricate final transcript events.",
+    "A stop ACK timeout, pipe/process death, or false closure flag is a closure failure; it never becomes success because audio drained or a watchdog elapsed.",
+    "After both source_end markers have passed during a normal stop, drain both remote ASR contexts to the single bounded overall drain deadline. Stop RPC/UI confirmation waits for closure ACK, not transcript finals.",
+    "Source-local end sequence/sample totals count only transmitted samples after cutoff trimming; empty sources use zero for both.",
+    "capture_failed is never a substitute for cutoff-bearing capture_stopped on an already-started session. If failure lacks a correlated capture_stopped, Go requests paired stop and cannot report successful closure/drain until its matching ACK arrives. A pre-start failure has no remote session to drain.",
+    "A stale capture_stop response is capture_failed with the original request_id, the stale session_id, code stale_session, and closure_confirmed=false; it never changes current-session state.",
+    "native_set_muted carries process-wide command_sequence and expected_status_revision. Accept a new command only if its sequence exceeds the retained high-water mark and its expected revision matches current relay status. Cache the terminal result by sequence/request_id; an identical cached retry replays it, a payload mismatch fails, and an evicted/older sequence is rejected without reapplication. Keep the sequence high-water mark across capture-generation retirement; accepted commands advance it even when the expected revision conflicts.",
+    "The native mute button closes local gates synchronously on user intent. A stale/replayed command received by Go cannot reapply an old desired state; a stale expected revision returns a conflict with current flat status and requires a fresh UI command.",
+    "The native writer uses nonblocking/deadline-bounded writes. It may prioritize control only before starting an audio IPC frame; after a partial frame it either completes that frame within the deadline or declares IPC failure. On blocked-write timeout, native gates/resource teardown proceed independently, the pipe/child is failed closed, and Go must treat closure as unconfirmed.",
+    "Keep one prioritized bounded stdout control writer independent from DGX reads and event delivery; status can coalesce, correlated controls cannot."
+  ]
+}

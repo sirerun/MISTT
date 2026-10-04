@@ -14,15 +14,15 @@ The icon is both the logo and the sole primary control. The muted form adds a cl
 
 ## Authoritative states
 
-| Relay condition | Visible label | Capture | Count / control behavior |
+| Authoritative paired condition | Visible label | Capture | Count / control behavior |
 |---|---|---|---|
 | Startup / user muted | Muted | Off | Existing accepted subscribers still count; toggle explicitly enables |
 | User enabled, no subscribers | On | Off | 0 clients connected; accessible description says ready, no clients |
 | User enabled, starting backend | On | Off | Accepted subscribers count; accessible description says connecting |
-| User enabled, backend ready, demand present | On | On | Actual accepted subscription count |
-| Permission, backend, or capture failure | Muted | Off | Count reflects surviving subscriptions; concise failure reason on button tooltip/accessibility description |
+| User enabled, backend + both native sources ready, demand present | On | Both | Actual accepted subscription count |
+| Either permission/target, backend, or capture failure | Muted | Off | Count reflects surviving subscriptions; concise failure reason on button tooltip/accessibility description |
 
-Watching UI status never counts as a transcript subscription. Muting retains subscriptions, stops capture immediately, and drains only audio already captured. A dead backend/relay must not leave stale On state; an unresponsive local relay disables the toggle and exposes its failure through the same state/control area. Capture runs in the relay process, so renderer failure cannot invent a new microphone state.
+Watching UI status never counts as a transcript subscription. Muting retains subscriptions, stops capture immediately, and drains only pre-cutoff audio from each source. A dead backend/relay must not leave stale On state; an unresponsive local relay disables the toggle and exposes its failure through the same state/control area. Both sources run in the native app process; relay/IPC loss closes the pair through the qualified watchdog. Native UI failure cannot leave orphan capture, and UI state must follow actual paired closure.
 
 Use the latest `WatchStatus` snapshot and ordered updates. Apply only the newest process-local status revision, including control responses; reset revision tracking after reconnect. Send explicit `SetMuted(true|false)` requests; do not optimistically declare successful unmute from a button click. The startup pending state remains Muted until the relay acknowledges the desired state. Counts use 0 clients, 1 client, and N clients grammar.
 
@@ -49,4 +49,8 @@ Variant 1 uses warm ivory and deep teal with softened microphone geometry. Varia
 
 ## Delivery boundary
 
-This task updates the RFC and provides three generated visual directions plus transparent editable logo assets and exact-content UI mockups. Logo 3 is selected and promoted to the default logo assets. No desktop app or DGX ASR deployment is implemented by these artifacts; the accepted architecture and privacy rules do not depend on the logo choice.
+This task updates the RFC and provides three generated visual directions plus transparent editable logo assets and exact-content UI mockups. Logo 3 is selected and promoted to the default logo assets. These visual artifacts implement no desktop app or DGX ASR deployment; the accepted architecture and privacy rules do not depend on the logo choice.
+
+## Dual-source control update (2026-10-04 UTC)
+
+The selected logo and three-element surface remain unchanged. The microphone button controls **both** microphone and selected-app playback capture. Its accessible label/help must say “Mute microphone and call audio” / “Enable microphone and call audio”; do not imply it controls only one input. The client count counts transcript subscriptions once, not source streams. **On** means the pair is user-enabled, still subject to both permissions, target/readiness and demand; source failure returns Muted with an accessible reason. App selection, bundle ID/helper scope and provisioning stay outside this UI. No app picker, transcript panel or source switches are added. See [capture ADR](../adr/0002-dual-source-native-capture.md).
