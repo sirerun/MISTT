@@ -1,6 +1,8 @@
 package dgx
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirerun/MISTT/internal/audio"
@@ -8,7 +10,7 @@ import (
 )
 
 func readyFixture() readyWire {
-	return readyWire{Type: "ready", Protocol: protocol, SessionID: "00112233-4455-6677-8899-aabbccddeeff", Language: "en", Model: "fixture-model", MaxActivePairs: 1, MaxInferenceWorkers: 1, StartupTimeoutMS: 180000, DrainTimeoutMS: 5000, AggregateMaxAudioSamples: 32000, AggregateMaxQueueFrames: 8, AggregateMaxContextTokens: 2000, AggregateDrainReserveModelSamples: 100, AggregateDrainReserveTokens: 20, Sources: []sourceLimit{
+	return readyWire{Type: "ready", Protocol: protocol, SessionID: "00112233-4455-6677-8899-aabbccddeeff", Language: "en", Model: modelWire{ID: "fixture", Revision: "rev1", SourceCommit: "abcdef0", SampleRate: 24000, ChunkSamples: 480, Lookahead: 240}, MaxActivePairs: 1, MaxInferenceWorkers: 1, StartupTimeoutMS: 180000, DrainTimeoutMS: 5000, AggregateMaxAudioSamples: 32000, AggregateMaxQueueFrames: 8, AggregateMaxContextTokens: 2000, AggregateDrainReserveModelSamples: 100, AggregateDrainReserveTokens: 20, Sources: []sourceLimit{
 		{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding, MaxFrameSamples: 1600, MaxQueueFrames: 4, MaxAudioSamples: 16000, MaxContextTokens: 1000, DrainReserveModelSamples: 50, DrainReserveTokens: 10},
 		{Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding, MaxFrameSamples: 1600, MaxQueueFrames: 4, MaxAudioSamples: 16000, MaxContextTokens: 1000, DrainReserveModelSamples: 50, DrainReserveTokens: 10},
 	}}
@@ -38,6 +40,38 @@ func TestReadyRequiresPairedBoundedResources(t *testing.T) {
 				t.Fatal("accepted unsafe ready")
 			}
 		})
+	}
+}
+
+func TestStrictJSONRejectsNestedDuplicateFields(t *testing.T) {
+	var value map[string]any
+	if err := strictJSON([]byte(`{"type":"ready","sources":[{"source":"microphone","source":"call_audio"}]}`), &value, "type", "sources"); err == nil {
+		t.Fatal("accepted duplicate nested source field")
+	}
+}
+
+func TestRestrictedTokenRejectsBroadPermissionsAndSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	if err := os.WriteFile(path, []byte("secret-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readRestrictedToken(path)
+	if err != nil || got != "secret-token" {
+		t.Fatalf("restricted token read failed: %v", err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRestrictedToken(path); err == nil {
+		t.Fatal("accepted group/world-readable token")
+	}
+	link := filepath.Join(dir, "token-link")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRestrictedToken(link); err == nil {
+		t.Fatal("accepted symlink token path")
 	}
 }
 

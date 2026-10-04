@@ -70,6 +70,14 @@ type commandRecord struct {
 	requestID, payload string
 	result             ipc.NativeMessage
 }
+type muteRecord struct {
+	payload  string
+	result   *misttv1.Status
+	code     codes.Code
+	detail   string
+	done     chan struct{}
+	complete bool
+}
 
 type Service struct {
 	misttv1.UnimplementedMisttServer
@@ -102,11 +110,13 @@ type Service struct {
 	commandHigh       uint64
 	commands          map[uint64]commandRecord
 	requestCommands   map[string]uint64
+	muteRequests      map[string]*muteRecord
+	muteOrder         []string
 	segmentFinal      map[string]segmentState
 }
 
 func New(cfg config.Config, provider backend.Provider, in io.Reader, out *ipc.Writer) *Service {
-	s := &Service{cfg: cfg, backend: provider, input: ipc.NewReader(in), output: out, incoming: make(chan ipc.Event, 256), fatal: make(chan error, 1), changed: make(chan struct{}, 1), statusChanged: make(chan struct{}), muted: true, reason: "startup_muted", revision: 1, closureConfirmed: true, clients: map[uint64]*subscriber{}, closed: make(chan struct{}), shutdownDone: make(chan struct{}), commands: map[uint64]commandRecord{}, requestCommands: map[string]uint64{}, segmentFinal: map[string]segmentState{}}
+	s := &Service{cfg: cfg, backend: provider, input: ipc.NewReader(in), output: out, incoming: make(chan ipc.Event, 256), fatal: make(chan error, 1), changed: make(chan struct{}, 1), statusChanged: make(chan struct{}), muted: true, reason: "startup_muted", revision: 1, closureConfirmed: true, clients: map[uint64]*subscriber{}, closed: make(chan struct{}), shutdownDone: make(chan struct{}), commands: map[uint64]commandRecord{}, requestCommands: map[string]uint64{}, muteRequests: map[string]*muteRecord{}, segmentFinal: map[string]segmentState{}}
 	return s
 }
 
@@ -260,7 +270,10 @@ func (s *Service) updateReadyLocked() bool {
 	return s.muted && s.active == nil && !s.starting && !s.capturing && s.closureConfirmed
 }
 func (s *Service) demandLocked() bool {
-	return !s.muted && !s.updateReserved && s.closureConfirmed && len(s.clients) > 0
+	return !s.muted && !s.updateReserved && !s.shutdownRequested && len(s.clients) > 0
+}
+func (s *Service) canStartLocked() bool {
+	return s.demandLocked() && s.closureConfirmed && !s.starting && s.active == nil
 }
 func (s *Service) supervise() {
 	for {
@@ -271,6 +284,7 @@ func (s *Service) supervise() {
 		}
 		s.mu.Lock()
 		demand := s.demandLocked()
+		canStart := s.canStartLocked()
 		active := s.active
 		stopping := s.stopping
 		shutdownRequested := s.shutdownRequested
@@ -286,7 +300,7 @@ func (s *Service) supervise() {
 			}
 			continue
 		}
-		if demand {
+		if canStart {
 			if err := s.startPair(); err != nil {
 				s.mu.Lock()
 				s.muted = true
@@ -317,7 +331,7 @@ func (s *Service) supervise() {
 }
 func (s *Service) startPair() error {
 	s.mu.Lock()
-	if !s.demandLocked() || s.starting || s.active != nil {
+	if !s.demandLocked() || !s.closureConfirmed || s.starting || s.active != nil {
 		s.mu.Unlock()
 		return nil
 	}
@@ -677,6 +691,7 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 		s.abortPair(pair, stopFailureReason(ackErr), ackErr)
 		return
 	}
+	pair.closed = true
 	pair.cutoffHostNS = ack.CutoffHostNS
 	pair.cutoffKnown = true
 	if pair.cutoffHostNS < pair.epochHostNS {
@@ -687,7 +702,6 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 	s.mu.Lock()
 	s.capturing = false
 	s.closureConfirmed = true
-	pair.closed = true
 	if cause != nil {
 		s.reason = "native_failure"
 	} else {
@@ -768,6 +782,12 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 		if errors.Is(failure, context.DeadlineExceeded) {
 			finishReason = "drain_timeout"
 		}
+		s.mu.Lock()
+		s.muted = true
+		s.reason = finishReason
+		s.publishLocked()
+		s.signalLocked()
+		s.mu.Unlock()
 		s.finishPair(pair, finishReason, failure)
 	} else {
 		_ = pair.remote.Close()
