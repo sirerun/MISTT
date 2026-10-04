@@ -238,7 +238,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
                                          isStarting: false, controlPending: true)
         writer.enqueueControl(NativeSetMuted(requestId: requestID, commandSequence: commandSequence,
                                              expectedStatusRevision: expectedRevision, muted: muted))
-        armCommandTimeout(requestID)
+        armCommandTimeout(requestID, timeout: .seconds(6))
     }
 
     private func waitForSafeIdleStatus(until deadline: ContinuousClock.Instant) async -> Bool {
@@ -269,10 +269,10 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         armCommandTimeout(requestID)
     }
 
-    private func armCommandTimeout(_ id: UUID) {
+    private func armCommandTimeout(_ id: UUID, timeout: Duration = .seconds(3)) {
         pendingCommandTimeout?.cancel()
         pendingCommandTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: timeout)
             guard !Task.isCancelled else { return }
             self?.commandTimedOut(id)
         }
