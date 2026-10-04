@@ -49,6 +49,7 @@ private struct PreflightView: View {
                     GridRow { Text("Stop deadline missed").bold(); Text(controller.snapshot.stopDeadlineExceeded ? "Yes" : "No") }
                     GridRow { Text("Mic I/O stopped").bold(); Text(controller.snapshot.microphoneIOStopped.map(String.init) ?? "Not stopped") }
                     GridRow { Text("Tap I/O stopped").bold(); Text(controller.snapshot.tapIOStopped.map(String.init) ?? "Not stopped") }
+                    GridRow { Text("Tap callbacks quiesced").bold(); Text(controller.snapshot.tapCallbacksQuiesced.map(String.init) ?? "Not stopped") }
                     GridRow { Text("Aggregate destroyed").bold(); Text(controller.snapshot.aggregateDestroyed.map(String.init) ?? "Not stopped") }
                     GridRow { Text("Tap destroyed").bold(); Text(controller.snapshot.tapDestroyed.map(String.init) ?? "Not stopped") }
                     GridRow { Text("First failure").bold(); Text(controller.snapshot.firstFailure ?? "None").textSelection(.enabled) }
