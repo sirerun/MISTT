@@ -11,6 +11,19 @@ enum PCMStreamConverterError: Error, Equatable {
     case anchorOverflow
 }
 
+enum PCMFormatBounds {
+    static func isSupportedMicrophoneSampleRate(_ sampleRate: Double) -> Bool {
+        sampleRate.isFinite && (8_000...768_000).contains(sampleRate)
+    }
+}
+
+enum PCMStreamNumericBounds {
+    static func uint64(_ value: Double) -> UInt64? {
+        guard value.isFinite, value >= 0, value < Double(UInt64.max) else { return nil }
+        return UInt64(value)
+    }
+}
+
 /// Stateful AVAudioConverter wrapper for callback-sized Float32 blocks. The
 /// converter retains its filter/phase state between calls; buffers and output
 /// are bounded, and this type never persists PCM.
@@ -34,7 +47,11 @@ final class BoundedPCMStreamConverter {
               (1...2).contains(channels), maximumInputFrames > 0 else {
             throw PCMStreamConverterError.invalidFormat
         }
-        let outputBound = ceil(Double(maximumInputFrames + 256) * targetRate / sourceRate) + 256
+        let expandedInputFrames = maximumInputFrames.addingReportingOverflow(256)
+        guard !expandedInputFrames.overflow, maximumInputFrames <= 65_536 else {
+            throw PCMStreamConverterError.invalidFormat
+        }
+        let outputBound = ceil(Double(expandedInputFrames.partialValue) * targetRate / sourceRate) + 256
         guard outputBound.isFinite, outputBound <= 65_536,
               let inputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sourceRate,
                                               channels: AVAudioChannelCount(channels), interleaved: false),
@@ -145,8 +162,9 @@ final class BoundedPCMStreamConverter {
         let releaseFrames: Int
         if endOfStream {
             let expected = ceil(Double(receivedFrames) * targetRate / sourceRate)
-            guard expected.isFinite, expected <= Double(UInt64.max) else { throw PCMStreamConverterError.outputLimitExceeded }
-            let expectedFrames = UInt64(expected)
+            guard let expectedFrames = PCMStreamNumericBounds.uint64(expected) else {
+                throw PCMStreamConverterError.outputLimitExceeded
+            }
             guard emittedFrames <= expectedFrames else { throw PCMStreamConverterError.outputLimitExceeded }
             let remaining = expectedFrames - emittedFrames
             guard remaining <= UInt64(pendingFrames) else { throw PCMStreamConverterError.outputLimitExceeded }
@@ -180,8 +198,10 @@ enum PCMStreamAnchor {
     static func nanoseconds(startNanoseconds: UInt64, frameOffset: UInt64, sampleRate: Double) throws -> UInt64 {
         guard sampleRate.isFinite, sampleRate > 0 else { throw PCMStreamConverterError.invalidFormat }
         let offset = (Double(frameOffset) * 1_000_000_000 / sampleRate).rounded(.toNearestOrAwayFromZero)
-        guard offset >= 0, offset <= Double(UInt64.max) else { throw PCMStreamConverterError.anchorOverflow }
-        let result = startNanoseconds.addingReportingOverflow(UInt64(offset))
+        guard let offsetNanoseconds = PCMStreamNumericBounds.uint64(offset) else {
+            throw PCMStreamConverterError.anchorOverflow
+        }
+        let result = startNanoseconds.addingReportingOverflow(offsetNanoseconds)
         guard !result.overflow else { throw PCMStreamConverterError.anchorOverflow }
         return result.partialValue
     }

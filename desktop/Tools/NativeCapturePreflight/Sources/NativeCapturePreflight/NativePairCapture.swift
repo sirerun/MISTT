@@ -429,7 +429,9 @@ final class NativePairCapture: @unchecked Sendable {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureStartError.microphoneUnavailable }
+        guard PCMFormatBounds.isSupportedMicrophoneSampleRate(format.sampleRate), format.channelCount > 0 else {
+            throw CaptureStartError.microphoneUnavailable
+        }
         setPermissionState(microphone: "Granted · input format \(format.sampleRate) Hz, \(format.channelCount) ch, \(format.commonFormat)")
         lock.lock(); snapshot.microphoneFormat = "\(Int(format.sampleRate)) Hz, \(format.channelCount) ch, \(format.commonFormat)"; lock.unlock()
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
