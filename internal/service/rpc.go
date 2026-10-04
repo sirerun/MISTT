@@ -118,7 +118,7 @@ func (s *Service) SetMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 		return result, nil
 	}
 	if len(s.muteRequests) >= 128 {
-		s.pruneMuteRequestsLocked()
+		s.pruneMuteRequestsLocked(127)
 	}
 	if len(s.muteRequests) >= 128 {
 		s.mu.Unlock()
@@ -139,13 +139,13 @@ func (s *Service) SetMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 	}
 	record.complete = true
 	close(record.done)
-	s.pruneMuteRequestsLocked()
+	s.pruneMuteRequestsLocked(128)
 	s.mu.Unlock()
 	return result, callErr
 }
 
-func (s *Service) pruneMuteRequestsLocked() {
-	for len(s.muteRequests) > 128 {
+func (s *Service) pruneMuteRequestsLocked(maxEntries int) {
+	for len(s.muteRequests) > maxEntries {
 		removed := false
 		for i, id := range s.muteOrder {
 			if record, ok := s.muteRequests[id]; ok && record.complete {
