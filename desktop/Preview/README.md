@@ -16,6 +16,6 @@ The isolated host built successfully and was launched locally on 2026-10-04. Win
 
 ## Dragging and default position
 
-The overlay starts 24 points from the bottom-left corner of the current screen's visible work area, above the Dock. It uses WindowDragGesture with activation events on macOS 15+, and an AppKit pan recognizer on macOS 14. The preview bundle has a separate identifier to distinguish this host from older previews. Window attachment does not reset the same window after a user moves it.
+The overlay starts 24 points from the bottom-right corner of the current screen's visible work area, above the Dock. It uses WindowDragGesture with activation events on macOS 15+, and an AppKit pan recognizer on macOS 14. The preview bundle has a separate identifier to distinguish this host from older previews. Window attachment does not reset the same window after a user moves it.
 
 The isolated target builds successfully. Live drag automation returned `noWindowsAvailable`, so drag movement and initial screen placement remain to be confirmed interactively. Open this worktree's project and run its fixture host to check the current implementation; previous running preview builds do not update automatically.
