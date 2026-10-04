@@ -35,15 +35,15 @@ Out of this delivery: OpenRouter implementation, Linux packaging, Intel/universa
 
 ## 4. Checkable work breakdown
 
-Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an acceptance criterion below it. Future epics are outlined until working-MVP evidence makes release/install details reachable.
+Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an acceptance criterion below it. Known release/install lifecycle obligations are decomposed; coding candidates may proceed under T2.27 while resource-heavy/hardware gates are deferred by owner.
 
 ### E1 -- DGX qualification and reproducible evidence  -> docs/plans/E1.md  (6/6)
 
-### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (6/27)
+### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (7/28)
 
-### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (0/1)
+### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (1/13)
 
-### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (0/1)
+### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
 ## 5. Parallel work and waves
 
@@ -163,3 +163,7 @@ Release/signing setup uses the existing account; Xcode sign-in is confirmed but 
 - 2026-10-04 UTC T2.0 checkpoint: adopted typed native control schema (13 examples validate) and byte-exact paired PCM/clock vectors. Static native audit found invalid/regressing timestamps, teardown error handling, start cancellation and blocking callback work; fixes are in progress. Shared Mac load exceeds the build threshold, so a scoped capture-free macOS CI probe is being prepared. No TCC/native signal/closure, paired inference or release acceptance is claimed.
 
 - 2026-10-04 UTC control audit follow-up: clarified cutoff against sample timestamps (strictly before, not whole sample duration), empty-source EOF totals and correlated conflict status/error snapshots. These close three material draft inconsistencies before native/relay implementation.
+
+## Code-first owner steering — 2026-10-04
+
+Owner requested all coding now and heavy CPU/memory checks later. Three Luna product lanes (Go T2.1/T2.2, DGX T2.3, native T2.9/T2.4) plus coordinator release T3.1-T3.4 work on shared coding contracts. Worker artifacts integrate speculatively; T2.0 remains open and validation/merge/release/install gates do not clear from source completion. Heavy build/test/race,model/workload,physical capture,notarization and install/update experiments are deliberately deferred. E3/E4 are decomposed to known obligations rather than waiting for another planning prompt.
