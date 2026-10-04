@@ -40,6 +40,15 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def verify_embedded_key(key: str, signature: str, archive: Path) -> None:
+    cache = archive.parent / "cache" / "signature-verification"
+    cache.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, TMPDIR=str(cache), CLANG_MODULE_CACHE_PATH=str(cache / "clang"),
+               SWIFTPM_MODULECACHE_OVERRIDE=str(cache / "swift-module"))
+    run("swift", "-module-cache-path", str(cache / "swift-module"),
+        str(ROOT / "release/verify_sparkle.swift"), key, signature, str(archive), env=env)
+
+
 def validate_version(version: str, build: str) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[1-9]\d{0,9}", build):
         raise ValueError("Release requires a numeric major.minor.patch and positive monotonic build")
@@ -194,7 +203,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     sign_tool = required("MISTT_SPARKLE_SIGN_TOOL")
     key_args = ("--ed-key-file", required("MISTT_SPARKLE_KEY_FILE"))
     signature = run(sign_tool, *key_args, "-p", str(zip_path))
-    run("swift", str(ROOT / "release/verify_sparkle.swift"), key, signature, str(zip_path))
+    verify_embedded_key(key, signature, zip_path)
     generate_metadata(zip_path, signature, version, build_number, required("MISTT_RELEASE_REPOSITORY"), output)
     run(sign_tool, *key_args, str(output / "appcast.xml"))
     run(sign_tool, *key_args, "--verify", str(output / "appcast.xml"))
@@ -208,6 +217,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
 
 
 def publish(directory: Path) -> None:
+    directory = artifact_root(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
     validate_version(manifest["version"], manifest["build"])
     repo = manifest["repository"]
@@ -226,8 +236,7 @@ def publish(directory: Path) -> None:
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         if (info.get("CFBundleIdentifier"), info.get("CFBundleShortVersionString"), info.get("CFBundleVersion")) != ("com.sirerun.mistt", manifest["version"], manifest["build"]):
             raise ValueError("Published metadata does not identify the assessed app")
-        run("swift", str(ROOT / "release/verify_sparkle.swift"), info.get("SUPublicEDKey", ""),
-            manifest["archive_signature"], str(archive))
+        verify_embedded_key(info.get("SUPublicEDKey", ""), manifest["archive_signature"], archive)
         run("codesign", "--verify", "--deep", "--strict", str(app))
         run("xcrun", "stapler", "validate", str(app))
         run("spctl", "--assess", "--type", "execute", str(app))
