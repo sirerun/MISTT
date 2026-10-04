@@ -12,6 +12,12 @@ struct SourceCounters: Sendable {
     var firstOffsetNanoseconds: Int64?
     var lastOffsetNanoseconds: Int64?
     var maximumAnchorGapNanoseconds: Int64 = 0
+    var energySamples = 0
+    var energyOverflow = 0
+    var peakRMS: Double = 0
+    var aboveFloorSamples = 0
+    var maximumCallbackNanoseconds: UInt64 = 0
+    var callbackOverruns = 0
 }
 
 struct CaptureSnapshot: Sendable {
@@ -24,6 +30,8 @@ struct CaptureSnapshot: Sendable {
     var callAudio = SourceCounters()
     var micPermission: String = "Not requested"
     var systemAudioPermission: String = "Not requested"
+    var microphoneFormat = "Not started"
+    var tapFormat = "Not started"
     var lastStopDurationMilliseconds: Double?
     var microphoneIOStopped: Bool?
     var tapIOStopped: Bool?
@@ -60,6 +68,7 @@ final class NativePairCapture: @unchecked Sendable {
     private var isStarting = false
     private var startCancelled = false
     private var teardownInProgress = false
+    private var startupCompletion: DispatchSemaphore?
     private var generation: UInt64 = 0
     private var engine: AVAudioEngine?
     private var aggregateID: AudioObjectID = kAudioObjectUnknown
@@ -78,6 +87,7 @@ final class NativePairCapture: @unchecked Sendable {
             case 1: reason = "invalid native host timestamp"
             case 2: reason = "backwards native host timestamp"
             case 3: reason = "native timestamp precedes the shared epoch"
+            case 4: reason = "overlapping callbacks for one audio source"
             default: reason = "native capture pair failed"
             }
             self.stop(reason: reason)
@@ -99,8 +109,8 @@ final class NativePairCapture: @unchecked Sendable {
         var callAudio = MISTTSourceSnapshot()
         MISTTReadSource(atomicState, 0, &microphone)
         MISTTReadSource(atomicState, 1, &callAudio)
-        result.microphone = counters(from: microphone)
-        result.callAudio = counters(from: callAudio)
+        result.microphone = counters(from: microphone, preservingEnergy: result.microphone)
+        result.callAudio = counters(from: callAudio, preservingEnergy: result.callAudio)
         return result
     }
 
@@ -136,6 +146,7 @@ final class NativePairCapture: @unchecked Sendable {
         }
         isStarting = true
         startCancelled = false
+        startupCompletion = DispatchSemaphore(value: 0)
         generation = expectedGeneration
         stoppedHandler = onStop
         snapshot.status = "Starting both sources…"
@@ -143,6 +154,10 @@ final class NativePairCapture: @unchecked Sendable {
         snapshot.epochNanoseconds = nil
         snapshot.openedAtNanoseconds = nil
         snapshot.stopAtNanoseconds = nil
+        snapshot.microphone = SourceCounters()
+        snapshot.callAudio = SourceCounters()
+        snapshot.microphoneFormat = "Not started"
+        snapshot.tapFormat = "Not started"
         snapshot.firstFailure = nil
         snapshot.stopDeadlineExceeded = false
         snapshot.microphoneIOStopped = nil
@@ -175,6 +190,8 @@ final class NativePairCapture: @unchecked Sendable {
             snapshot.status = "On · both capture I/O callbacks started"
             snapshot.epochNanoseconds = clock.epochNanoseconds
             snapshot.openedAtNanoseconds = clock.epochNanoseconds
+            startupCompletion?.signal()
+            startupCompletion = nil
             lock.unlock()
         } catch {
             let outcome = stopSynchronously()
@@ -193,6 +210,8 @@ final class NativePairCapture: @unchecked Sendable {
             let result = snapshot
             let handler = stoppedHandler
             stoppedHandler = nil
+            startupCompletion?.signal()
+            startupCompletion = nil
             lock.unlock()
             handler?(result)
             if !outcome.succeeded { DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { _exit(71) } }
@@ -206,27 +225,20 @@ final class NativePairCapture: @unchecked Sendable {
         lock.lock()
         if isStarting {
             startCancelled = true
-            MISTTCloseCaptureGate(atomicState, clock.epochNanoseconds)
             snapshot.stopAtNanoseconds = clock.epochNanoseconds
             snapshot.status = "Muted · \(reason); waiting for in-flight start to release resources"
             snapshot.firstFailure = snapshot.firstFailure ?? reason
-            let stoppedGeneration = generation
+            let completion = startupCompletion
             lock.unlock()
             // A HAL create/start call can block outside our control. Cancellation
             // is not reported as successful closure; terminate if startup cannot
             // unwind and release its owned resources by the Stop deadline.
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [weak self] in
-                guard let self else { return }
-                self.lock.lock()
-                let stalled = self.isStarting && self.startCancelled && self.generation == stoppedGeneration
-                if stalled {
-                    self.snapshot.stopDeadlineExceeded = true
-                    self.snapshot.firstFailure = self.snapshot.firstFailure ?? "cancelled startup did not release Core Audio resources before deadline"
-                    self.snapshot.status = "Startup cancellation deadline exceeded; terminating preflight so the OS releases capture resources"
+            if let completion {
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) {
+                    if completion.wait(timeout: .now()) == .timedOut { _exit(70) }
                 }
-                self.lock.unlock()
-                if stalled { _exit(70) }
             }
+            MISTTCloseCaptureGate(atomicState, clock.epochNanoseconds)
             return
         }
         if reason != "User stopped both sources" {
@@ -241,6 +253,11 @@ final class NativePairCapture: @unchecked Sendable {
             handler?(result)
             return
         }
+        let started = DispatchTime.now()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) {
+            if finished.wait(timeout: .now()) == .timedOut { _exit(70) }
+        }
         let cutoff = PairedCutoff(ticks: ticks, clock: clock)
         // This atomic gate is closed before any asynchronous cleanup begins.
         MISTTCloseCaptureGate(atomicState, cutoff.nanoseconds)
@@ -250,8 +267,6 @@ final class NativePairCapture: @unchecked Sendable {
         snapshot.status = "Stopping both sources…"
         lock.unlock()
 
-        let started = DispatchTime.now()
-        let finished = DispatchSemaphore(value: 0)
         stopQueue.async { [weak self] in
             guard let self else { finished.signal(); return }
             let outcome = self.stopSynchronously()
@@ -274,15 +289,6 @@ final class NativePairCapture: @unchecked Sendable {
             handler?(result)
             finished.signal()
             if !outcome.succeeded { DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { _exit(71) } }
-        }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [weak self] in
-            guard finished.wait(timeout: .now()) == .timedOut, let self else { return }
-            self.lock.lock()
-            self.snapshot.stopDeadlineExceeded = true
-            self.snapshot.firstFailure = self.snapshot.firstFailure ?? "paired I/O stop deadline exceeded"
-            self.snapshot.status = "Stop deadline exceeded; terminating preflight so the OS releases capture resources"
-            self.lock.unlock()
-            _exit(70)
         }
     }
 
@@ -319,36 +325,67 @@ final class NativePairCapture: @unchecked Sendable {
             kAudioAggregateDeviceNameKey: "MISTT private app-output preflight",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceIsPrivateKey: 1,
-            kAudioAggregateDeviceTapListKey: [tapUID],
+            kAudioAggregateDeviceTapListKey: [[
+                kAudioSubTapUIDKey: tapUID,
+                kAudioSubTapDriftCompensationKey: true,
+            ]],
         ]
         let aggregateStatus = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregateID)
         guard aggregateStatus == noErr else { throw CaptureStartError.coreAudio("creating private tap aggregate", aggregateStatus) }
         try readStreamFormat()
+        lock.lock()
+        snapshot.tapFormat = Self.describe(streamFormat)
+        snapshot.systemAudioPermission = "Granted · private process tap created"
+        lock.unlock()
     }
 
     private func readStreamFormat() throws {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreamFormat,
+            mSelector: kAudioDevicePropertyStreams,
             mScope: kAudioDevicePropertyScopeInput,
             mElement: kAudioObjectPropertyElementMain
         )
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        let status = withUnsafeMutablePointer(to: &streamFormat) {
-            AudioObjectGetPropertyData(aggregateID, &address, 0, nil, &size, $0)
+        var size: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(aggregateID, &address, 0, nil, &size)
+        guard status == noErr else { throw CaptureStartError.coreAudio("reading tap input stream list size", status) }
+        guard size >= UInt32(MemoryLayout<AudioStreamID>.size) else { throw CaptureStartError.unsupportedTapFormat }
+        let count = Int(size) / MemoryLayout<AudioStreamID>.size
+        var streams = [AudioStreamID](repeating: kAudioObjectUnknown, count: count)
+        status = streams.withUnsafeMutableBytes { raw in
+            AudioObjectGetPropertyData(aggregateID, &address, 0, nil, &size, raw.baseAddress!)
         }
-        guard status == noErr else { throw CaptureStartError.coreAudio("reading tap input stream format", status) }
+        guard status == noErr else { throw CaptureStartError.coreAudio("reading tap input stream list", status) }
+        guard let stream = streams.first else { throw CaptureStartError.unsupportedTapFormat }
+        var formatAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioStreamPropertyVirtualFormat,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        status = withUnsafeMutablePointer(to: &streamFormat) {
+            AudioObjectGetPropertyData(stream, &formatAddress, 0, nil, &formatSize, $0)
+        }
+        guard status == noErr else { throw CaptureStartError.coreAudio("reading tap virtual stream format", status) }
+        guard streamFormat.mSampleRate > 0, streamFormat.mChannelsPerFrame > 0,
+              streamFormat.mFormatID == kAudioFormatLinearPCM, streamFormat.mBytesPerFrame > 0 else {
+            throw CaptureStartError.unsupportedTapFormat
+        }
     }
 
     private func startTapIO() throws {
         let status = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggregateID, nil) { [weak self] _, inputData, inputTime, _, _ in
             guard let self else { return }
+            let callbackStart = AudioGetCurrentHostTime()
             let time = inputTime.pointee
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
             let buffer = inputData.pointee.mBuffers
             let bytes = Int(buffer.mDataByteSize)
             let bytesPerFrame = max(1, Int(self.streamFormat.mBytesPerFrame))
+            let frames = bytes / bytesPerFrame
             self.record(source: .callAudio, validHostTime: valid, ticks: time.mHostTime,
-                        frames: bytes / bytesPerFrame, sampleRate: self.streamFormat.mSampleRate)
+                        frames: frames, sampleRate: self.streamFormat.mSampleRate,
+                        energy: Self.sampledRMS(inputData, frames: frames, format: self.streamFormat))
+            self.recordCallbackDuration(.callAudio, startTicks: callbackStart)
         }
         guard status == noErr else { throw CaptureStartError.coreAudio("creating tap input callback", status) }
         let startStatus = AudioDeviceStart(aggregateID, ioProc)
@@ -365,11 +402,16 @@ final class NativePairCapture: @unchecked Sendable {
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureStartError.microphoneUnavailable }
+        setPermissionState(microphone: "Granted · input format \(format.sampleRate) Hz, \(format.channelCount) ch, \(format.commonFormat)")
+        lock.lock(); snapshot.microphoneFormat = "\(Int(format.sampleRate)) Hz, \(format.channelCount) ch, \(format.commonFormat)"; lock.unlock()
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             guard let self else { return }
+            let callbackStart = AudioGetCurrentHostTime()
             let valid = time.isHostTimeValid && time.hostTime != 0
             self.record(source: .microphone, validHostTime: valid, ticks: time.hostTime,
-                        frames: Int(buffer.frameLength), sampleRate: format.sampleRate)
+                        frames: Int(buffer.frameLength), sampleRate: format.sampleRate,
+                        energy: Self.sampledRMS(buffer))
+            self.recordCallbackDuration(.microphone, startTicks: callbackStart)
         }
         do {
             try engine.start()
@@ -381,15 +423,121 @@ final class NativePairCapture: @unchecked Sendable {
         setPermissionState(microphone: "Granted · AVAudioEngine input started")
     }
 
-    /// Realtime callbacks only validate time and update lock-free, preallocated counters.
-    /// They do not scan samples, acquire UI/controller locks, allocate buffers or stop HAL.
-    private func record(source: AudioSource, validHostTime: Bool, ticks: UInt64, frames: Int, sampleRate: Double) {
+    /// Callbacks sample at most 32 positions per channel into a bounded scalar-energy
+    /// queue. No PCM blocks leave the callback, and no callback allocates or waits.
+    private func record(source: AudioSource, validHostTime: Bool, ticks: UInt64, frames: Int, sampleRate: Double, energy: UInt16? = nil) {
         let nanoseconds = ticks == 0 ? 0 : AudioConvertHostTimeToNanos(ticks)
         let failure = MISTTRecordBuffer(atomicState, source.rawValue, validHostTime, nanoseconds, UInt64(max(0, frames)), sampleRate)
         if failure > 0 { failureSignal.add(data: 1) }
+        guard failure == 0, validHostTime, nanoseconds > 0, frames > 0, sampleRate > 0,
+              let energy else { return }
+        let duration = UInt64(ceil(Double(frames) * 1_000_000_000 / sampleRate))
+        let end = nanoseconds.addingReportingOverflow(duration)
+        guard !end.overflow else { return }
+        _ = MISTTEnqueueEnergy(atomicState, source.rawValue, nanoseconds, end.partialValue, energy)
     }
 
-    private func counters(from value: MISTTSourceSnapshot) -> SourceCounters {
+    private func recordCallbackDuration(_ source: AudioSource, startTicks: UInt64) {
+        let start = AudioConvertHostTimeToNanos(startTicks)
+        let end = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime())
+        guard end >= start else { return }
+        MISTTRecordCallbackDuration(atomicState, source.rawValue, end - start, 10_000_000)
+    }
+
+    func refreshEnergy() {
+        var mic = MISTTEnergyBatch()
+        var app = MISTTEnergyBatch()
+        MISTTDrainEnergy(atomicState, AudioSource.microphone.rawValue, &mic)
+        MISTTDrainEnergy(atomicState, AudioSource.callAudio.rawValue, &app)
+        lock.lock(); defer { lock.unlock() }
+        Self.mergeEnergy(&mic, into: &snapshot.microphone)
+        Self.mergeEnergy(&app, into: &snapshot.callAudio)
+    }
+
+    private static func mergeEnergy(_ batch: inout MISTTEnergyBatch, into counters: inout SourceCounters) {
+        counters.energySamples += Int(batch.count)
+        counters.energyOverflow += Int(batch.overflow)
+        for index in 0..<Int(batch.count) {
+            let value = Double(MISTTEnergyBatchLevel(&batch, UInt32(index))) / 65_535
+            counters.peakRMS = max(counters.peakRMS, value)
+            if value > 0.002 { counters.aboveFloorSamples += 1 }
+        }
+    }
+
+    private static func sampledRMS(_ buffer: AVAudioPCMBuffer) -> UInt16? {
+        let frames = Int(buffer.frameLength)
+        let channels = min(8, Int(buffer.format.channelCount))
+        guard frames > 0, channels > 0 else { return nil }
+        let positions = min(32, frames)
+        var energy = 0.0
+        var count = 0
+        if let planes = buffer.floatChannelData {
+            for sample in 0..<positions {
+                let frame = positions == 1 ? 0 : sample * (frames - 1) / (positions - 1)
+                for channel in 0..<channels {
+                    let value = Double(planes[channel][frame])
+                    energy += value * value
+                    count += 1
+                }
+            }
+        } else if let planes = buffer.int16ChannelData {
+            for sample in 0..<positions {
+                let frame = positions == 1 ? 0 : sample * (frames - 1) / (positions - 1)
+                for channel in 0..<channels {
+                    let value = Double(planes[channel][frame]) / 32_768
+                    energy += value * value
+                    count += 1
+                }
+            }
+        } else { return nil }
+        guard count > 0 else { return nil }
+        return UInt16(min(65_535, max(0, (sqrt(energy / Double(count)) * 65_535).rounded())))
+    }
+
+    private static func sampledRMS(
+        _ listPointer: UnsafePointer<AudioBufferList>,
+        frames: Int,
+        format: AudioStreamBasicDescription
+    ) -> UInt16? {
+        let flags = format.mFormatFlags
+        guard frames > 0, format.mFormatID == kAudioFormatLinearPCM,
+              (flags & kAudioFormatFlagIsFloat != 0 && format.mBitsPerChannel == 32)
+                || (flags & kAudioFormatFlagIsSignedInteger != 0 && format.mBitsPerChannel == 16) else { return nil }
+        let channels = min(8, Int(format.mChannelsPerFrame))
+        guard channels > 0 else { return nil }
+        let positions = min(32, frames)
+        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: listPointer))
+        let nonInterleaved = flags & kAudioFormatFlagIsNonInterleaved != 0
+        guard !buffers.isEmpty else { return nil }
+        var energy = 0.0
+        var count = 0
+        for sample in 0..<positions {
+            let frame = positions == 1 ? 0 : sample * (frames - 1) / (positions - 1)
+            for channel in 0..<channels {
+                let bufferIndex = nonInterleaved ? channel : 0
+                guard bufferIndex < buffers.count, let data = buffers[bufferIndex].mData else { return nil }
+                let channelIndex = nonInterleaved ? 0 : channel
+                if flags & kAudioFormatFlagIsFloat != 0 {
+                    let samples = data.assumingMemoryBound(to: Float.self)
+                    let value = Double(samples[frame * (nonInterleaved ? 1 : channels) + channelIndex])
+                    energy += value * value
+                } else {
+                    let samples = data.assumingMemoryBound(to: Int16.self)
+                    let value = Double(samples[frame * (nonInterleaved ? 1 : channels) + channelIndex]) / 32_768
+                    energy += value * value
+                }
+                count += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        return UInt16(min(65_535, max(0, (sqrt(energy / Double(count)) * 65_535).rounded())))
+    }
+
+    private static func describe(_ format: AudioStreamBasicDescription) -> String {
+        "\(Int(format.mSampleRate)) Hz, \(format.mChannelsPerFrame) ch, \(format.mBitsPerChannel)-bit flags=0x\(String(format.mFormatFlags, radix: 16))"
+    }
+
+    private func counters(from value: MISTTSourceSnapshot, preservingEnergy previous: SourceCounters) -> SourceCounters {
         func offset(_ raw: UInt64) -> Int64? {
             guard raw != UInt64.max, raw <= UInt64(Int64.max) else { return nil }
             return Int64(raw)
@@ -401,7 +549,13 @@ final class NativePairCapture: @unchecked Sendable {
             invalidTimestamps: Int(value.invalid_timestamps),
             firstOffsetNanoseconds: offset(value.first_offset_ns),
             lastOffsetNanoseconds: offset(value.last_offset_ns),
-            maximumAnchorGapNanoseconds: Int64(min(value.maximum_anchor_gap_ns, UInt64(Int64.max)))
+            maximumAnchorGapNanoseconds: Int64(min(value.maximum_anchor_gap_ns, UInt64(Int64.max))),
+            energySamples: previous.energySamples,
+            energyOverflow: previous.energyOverflow,
+            peakRMS: previous.peakRMS,
+            aboveFloorSamples: previous.aboveFloorSamples,
+            maximumCallbackNanoseconds: value.maximum_callback_ns,
+            callbackOverruns: Int(value.callback_overruns)
         )
     }
 
@@ -418,7 +572,7 @@ final class NativePairCapture: @unchecked Sendable {
                 let status = AudioDeviceStop(aggregateID, ioProc)
                 outcome.tapStopped = status == noErr
                 if status != noErr { outcome.errors.append("AudioDeviceStop=\(status)") }
-                tapIOStarted = false
+                if status == noErr { tapIOStarted = false }
             }
             if let ioProc {
                 let status = AudioDeviceDestroyIOProcID(aggregateID, ioProc)
@@ -448,6 +602,7 @@ enum CaptureStartError: Error, LocalizedError {
     case targetMissing
     case coreAudio(String, OSStatus)
     case microphoneUnavailable
+    case unsupportedTapFormat
 
     var errorDescription: String? {
         switch self {
@@ -457,6 +612,7 @@ enum CaptureStartError: Error, LocalizedError {
         case .targetMissing: "No selected app process exists to tap."
         case let .coreAudio(step, status): "Core Audio failed while \(step) (\(status))."
         case .microphoneUnavailable: "Microphone capture could not start. Check microphone permission and device availability."
+        case .unsupportedTapFormat: "The private process tap did not expose a readable input stream format."
         }
     }
 }

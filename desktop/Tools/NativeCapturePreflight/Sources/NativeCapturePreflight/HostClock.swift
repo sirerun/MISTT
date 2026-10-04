@@ -57,7 +57,9 @@ struct PairedCutoff: Sendable {
         if let stopNanoseconds {
             guard stopNanoseconds > bufferStartNanoseconds else { return 0..<0 }
             let upperDelta = Double(stopNanoseconds - bufferStartNanoseconds)
-            last = min(frameCount, max(0, Int((upperDelta / frameDuration).rounded(.down))))
+            // Frames are retained only when their sample anchor is strictly
+            // before the stop instant; fractional frame durations therefore ceil.
+            last = min(frameCount, max(0, Int((upperDelta / frameDuration).rounded(.up))))
         } else {
             last = frameCount
         }

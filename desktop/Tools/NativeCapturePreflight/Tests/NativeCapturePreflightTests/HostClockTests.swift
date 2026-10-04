@@ -47,6 +47,19 @@ final class HostClockTests: XCTestCase {
         )
     }
 
+    func testFractional16kSampleAnchorAt93750nsUsesEndExclusiveCeiling() {
+        XCTAssertEqual(
+            PairedCutoff.retainedRange(
+                bufferStartNanoseconds: 0,
+                frameCount: 8,
+                sampleRate: 16_000,
+                gateOpenNanoseconds: 0,
+                stopNanoseconds: 93_750
+            ),
+            0..<2
+        )
+    }
+
     func testUnknownTargetMustNotFallBackToAnotherProcess() {
         let unrelated = AudioClient(objectID: 3, pid: 42, bundleID: "com.example.other", runningOutput: true)
         XCTAssertThrowsError(try CoreAudioInventory.resolveTargets(primaryBundleID: "com.tiktok.livestudio.desktop", from: [unrelated], validate: { _ in }))

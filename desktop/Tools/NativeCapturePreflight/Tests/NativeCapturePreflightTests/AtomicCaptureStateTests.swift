@@ -1,5 +1,18 @@
 import XCTest
 import PreflightAtomics
+import Dispatch
+
+private final class InterleaveBarrier {
+    let entered = DispatchSemaphore(value: 0)
+    let proceed = DispatchSemaphore(value: 0)
+}
+
+private let pauseBeforeCommit: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+    guard let raw else { return }
+    let barrier = Unmanaged<InterleaveBarrier>.fromOpaque(raw).takeUnretainedValue()
+    barrier.entered.signal()
+    barrier.proceed.wait()
+}
 
 final class AtomicCaptureStateTests: XCTestCase {
     func testInvalidTimestampClosesSharedGateAndPreservesFirstFailure() {
@@ -49,6 +62,62 @@ final class AtomicCaptureStateTests: XCTestCase {
         XCTAssertEqual(mic.clipped_or_dropped_frames, 80)
     }
 
+    func testStopInterleavingReconcilesLastCallbackUsingNewCutoff() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+        let barrier = InterleaveBarrier()
+        let context = Unmanaged.passUnretained(barrier).toOpaque()
+        let recorded = expectation(description: "callback completes")
+        DispatchQueue.global().async {
+            _ = MISTTRecordBufferWithTestHook(state, 0, true, 1_004_000_000, 160, 16_000, pauseBeforeCommit, context)
+            recorded.fulfill()
+        }
+        XCTAssertEqual(barrier.entered.wait(timeout: .now() + 1), .success)
+
+        let closed = expectation(description: "stop cutoff reconciled")
+        DispatchQueue.global().async {
+            MISTTCloseCaptureGate(state, 1_005_000_000)
+            closed.fulfill()
+        }
+        let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        while MISTTCaptureGateIsOpen(state) && DispatchTime.now().uptimeNanoseconds < deadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+        barrier.proceed.signal()
+        wait(for: [recorded, closed], timeout: 2)
+
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 16)
+        XCTAssertEqual(mic.clipped_or_dropped_frames, 144)
+    }
+
+    func testFractional16kCutoffRetainsOnlySampleAnchorsStrictlyBeforeStop() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 8, 16_000), 0)
+        MISTTCloseCaptureGate(state, 1_000_093_750)
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 2)
+        XCTAssertEqual(mic.clipped_or_dropped_frames, 6)
+    }
+
+    func testCutoffAt44000nsRetainsOneOfTwo16kAnchors() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 2, 16_000), 0)
+        MISTTCloseCaptureGate(state, 1_000_044_000)
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 1)
+        XCTAssertEqual(mic.clipped_or_dropped_frames, 1)
+    }
+
     func testDelayedPreOpenBufferIsTrimmedToNonnegativeSharedEpoch() {
         let state = MISTTCreateCaptureState()!
         defer { MISTTDestroyCaptureState(state) }
@@ -87,5 +156,31 @@ final class AtomicCaptureStateTests: XCTestCase {
         MISTTReadSource(state, 1, &call)
         XCTAssertEqual(mic.buffers, 1_000)
         XCTAssertEqual(call.buffers, 1_000)
+    }
+
+    func testEnergyHandoffIsBoundedAndKeepsOnlyScalarLevelsInMemory() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1)
+        for index in 0..<300 {
+            _ = MISTTEnqueueEnergy(state, 0, UInt64(index + 1), UInt64(index + 2), UInt16(index))
+        }
+        var batch = MISTTEnergyBatch()
+        MISTTDrainEnergy(state, 0, &batch)
+        XCTAssertEqual(batch.count, UInt32(MISTT_ENERGY_RING_CAPACITY))
+        XCTAssertEqual(batch.overflow, 44)
+        XCTAssertEqual(MISTTEnergyBatchLevel(&batch, 0), 0)
+        XCTAssertEqual(MISTTEnergyBatchLevel(&batch, 255), 255)
+    }
+
+    func testEnergySummaryDropsBufferWhoseEndCrossesStopCutoff() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1)
+        XCTAssertTrue(MISTTEnqueueEnergy(state, 0, 100, 200, 32_000))
+        MISTTCloseCaptureGate(state, 150)
+        var batch = MISTTEnergyBatch()
+        MISTTDrainEnergy(state, 0, &batch)
+        XCTAssertEqual(batch.count, 0)
     }
 }
