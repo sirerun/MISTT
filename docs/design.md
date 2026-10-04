@@ -11,3 +11,7 @@ The first per-app acceptance target is TikTok LIVE Studio (`com.tiktok.livestudi
 ## Accepted floating presentation
 
 [ADR 0004](adr/0004-floating-desktop-overlay.md) records the owner-requested transparent, frameless, draggable overlay above normal apps, initial bottom-right placement and yellow microphone app icon. The production view remains microphone, On/Muted and authoritative client count. Runtime/drag/position/accessibility and signed-bundle verification remain in the plan; preview fixtures do not exercise capture, updater or DGX.
+
+## Independently updated local consumers
+
+[ADR 0005](adr/0005-greeter-consumer-boundary.md) records the concluded Greeter/MISTT technical peer boundary: separately installed MISTT, pinned loopback gRPC consumer, capture/status authority separated from response/output policy, explicit reconnect and no inferred named-guest attribution. Greeter implementation and founder decisions are not added to this app deployment scope.
