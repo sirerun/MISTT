@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"testing"
@@ -131,5 +132,58 @@ func TestActivePairDemandIsIndependentOfIdleClosure(t *testing.T) {
 	}
 	if updateReady {
 		t.Fatal("active generation was reported safe for update")
+	}
+}
+
+func TestNativeEOFGentlyExitsOnlyFromConfirmedSafeIdle(t *testing.T) {
+	newService := func() (*Service, func()) {
+		readEnd, writeEnd, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		output := ipc.NewWriter(writeEnd, 8)
+		return New(config.Defaults(), nil, readEnd, output), func() { _ = readEnd.Close(); _ = writeEnd.Close() }
+	}
+
+	safe, closeSafe := newService()
+	defer closeSafe()
+	safe.handleNativeEOF()
+	safe.mu.Lock()
+	clean, requested := safe.cleanNativeEOF, safe.shutdownRequested
+	safe.mu.Unlock()
+	if !clean || !requested {
+		t.Fatal("confirmed muted idle EOF was not accepted as graceful shutdown")
+	}
+	go safe.supervise()
+	select {
+	case <-safe.shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("safe EOF did not complete relay shutdown")
+	}
+
+	unsafe, closeUnsafe := newService()
+	defer closeUnsafe()
+	unsafe.mu.Lock()
+	unsafe.muted = false
+	unsafe.mu.Unlock()
+	unsafe.handleNativeEOF()
+	select {
+	case <-unsafe.closed:
+	case <-time.After(time.Second):
+		t.Fatal("unsafe EOF did not fail closed")
+	}
+	unsafe.mu.Lock()
+	clean, closed := unsafe.cleanNativeEOF, unsafe.closureConfirmed
+	unsafe.mu.Unlock()
+	if clean || closed {
+		t.Fatal("unmuted native EOF was incorrectly accepted as safe idle")
+	}
+	select {
+	case err := <-unsafe.fatal:
+		if !errors.Is(err, ErrNativeDisconnected) {
+			t.Fatalf("unexpected EOF failure: %v", err)
+		}
+	default:
+		t.Fatal("unsafe EOF did not record native disconnect")
 	}
 }
