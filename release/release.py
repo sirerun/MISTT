@@ -46,7 +46,7 @@ def validate_version(version: str, build: str) -> None:
 
 
 def validate_repository(repo: str) -> None:
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repo):
         raise ValueError("Invalid owner/repository")
 
 
@@ -194,6 +194,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     sign_tool = required("MISTT_SPARKLE_SIGN_TOOL")
     key_args = ("--ed-key-file", required("MISTT_SPARKLE_KEY_FILE"))
     signature = run(sign_tool, *key_args, "-p", str(zip_path))
+    run("swift", str(ROOT / "release/verify_sparkle.swift"), key, signature, str(zip_path))
     generate_metadata(zip_path, signature, version, build_number, required("MISTT_RELEASE_REPOSITORY"), output)
     run(sign_tool, *key_args, str(output / "appcast.xml"))
     run(sign_tool, *key_args, "--verify", str(output / "appcast.xml"))
@@ -225,6 +226,8 @@ def publish(directory: Path) -> None:
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         if (info.get("CFBundleIdentifier"), info.get("CFBundleShortVersionString"), info.get("CFBundleVersion")) != ("com.sirerun.mistt", manifest["version"], manifest["build"]):
             raise ValueError("Published metadata does not identify the assessed app")
+        run("swift", str(ROOT / "release/verify_sparkle.swift"), info.get("SUPublicEDKey", ""),
+            manifest["archive_signature"], str(archive))
         run("codesign", "--verify", "--deep", "--strict", str(app))
         run("xcrun", "stapler", "validate", str(app))
         run("spctl", "--assess", "--type", "execute", str(app))
