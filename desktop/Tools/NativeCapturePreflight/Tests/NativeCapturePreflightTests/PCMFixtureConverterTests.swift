@@ -21,4 +21,13 @@ final class PCMFixtureConverterTests: XCTestCase {
         XCTAssertEqual(callAudio.count, 4)
         XCTAssertNotEqual(microphone, callAudio)
     }
+
+    func testDefaultMicrophoneFormatFixture32000HzStereoMapsTo16000HzMono() {
+        let bytes = PCMFixtureConverter.stereoFloatToMono16kS16LE(
+            left: [1, 1, -1, -1],
+            right: [1, 1, -1, -1],
+            sourceRate: 32_000
+        )
+        XCTAssertEqual(bytes, [0xff, 0x7f, 0x00, 0x80])
+    }
 }

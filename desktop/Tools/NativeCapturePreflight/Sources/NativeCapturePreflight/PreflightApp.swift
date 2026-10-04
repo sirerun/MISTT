@@ -39,6 +39,8 @@ private struct PreflightView: View {
                     GridRow { Text("Target").bold(); Text(controller.snapshot.target).textSelection(.enabled) }
                     GridRow { Text("Microphone permission").bold(); Text(controller.snapshot.micPermission) }
                     GridRow { Text("System audio permission").bold(); Text(controller.snapshot.systemAudioPermission) }
+                    GridRow { Text("Microphone format").bold(); Text(controller.snapshot.microphoneFormat) }
+                    GridRow { Text("Tap format").bold(); Text(controller.snapshot.tapFormat) }
                     GridRow { Text("Epoch host ns").bold(); Text(controller.snapshot.epochNanoseconds.map(String.init) ?? "Not opened") }
                     GridRow { Text("Common open cutoff ns").bold(); Text(controller.snapshot.openedAtNanoseconds.map(String.init) ?? "Not opened") }
                     GridRow { Text("Common stop cutoff ns").bold(); Text(controller.snapshot.stopAtNanoseconds.map(String.init) ?? "Not stopped") }
@@ -94,6 +96,12 @@ private struct PreflightView: View {
                 metric("First offset ns", counters.firstOffsetNanoseconds)
                 metric("Last offset ns", counters.lastOffsetNanoseconds)
                 metric("Max anchor gap ns", counters.maximumAnchorGapNanoseconds)
+                metric("Energy samples", counters.energySamples)
+                metric("Energy queue overflow", counters.energyOverflow)
+                metric("Peak sampled RMS", String(format: "%.4f", counters.peakRMS))
+                metric("Samples above noise floor", counters.aboveFloorSamples)
+                metric("Max callback ns", Int64(clamping: counters.maximumCallbackNanoseconds))
+                metric("Callbacks over 10 ms", counters.callbackOverruns)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -106,5 +114,9 @@ private struct PreflightView: View {
 
     private func metric(_ label: String, _ value: Int64?) -> some View {
         LabeledContent(label, value: value.map(String.init) ?? "—")
+    }
+
+    private func metric(_ label: String, _ value: String) -> some View {
+        LabeledContent(label, value: value)
     }
 }

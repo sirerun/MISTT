@@ -25,9 +25,25 @@ final class ControlPipeWatchdog: @unchecked Sendable {
         guard pipe(&fileDescriptors) == 0 else { throw POSIXError(.EIO) }
         readFD = fileDescriptors[0]
         writeFD = fileDescriptors[1]
-        _ = fcntl(readFD, F_SETFL, fcntl(readFD, F_GETFL) | O_NONBLOCK)
-        _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         lastHeartbeat = DispatchTime.now().uptimeNanoseconds
+        configure()
+    }
+
+    /// Watches an owned helper's output pipe. The descriptor is duplicated so
+    /// cancellation closes only the watchdog copy. Test harnesses can launch an
+    /// exact helper executable and qualify EOF without shell indirection.
+    func start(reading descriptor: Int32) throws {
+        let ownedDescriptor = dup(descriptor)
+        guard ownedDescriptor >= 0 else { throw POSIXError(.EBADF) }
+        readFD = ownedDescriptor
+        writeFD = -1
+        lastHeartbeat = DispatchTime.now().uptimeNanoseconds
+        configure()
+    }
+
+    private func configure() {
+        _ = fcntl(readFD, F_SETFL, fcntl(readFD, F_GETFL) | O_NONBLOCK)
+        if writeFD >= 0 { _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK) }
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: queue)
         readSource.setEventHandler { [weak self] in self?.receive() }

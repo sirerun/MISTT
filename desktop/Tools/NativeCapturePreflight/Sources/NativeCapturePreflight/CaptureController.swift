@@ -13,6 +13,7 @@ final class CaptureController: ObservableObject {
 
     private let capture = NativePairCapture()
     private var inventoryTimer: Timer?
+    private var meterTimer: Timer?
     private var selectedTargets: [AudioClient] = []
     private var generation: UInt64 = 0
     private var startingTask: Task<Void, Never>?
@@ -57,6 +58,8 @@ final class CaptureController: ObservableObject {
         desiredOn = true
         snapshot.status = "Starting · requesting microphone permission"
         snapshot.firstFailure = nil
+        snapshot.microphone = SourceCounters()
+        snapshot.callAudio = SourceCounters()
 
         startingTask = Task { [weak self] in
             guard let self else { return }
@@ -98,6 +101,7 @@ final class CaptureController: ObservableObject {
                     return
                 }
                 self.snapshot = self.capture.currentSnapshot()
+                self.startMeters(generation: startGeneration)
             } catch {
                 guard self.isCurrent(startGeneration) else { return }
                 self.capture.setPermissionState(systemAudio: "Not granted or unavailable")
@@ -111,6 +115,8 @@ final class CaptureController: ObservableObject {
         generation &+= 1
         desiredOn = false
         startingTask?.cancel()
+        meterTimer?.invalidate()
+        meterTimer = nil
         capture.cancelStart(generation: stoppedGeneration)
         capture.stop(reason: reason)
         snapshot = capture.currentSnapshot()
@@ -120,6 +126,17 @@ final class CaptureController: ObservableObject {
 
     private func isCurrent(_ token: UInt64) -> Bool {
         generation == token && desiredOn && !Task.isCancelled
+    }
+
+    private func startMeters(generation token: UInt64) {
+        meterTimer?.invalidate()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.generation == token, self.desiredOn else { return }
+                self.capture.refreshEnergy()
+                self.snapshot = self.capture.currentSnapshot()
+            }
+        }
     }
 
     private func finishStart(generation token: UInt64, status: String) {
