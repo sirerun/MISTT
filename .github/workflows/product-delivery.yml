@@ -1,0 +1,161 @@
+name: Product validation and signed delivery
+
+# Explicit invocation prevents code-only development from launching heavy jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [validate, build-release, publish]
+        default: validate
+        required: true
+      reviewed_sha:
+        description: Exact candidate SHA (release requires reviewed landed main)
+        type: string
+        required: true
+      version:
+        description: Release major.minor.patch
+        type: string
+        default: "0.1.0"
+      build:
+        description: Monotonically increasing release build number
+        type: string
+        default: "1"
+      publish_authorized:
+        description: Explicit authorization to publish this qualified release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+concurrency:
+  group: mistt-product-${{ inputs.reviewed_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+      - name: Guard exact SHA and architecture
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          test "$(uname -m)" = arm64
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Set disposable runner caches
+        run: |
+          echo "GOCACHE=$RUNNER_TEMP/mistt-go-cache" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$RUNNER_TEMP/mistt-go-mod" >> "$GITHUB_ENV"
+          echo "CLANG_MODULE_CACHE_PATH=$RUNNER_TEMP/mistt-clang-cache" >> "$GITHUB_ENV"
+          echo "SWIFTPM_MODULECACHE_OVERRIDE=$RUNNER_TEMP/mistt-swift-module" >> "$GITHUB_ENV"
+      - name: Go contract, real RPC and lifecycle checks
+        run: |
+          go test -race ./... -timeout 120s
+          go vet ./...
+      - name: Native production and capture-free prototype checks
+        run: |
+          swift test --package-path desktop --scratch-path "$RUNNER_TEMP/mistt-desktop" --jobs 2
+          swift test --package-path desktop/Tools/NativeCapturePreflight --scratch-path "$RUNNER_TEMP/mistt-preflight" --jobs 2
+      - name: Python gateway and release metadata checks
+        run: |
+          python -m pip install -r dgx/gateway/requirements-test.txt
+          python -m unittest discover -s tests -v
+          python -m unittest discover -s dgx/gateway/tests -v
+          python -m unittest discover -s release -p 'test_*.py' -v
+      - name: Check formatting and diff
+        run: |
+          test -z "$(gofmt -l cmd internal gen)"
+          git diff --check
+
+  release:
+    if: inputs.mode != 'validate'
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MISTT_RELEASE_REPOSITORY: ${{ github.repository }}
+      MISTT_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/appcast.xml
+      MISTT_SIGN_IDENTITY: ${{ secrets.MISTT_SIGN_IDENTITY }}
+      MISTT_SPARKLE_PUBLIC_KEY: ${{ vars.MISTT_SPARKLE_PUBLIC_KEY }}
+      MISTT_TAP_REPOSITORY: ${{ vars.MISTT_TAP_REPOSITORY }}
+      MISTT_TAP_TOKEN: ${{ secrets.MISTT_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+      - name: Require reviewed landed main and publication authority
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          MODE: ${{ inputs.mode }}
+          PUBLISH_AUTHORIZED: ${{ inputs.publish_authorized }}
+        run: |
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          git merge-base --is-ancestor "$REVIEWED_SHA" origin/main
+          if [ "$MODE" = publish ]; then test "$PUBLISH_AUTHORIZED" = true; fi
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Prepare job-scoped signing inputs and pinned Sparkle tools
+        env:
+          MISTT_CERTIFICATE_BASE64: ${{ secrets.MISTT_CERTIFICATE_BASE64 }}
+          MISTT_CERTIFICATE_PASSWORD: ${{ secrets.MISTT_CERTIFICATE_PASSWORD }}
+          MISTT_NOTARY_KEY: ${{ secrets.MISTT_NOTARY_KEY }}
+          MISTT_NOTARY_KEY_ID: ${{ secrets.MISTT_NOTARY_KEY_ID }}
+          MISTT_NOTARY_ISSUER: ${{ secrets.MISTT_NOTARY_ISSUER }}
+          MISTT_SPARKLE_PRIVATE_KEY: ${{ secrets.MISTT_SPARKLE_PRIVATE_KEY }}
+        run: python release/setup_signing.py
+      - name: Build, sign, notarize, staple and verify release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_BUILD: ${{ inputs.build }}
+        run: python release/release.py build --version "$RELEASE_VERSION" --build "$RELEASE_BUILD" --output "$RUNNER_TEMP/mistt-release"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: qualified-signed-mistt
+          path: |
+            ${{ runner.temp }}/mistt-release/MISTT-*-arm64.zip
+            ${{ runner.temp }}/mistt-release/manifest.json
+            ${{ runner.temp }}/mistt-release/mistt.rb
+            ${{ runner.temp }}/mistt-release/appcast.xml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Create the exact reviewed release tag without clobbering one
+        if: inputs.mode == 'publish' && inputs.publish_authorized
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          python -c 'import os,re; assert re.fullmatch(r"\d+\.\d+\.\d+", os.environ["RELEASE_VERSION"])'
+          git tag "v$RELEASE_VERSION" "$REVIEWED_SHA"
+          git push origin "refs/tags/v$RELEASE_VERSION"
+      - name: Stage archives, update cask, promote verified stable feed
+        if: inputs.mode == 'publish' && inputs.publish_authorized
+        run: python release/release.py publish --directory "$RUNNER_TEMP/mistt-release"
+      - name: Remove only the job-created signing keychain
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mistt-signing/owned-keychain" ] && [ "$(cat "$RUNNER_TEMP/mistt-signing/owned-keychain")" = "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" ]; then
+            security delete-keychain "$RUNNER_TEMP/mistt-signing/release.keychain-db"
+          fi
