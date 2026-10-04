@@ -24,6 +24,12 @@ struct LiveCodeIdentity: Equatable {
     let teamIdentifier: String
     let bundleIdentifier: String?
     let mainExecutableName: String?
+    let appleGenericTrustValidated: Bool
+}
+
+struct CodeSignatureExpectation: Equatable {
+    let signingIdentifier: String
+    let teamIdentifier: String
 }
 
 struct VerifiedHelperTarget: Equatable {
@@ -39,8 +45,9 @@ struct VerifiedHelperTarget: Equatable {
 protocol CoreAudioOwnershipReading {
     func runningApplications(bundleIdentifier: String) throws -> [RunningOwnerApplication]
     func processIncarnation(pid: pid_t) throws -> ProcessIncarnation
-    func liveCodeIdentity(pid: pid_t) throws -> LiveCodeIdentity
+    func liveCodeIdentity(pid: pid_t, expected: CodeSignatureExpectation) throws -> LiveCodeIdentity
     func audioObjectID(pid: pid_t) throws -> AudioObjectID
+    func canonicalFilePath(_ path: String) throws -> String
 }
 
 struct CoreAudioTargetOwnership {
@@ -54,6 +61,9 @@ struct CoreAudioTargetOwnership {
         let ownerBundleIdentifier: String
         let ownerTeamIdentifier: String
         let helpers: [HelperAllowlist]
+        var ownerCodeExpectation: CodeSignatureExpectation {
+            CodeSignatureExpectation(signingIdentifier: ownerBundleIdentifier, teamIdentifier: ownerTeamIdentifier)
+        }
 
         private init(ownerBundleIdentifier: String, ownerTeamIdentifier: String, helpers: [HelperAllowlist]) {
             self.ownerBundleIdentifier = ownerBundleIdentifier
@@ -114,7 +124,11 @@ struct CoreAudioTargetOwnership {
 
         var resolved: [VerifiedHelperTarget] = []
         for helper in policy.helpers {
-            let expectedPath = canonicalPath(appending(relativePath: helper.relativeExecutablePath, to: ownerState.application.bundlePath))
+            let bundlePath = try ownershipReader.canonicalFilePath(ownerState.application.bundlePath)
+            let expectedPath = try ownershipReader.canonicalFilePath(
+                appending(relativePath: helper.relativeExecutablePath, to: ownerState.application.bundlePath)
+            )
+            guard Self.isContained(expectedPath, in: bundlePath) else { throw ValidationError.helperChanged }
             var matches: [VerifiedHelperTarget] = []
 
             for client in audioProcesses where client.pid > 0 && client.pid != ownerState.application.pid {
@@ -123,24 +137,28 @@ struct CoreAudioTargetOwnership {
                       process.parentPID == ownerState.application.pid,
                       process.uid == ownerState.process.uid,
                       Self.startedAfter(process, ownerState.process),
-                      canonicalPath(process.executablePath) == expectedPath else {
+                      try ownershipReader.canonicalFilePath(process.executablePath) == expectedPath else {
                     continue
                 }
 
-                let code = try ownershipReader.liveCodeIdentity(pid: client.pid)
+                let expectation = CodeSignatureExpectation(signingIdentifier: helper.signingIdentifier, teamIdentifier: helper.teamIdentifier)
+                let code = try ownershipReader.liveCodeIdentity(pid: client.pid, expected: expectation)
                 guard code.signingIdentifier == helper.signingIdentifier,
-                      code.teamIdentifier == helper.teamIdentifier else {
+                      code.teamIdentifier == helper.teamIdentifier,
+                      code.appleGenericTrustValidated else {
                     throw ValidationError.helperIdentityMismatch
                 }
 
                 let ownerAfter = try ownershipReader.processIncarnation(pid: ownerState.application.pid)
                 let helperAfter = try ownershipReader.processIncarnation(pid: client.pid)
                 guard ownerAfter == ownerState.process else { throw ValidationError.ownerChanged }
-                guard try ownershipReader.liveCodeIdentity(pid: ownerState.application.pid) == ownerState.code else {
+                guard try ownershipReader.liveCodeIdentity(
+                    pid: ownerState.application.pid, expected: policy.ownerCodeExpectation
+                ) == ownerState.code else {
                     throw ValidationError.ownerIdentityMismatch
                 }
                 guard helperAfter == process,
-                      try ownershipReader.liveCodeIdentity(pid: client.pid) == code else {
+                      try ownershipReader.liveCodeIdentity(pid: client.pid, expected: expectation) == code else {
                     throw ValidationError.helperChanged
                 }
 
@@ -192,10 +210,25 @@ struct CoreAudioTargetOwnership {
 
         let currentOwner = try ownershipReader.processIncarnation(pid: owner.pid)
         guard currentOwner == lease.ownerProcess else { throw ValidationError.ownerChanged }
-        let currentOwnerCode = try ownershipReader.liveCodeIdentity(pid: owner.pid)
+        let currentOwnerCode = try ownershipReader.liveCodeIdentity(
+            pid: owner.pid, expected: policy.ownerCodeExpectation
+        )
+        let ownerBundlePath = try ownershipReader.canonicalFilePath(owner.bundlePath)
+        guard let ownerExecutableName = lease.ownerCode.mainExecutableName else {
+            throw ValidationError.ownerIdentityMismatch
+        }
+        let expectedOwnerExecutable = try ownershipReader.canonicalFilePath(
+            URL(fileURLWithPath: owner.bundlePath)
+                .appendingPathComponent("Contents/MacOS", isDirectory: true)
+                .appendingPathComponent(ownerExecutableName, isDirectory: false).path
+        )
         guard currentOwnerCode == lease.ownerCode,
+              currentOwnerCode.signingIdentifier == policy.ownerBundleIdentifier,
+              currentOwnerCode.appleGenericTrustValidated,
               currentOwnerCode.teamIdentifier == policy.ownerTeamIdentifier,
-              currentOwnerCode.bundleIdentifier == policy.ownerBundleIdentifier else {
+              currentOwnerCode.bundleIdentifier == policy.ownerBundleIdentifier,
+              Self.isContained(expectedOwnerExecutable, in: ownerBundlePath),
+              try ownershipReader.canonicalFilePath(currentOwner.executablePath) == expectedOwnerExecutable else {
             throw ValidationError.ownerIdentityMismatch
         }
 
@@ -207,18 +240,28 @@ struct CoreAudioTargetOwnership {
             throw ValidationError.helperChanged
         }
 
+        let expectedPath = try ownershipReader.canonicalFilePath(
+            Self.appending(relativePath: lease.helper.relativeExecutablePath, to: owner.bundlePath)
+        )
+        let bundlePath = ownerBundlePath
         let currentHelper = try ownershipReader.processIncarnation(pid: client.pid)
-        guard currentHelper == lease.helperProcess,
+        guard Self.isContained(expectedPath, in: bundlePath),
+              currentHelper == lease.helperProcess,
               currentHelper.parentPID == owner.pid,
               currentHelper.uid == currentOwner.uid,
               Self.startedAfter(currentHelper, currentOwner),
-              Self.canonicalPath(currentHelper.executablePath) == Self.canonicalPath(
-                Self.appending(relativePath: lease.helper.relativeExecutablePath, to: owner.bundlePath)
-              ) else {
+              try ownershipReader.canonicalFilePath(currentHelper.executablePath) == expectedPath else {
             throw ValidationError.helperChanged
         }
-        let currentHelperCode = try ownershipReader.liveCodeIdentity(pid: client.pid)
+        let currentHelperCode = try ownershipReader.liveCodeIdentity(
+            pid: client.pid,
+            expected: CodeSignatureExpectation(
+                signingIdentifier: lease.helper.signingIdentifier,
+                teamIdentifier: lease.helper.teamIdentifier
+            )
+        )
         guard currentHelperCode == lease.helperCode,
+              currentHelperCode.appleGenericTrustValidated,
               currentHelperCode.signingIdentifier == lease.helper.signingIdentifier,
               currentHelperCode.teamIdentifier == lease.helper.teamIdentifier else {
             throw ValidationError.helperIdentityMismatch
@@ -247,19 +290,24 @@ struct CoreAudioTargetOwnership {
         guard process.pid == owner.pid else { throw ValidationError.ownerChanged }
         let code: LiveCodeIdentity
         do {
-            code = try reader.liveCodeIdentity(pid: owner.pid)
+            code = try reader.liveCodeIdentity(pid: owner.pid, expected: policy.ownerCodeExpectation)
         } catch {
             throw ValidationError.ownerIdentityMismatch
         }
-        guard code.teamIdentifier == policy.ownerTeamIdentifier,
+        guard code.appleGenericTrustValidated,
+              code.signingIdentifier == policy.ownerBundleIdentifier,
+              code.teamIdentifier == policy.ownerTeamIdentifier,
               code.bundleIdentifier == policy.ownerBundleIdentifier,
               let executableName = code.mainExecutableName,
               !executableName.isEmpty,
-              canonicalPath(process.executablePath) == canonicalPath(
+              (try? reader.canonicalFilePath(process.executablePath)) == (try? reader.canonicalFilePath(
                 URL(fileURLWithPath: owner.bundlePath)
                     .appendingPathComponent("Contents/MacOS", isDirectory: true)
                     .appendingPathComponent(executableName, isDirectory: false).path
-              ) else {
+              )),
+              let ownerBundlePath = try? reader.canonicalFilePath(owner.bundlePath),
+              let ownerExecutablePath = try? reader.canonicalFilePath(process.executablePath),
+              isContained(ownerExecutablePath, in: ownerBundlePath) else {
             throw ValidationError.ownerIdentityMismatch
         }
         return (owner, process, code)
@@ -277,8 +325,10 @@ struct CoreAudioTargetOwnership {
         return components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    private static func isContained(_ path: String, in root: String) -> Bool {
+        guard root != "/" else { return false }
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        return path.hasPrefix(prefix)
     }
 
     private static func appending(relativePath: String, to root: String) -> String {
@@ -326,12 +376,19 @@ private struct SystemCoreAudioOwnershipReader: CoreAudioOwnershipReading {
         )
     }
 
-    func liveCodeIdentity(pid: pid_t) throws -> LiveCodeIdentity {
+    func liveCodeIdentity(pid: pid_t, expected: CodeSignatureExpectation) throws -> LiveCodeIdentity {
         let attributes = [kSecGuestAttributePid as String: NSNumber(value: pid)] as CFDictionary
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, attributes, kSecCSDefaultFlags, &code) == errSecSuccess,
-              let code,
-              SecCodeCheckValidity(code, kSecCSDefaultFlags, nil) == errSecSuccess else {
+              let code else {
+            throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
+        }
+
+        let requirementText = "anchor apple generic and identifier \"\(expected.signingIdentifier)\" and certificate leaf[subject.OU] = \"\(expected.teamIdentifier)\""
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(requirementText as CFString, SecCSFlags(), &requirement) == errSecSuccess,
+              let requirement,
+              SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement) == errSecSuccess else {
             throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
         }
 
@@ -347,8 +404,13 @@ private struct SystemCoreAudioOwnershipReader: CoreAudioOwnershipReading {
             signingIdentifier: signingIdentifier,
             teamIdentifier: teamIdentifier,
             bundleIdentifier: infoPlist?["CFBundleIdentifier"] as? String,
-            mainExecutableName: infoPlist?["CFBundleExecutable"] as? String
+            mainExecutableName: infoPlist?["CFBundleExecutable"] as? String,
+            appleGenericTrustValidated: true
         )
+    }
+
+    func canonicalFilePath(_ path: String) throws -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     func audioObjectID(pid: pid_t) throws -> AudioObjectID {

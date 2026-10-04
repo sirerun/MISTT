@@ -60,13 +60,47 @@ final class CoreAudioTargetOwnershipTests: XCTestCase {
         let code = reader.codes[101]!
         reader.codes[101] = LiveCodeIdentity(
             signingIdentifier: code.signingIdentifier, teamIdentifier: "OTHERTEAM",
-            bundleIdentifier: code.bundleIdentifier, mainExecutableName: code.mainExecutableName
+            bundleIdentifier: code.bundleIdentifier, mainExecutableName: code.mainExecutableName,
+            appleGenericTrustValidated: true
         )
         let candidate = AudioClient(objectID: 23, pid: 101, bundleID: nil, runningOutput: true)
 
         XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(
             from: [candidate], policy: policy, reader: reader
         )) { XCTAssertEqual($0 as? CoreAudioTargetOwnership.ValidationError, .helperIdentityMismatch) }
+    }
+
+    func testRejectsOwnerCodeWithDifferentSigningIdentifier() {
+        let reader = fixture()
+        let code = reader.codes[100]!
+        reader.codes[100] = LiveCodeIdentity(
+            signingIdentifier: "com.attacker.lookalike",
+            teamIdentifier: code.teamIdentifier,
+            bundleIdentifier: code.bundleIdentifier,
+            mainExecutableName: code.mainExecutableName,
+            appleGenericTrustValidated: true
+        )
+
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(
+            from: [AudioClient(objectID: 23, pid: 101, bundleID: nil, runningOutput: true)],
+            policy: policy,
+            reader: reader
+        )) { XCTAssertEqual($0 as? CoreAudioTargetOwnership.ValidationError, .ownerIdentityMismatch) }
+    }
+
+    func testRejectsCanonicalHelperPathEscapingOwnerBundle() {
+        let reader = fixture()
+        let helperPath = reader.processes[101]!.executablePath
+        let ownerBundle = reader.applications[0].bundlePath
+        let escaped = "/Fixture/Outside/MediaSDK_Server"
+        reader.canonicalOverrides["\(ownerBundle)/Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"] = escaped
+        reader.canonicalOverrides[helperPath] = escaped
+
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(
+            from: [AudioClient(objectID: 23, pid: 101, bundleID: nil, runningOutput: true)],
+            policy: policy,
+            reader: reader
+        )) { XCTAssertEqual($0 as? CoreAudioTargetOwnership.ValidationError, .helperChanged) }
     }
 
     func testRejectsInvalidLiveCodeSignature() {
@@ -222,10 +256,11 @@ final class CoreAudioTargetOwnershipTests: XCTestCase {
             applications: [.init(bundleIdentifier: policy.ownerBundleIdentifier, pid: 100, bundlePath: bundle)],
             processes: [100: owner, 101: helper],
             codes: [
-                100: .init(signingIdentifier: "TikTokLiveStudio", teamIdentifier: policy.ownerTeamIdentifier,
-                           bundleIdentifier: policy.ownerBundleIdentifier, mainExecutableName: "TikTokLiveStudio"),
+                100: .init(signingIdentifier: policy.ownerBundleIdentifier, teamIdentifier: policy.ownerTeamIdentifier,
+                           bundleIdentifier: policy.ownerBundleIdentifier, mainExecutableName: "TikTokLiveStudio",
+                           appleGenericTrustValidated: true),
                 101: .init(signingIdentifier: "MediaSDK_Server", teamIdentifier: policy.ownerTeamIdentifier,
-                           bundleIdentifier: nil, mainExecutableName: nil)
+                           bundleIdentifier: nil, mainExecutableName: nil, appleGenericTrustValidated: true)
             ],
             objects: [101: 23]
         )
@@ -239,6 +274,7 @@ private final class FakeOwnershipReader: CoreAudioOwnershipReading {
     var objects: [pid_t: AudioObjectID]
     var invalidCodePIDs: Set<pid_t> = []
     var processReads: [pid_t: [ProcessIncarnation]] = [:]
+    var canonicalOverrides: [String: String] = [:]
 
     init(
         applications: [RunningOwnerApplication],
@@ -266,12 +302,21 @@ private final class FakeOwnershipReader: CoreAudioOwnershipReading {
         return process
     }
 
-    func liveCodeIdentity(pid: pid_t) throws -> LiveCodeIdentity {
+    func liveCodeIdentity(pid: pid_t, expected: CodeSignatureExpectation) throws -> LiveCodeIdentity {
         guard !invalidCodePIDs.contains(pid) else {
             throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
         }
-        guard let code = codes[pid] else { throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch }
+        guard let code,
+              code.signingIdentifier == expected.signingIdentifier,
+              code.teamIdentifier == expected.teamIdentifier,
+              code.appleGenericTrustValidated else {
+            throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
+        }
         return code
+    }
+
+    func canonicalFilePath(_ path: String) throws -> String {
+        canonicalOverrides[path] ?? URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     func audioObjectID(pid: pid_t) throws -> AudioObjectID {
