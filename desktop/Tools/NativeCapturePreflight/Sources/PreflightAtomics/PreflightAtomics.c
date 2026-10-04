@@ -37,8 +37,15 @@ typedef struct {
     } latest;
 } SourceMetrics;
 
+typedef enum {
+    CAPTURE_PHASE_INITIAL = 0,
+    CAPTURE_PHASE_OPENING = 1,
+    CAPTURE_PHASE_OPEN = 2,
+    CAPTURE_PHASE_CLOSED = 3
+} CapturePhase;
+
 struct MISTTAtomicCapture {
-    _Atomic bool gate_open;
+    _Atomic uint32_t phase;
     _Atomic uint64_t epoch_ns;
     _Atomic uint64_t open_ns;
     _Atomic uint64_t cutoff_ns;
@@ -50,7 +57,15 @@ static void fail_once(MISTTAtomicCapture *state, uint32_t reason) {
     uint32_t expected = MISTT_FAILURE_NONE;
     atomic_compare_exchange_strong_explicit(&state->first_failure, &expected, reason,
                                             memory_order_acq_rel, memory_order_relaxed);
-    atomic_store_explicit(&state->gate_open, false, memory_order_release);
+    atomic_store_explicit(&state->phase, CAPTURE_PHASE_CLOSED, memory_order_release);
+}
+
+static void atomic_min_u64(_Atomic uint64_t *value, uint64_t candidate) {
+    uint64_t current = atomic_load_explicit(value, memory_order_relaxed);
+    while (candidate < current &&
+           !atomic_compare_exchange_weak_explicit(value, &current, candidate,
+                                                  memory_order_seq_cst, memory_order_relaxed)) {
+    }
 }
 
 static bool try_add_counter(_Atomic uint64_t *counter, uint64_t amount) {
@@ -221,56 +236,62 @@ static int32_t commit_buffer_locked(MISTTAtomicCapture *state, SourceMetrics *m,
 MISTTAtomicCapture *MISTTCreateCaptureState(void) {
     MISTTAtomicCapture *state = calloc(1, sizeof(*state));
     if (state == NULL) return NULL;
-    MISTTResetCaptureState(state);
+    atomic_init(&state->phase, CAPTURE_PHASE_INITIAL);
+    atomic_init(&state->epoch_ns, 0);
+    atomic_init(&state->open_ns, 0);
+    atomic_init(&state->cutoff_ns, UINT64_MAX);
+    atomic_init(&state->first_failure, MISTT_FAILURE_NONE);
+    for (uint32_t i = 0; i < 2; ++i) {
+        SourceMetrics *m = &state->source[i];
+        atomic_init(&m->buffers, 0);
+        atomic_init(&m->frames, 0);
+        atomic_init(&m->clipped, 0);
+        atomic_init(&m->invalid, 0);
+        atomic_init(&m->first_offset, UINT64_MAX);
+        atomic_init(&m->last_offset, UINT64_MAX);
+        atomic_init(&m->last_sample_offset, UINT64_MAX);
+        atomic_init(&m->max_gap, 0);
+        atomic_init(&m->max_overlap, 0);
+        atomic_init(&m->max_callback_ns, 0);
+        atomic_init(&m->callback_overruns, 0);
+        atomic_init(&m->energy_head, 0);
+        atomic_init(&m->energy_tail, 0);
+        atomic_init(&m->energy_overflow, 0);
+        atomic_flag_clear(&m->callback_lock);
+        m->expected_next_offset_ns = 0.0L;
+        m->latest.valid = false;
+    }
     return state;
 }
 
 void MISTTDestroyCaptureState(MISTTAtomicCapture *state) { free(state); }
 
 void MISTTResetCaptureState(MISTTAtomicCapture *state) {
-    if (state == NULL) return;
-    atomic_store_explicit(&state->gate_open, false, memory_order_release);
-    atomic_store_explicit(&state->epoch_ns, 0, memory_order_relaxed);
-    atomic_store_explicit(&state->open_ns, 0, memory_order_relaxed);
-    atomic_store_explicit(&state->cutoff_ns, 0, memory_order_relaxed);
-    atomic_store_explicit(&state->first_failure, MISTT_FAILURE_NONE, memory_order_relaxed);
-    for (uint32_t i = 0; i < 2; ++i) {
-        SourceMetrics *m = &state->source[i];
-        atomic_store_explicit(&m->buffers, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->frames, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->clipped, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->invalid, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->first_offset, UINT64_MAX, memory_order_relaxed);
-        atomic_store_explicit(&m->last_offset, UINT64_MAX, memory_order_relaxed);
-        atomic_store_explicit(&m->last_sample_offset, UINT64_MAX, memory_order_relaxed);
-        atomic_store_explicit(&m->max_gap, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->max_overlap, 0, memory_order_relaxed);
-        m->expected_next_offset_ns = 0.0L;
-        atomic_store_explicit(&m->max_callback_ns, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->callback_overruns, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->energy_head, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->energy_tail, 0, memory_order_relaxed);
-        atomic_store_explicit(&m->energy_overflow, 0, memory_order_relaxed);
-        atomic_flag_clear_explicit(&m->callback_lock, memory_order_relaxed);
-        m->latest.valid = false;
-    }
+    // Capture state is single-use. Keep this ABI-compatible entry point inert:
+    // a retired generation must never clear its cutoff or counters.
+    (void)state;
 }
 
 void MISTTOpenCaptureGate(MISTTAtomicCapture *state, uint64_t epoch_ns) {
+    if (state == NULL) return;
+    uint32_t expected = CAPTURE_PHASE_INITIAL;
+    if (!atomic_compare_exchange_strong_explicit(&state->phase, &expected, CAPTURE_PHASE_OPENING,
+                                                 memory_order_acq_rel, memory_order_acquire)) return;
     atomic_store_explicit(&state->epoch_ns, epoch_ns, memory_order_relaxed);
     atomic_store_explicit(&state->open_ns, epoch_ns, memory_order_relaxed);
-    atomic_store_explicit(&state->cutoff_ns, UINT64_MAX, memory_order_relaxed);
-    for (size_t i = 0; i < 2; ++i) state->source[i].latest.valid = false;
-    atomic_store_explicit(&state->gate_open, true, memory_order_release);
+    expected = CAPTURE_PHASE_OPENING;
+    atomic_compare_exchange_strong_explicit(&state->phase, &expected, CAPTURE_PHASE_OPEN,
+                                            memory_order_acq_rel, memory_order_acquire);
 }
 
 void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns) {
     if (state == NULL) return;
-    atomic_store_explicit(&state->cutoff_ns, cutoff_ns, memory_order_seq_cst);
-    atomic_store_explicit(&state->gate_open, false, memory_order_seq_cst);
+    atomic_store_explicit(&state->phase, CAPTURE_PHASE_CLOSED, memory_order_seq_cst);
+    atomic_min_u64(&state->cutoff_ns, cutoff_ns);
     for (size_t i = 0; i < 2; ++i) {
         SourceMetrics *m = &state->source[i];
         while (atomic_flag_test_and_set_explicit(&m->callback_lock, memory_order_acquire)) sched_yield();
+        const uint64_t effective_cutoff = atomic_load_explicit(&state->cutoff_ns, memory_order_seq_cst);
         if (m->latest.valid) {
             atomic_store_explicit(&m->buffers, m->latest.before_buffers, memory_order_relaxed);
             atomic_store_explicit(&m->frames, m->latest.before_frames, memory_order_relaxed);
@@ -289,22 +310,23 @@ void MISTTCloseCaptureGate(MISTTAtomicCapture *state, uint64_t cutoff_ns) {
             if (m->latest.start_ns < open_ns)
                 valid = first_frame_at_or_after(open_ns - m->latest.start_ns, frame_ns,
                                                 m->latest.frame_count, &first);
-            if (valid && cutoff_ns > m->latest.start_ns)
-                valid = first_frame_at_or_after(cutoff_ns - m->latest.start_ns, frame_ns,
+            if (valid && effective_cutoff > m->latest.start_ns)
+                valid = first_frame_at_or_after(effective_cutoff - m->latest.start_ns, frame_ns,
                                                 m->latest.frame_count, &last);
             if (valid)
                 (void)commit_buffer_locked(state, m, m->latest.start_ns, m->latest.frame_count,
                                            frame_ns, first, last);
             else
                 fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
-            m->latest.valid = false;
+            // Keep the rollback record so a repeated close with an earlier
+            // cutoff can only trim this final buffer further.
         }
         atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
     }
 }
 
 bool MISTTCaptureGateIsOpen(const MISTTAtomicCapture *state) {
-    return atomic_load_explicit(&state->gate_open, memory_order_acquire);
+    return state != NULL && atomic_load_explicit(&state->phase, memory_order_acquire) == CAPTURE_PHASE_OPEN;
 }
 
 static int32_t record_buffer(MISTTAtomicCapture *state, uint32_t source, bool host_time_valid,
@@ -322,7 +344,7 @@ static int32_t record_buffer(MISTTAtomicCapture *state, uint32_t source, bool ho
         fail_once(state, MISTT_FAILURE_INVALID_BUFFER);
         return MISTT_FAILURE_INVALID_BUFFER;
     }
-    if (!atomic_load_explicit(&state->gate_open, memory_order_acquire)) return 0;
+    if (!MISTTCaptureGateIsOpen(state)) return 0;
     SourceMetrics *m = &state->source[source];
     // Core Audio callbacks never wait on another callback or control work. A
     // same-source overlap is unexpected; fail the pair closed instead.
@@ -330,7 +352,7 @@ static int32_t record_buffer(MISTTAtomicCapture *state, uint32_t source, bool ho
         fail_once(state, MISTT_FAILURE_CALLBACK_OVERLAP);
         return MISTT_FAILURE_CALLBACK_OVERLAP;
     }
-    if (!atomic_load_explicit(&state->gate_open, memory_order_seq_cst)) {
+    if (!MISTTCaptureGateIsOpen(state)) {
         atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
         return 0;
     }
@@ -421,7 +443,7 @@ bool MISTTEnqueueEnergy(MISTTAtomicCapture *state, uint32_t source, uint64_t sta
         if (!try_add_counter(&m->energy_overflow, 1)) fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
         return false;
     }
-    if (!atomic_load_explicit(&state->gate_open, memory_order_seq_cst)) {
+    if (!MISTTCaptureGateIsOpen(state)) {
         atomic_flag_clear_explicit(&m->callback_lock, memory_order_release);
         return false;
     }

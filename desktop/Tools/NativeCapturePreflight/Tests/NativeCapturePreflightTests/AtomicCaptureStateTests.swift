@@ -15,6 +15,55 @@ private let pauseBeforeCommit: @convention(c) (UnsafeMutableRawPointer?) -> Void
 }
 
 final class AtomicCaptureStateTests: XCTestCase {
+    func testCloseBeforeOpenAndResetKeepGenerationClosed() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+
+        MISTTCloseCaptureGate(state, 1_000_000_100)
+        MISTTResetCaptureState(state)
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 4, 16_000), 0)
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 0)
+    }
+
+    func testConcurrentOpenAndCloseAlwaysRetiresGeneration() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+
+        DispatchQueue.concurrentPerform(iterations: 64) { iteration in
+            if iteration.isMultiple(of: 2) {
+                MISTTOpenCaptureGate(state, 1_000_000_000)
+            } else {
+                MISTTCloseCaptureGate(state, 1_000_000_100)
+            }
+        }
+
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+        MISTTOpenCaptureGate(state, 2_000_000_000)
+        XCTAssertFalse(MISTTCaptureGateIsOpen(state))
+    }
+
+    func testRepeatedCloseCanOnlyTightenFinalBufferCutoff() {
+        let state = MISTTCreateCaptureState()!
+        defer { MISTTDestroyCaptureState(state) }
+        MISTTOpenCaptureGate(state, 1_000_000_000)
+        XCTAssertEqual(MISTTRecordBuffer(state, 0, true, 1_000_000_000, 10, 16_000), 0)
+
+        MISTTCloseCaptureGate(state, 1_000_500_000)
+        MISTTCloseCaptureGate(state, 1_000_750_000)
+        var mic = MISTTSourceSnapshot()
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 8, "a later close must not widen the retained tail")
+
+        MISTTCloseCaptureGate(state, 1_000_250_000)
+        MISTTReadSource(state, 0, &mic)
+        XCTAssertEqual(mic.frames, 4, "an earlier cutoff may trim the final buffer further")
+    }
+
     func testInvalidTimestampClosesSharedGateAndPreservesFirstFailure() {
         let state = MISTTCreateCaptureState()!
         defer { MISTTDestroyCaptureState(state) }
