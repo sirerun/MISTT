@@ -4,7 +4,7 @@ import SwiftUI
 struct MicrophoneWindow: View {
     @ObservedObject var controller: BridgeController
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityContrast) private var accessibilityContrast
+    @Environment(\.colorSchemeContrast) private var accessibilityContrast
     @FocusState private var micFocused: Bool
 
     private var presentation: RelayPresentation { controller.presentation }
@@ -61,7 +61,7 @@ struct MicrophoneWindow: View {
         .padding(24)
         .frame(width: 260, height: 260)
         .background(Color(nsColor: .windowBackgroundColor))
-        .accessibilityLiveRegion(.polite)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
