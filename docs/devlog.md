@@ -136,3 +136,21 @@ Independent Luna reviewer t2_13_native reviewed base26d4062 to ecceb99 and raise
 ## 2026-10-04 — revised C regression and repeated admission blockers
 
 CREG-001 and CREG-002 resolved at worker544effb (integrated98f5732); independent Luna source re-review accepted them. Coordinator warnings-as-errors ASan/UBSan check passes actual-C held-lock16/144, fractional48kHz2/1 and no post-close append. Process-watchdog fault probe exits124 after5.03s. No production source changed. User requested another readiness attempt; main CI37192784951 attempt2 failed with zero steps, current annotation still billing-locked. Local load20.36 remains above10. Fresh native build/TCC/signal/paired-MVP/release/local-install acceptance remain unverified.
+
+## 2026-10-04 UTC — full SDLC planning refinement
+
+Preserved authored task IDs/completion evidence and split the work breakdown into docs/plans/E1.md through E4.md. T2.11-T2.18 make native preflight and per-track verification checkable. Dependency-triggered release/install expansion must emit full stage graphs and continue dispatch with one coordinator and up to three GPT-6-Luna workers. Final acceptance leaves the signed app installed and running startup-muted after actual paired transcript, update and recovery checks. Required CI billing/signing gates remain; no product or external execution occurred in this planning pass.
+
+## 2026-10-04 — ship checkpoint banked
+
+Adopted remote main26d4062 and ran three isolated GPT-6-Luna preflight lanes. Standalone actual-C cutoff harness now passes sanitized held-lock, fractional and post-close rejection cases plus intentional watchdog timeout; independent exact-head code/docs review accepted candidate510e3f3958583db8a4008e52803ad09835c4b025 in draft PR #3. CREG001/002 and DOC001 resolved. Current PR CI37194376424 failed with zero steps due to billing lock, including failed retry of main after owner said try now. Shared local load remains above10. No native Swift/package/hardware/MVP/release/installation pass claimed. Updated root split plan from our coordinator-owned records; no authored assets or old devlog entries removed. Task claims released; unmerged worktrees preserved. T2.26 review evidence resides in PR body, T2.22 merge remains blocked.
+
+## 2026-10-04 — requested local validation
+
+Candidate510e3f3: six probe unit tests, native-control schema with15 examples, plan35-ID/DAG/metadata checks, plist/script/whitespace checks and warnings-as-errors ASan/UBSan actual-C cutoff regressions pass. Forced stuck-thread watchdog exits124 after5.02s. Shared host load16.32 then17.96 remains above10, so fresh Swift tests/build/package/launch were not run. No hardware/TCC/DGX/product/installed-app acceptance follows from fixture checks. Reviewed Git candidate was not changed by these checks.
+
+## 2026-10-04 — code-first implementation banked
+
+Completed known native/Go/DGX/release/updater/configuration coding with three isolated GPT-6-Luna workers and a coordinator. Frozen source head65a386035fa67fcdb1e803512d5af426ec4383e7 is independently source-reviewed with no unresolved known coding blocker. Accepted review findings and scoped dispositions are in qualification/code-first-20261004.md. Gateway16, release-tool7 and native-schema17 checks pass alongside syntax/format/plist/shell/YAML/diff checks. Host gateway test environment differs from pinned Python/NumPy and is not target qualification.
+
+The owner's later instruction defers all heavy builds/broad tests/race, Swift tests, native hardware/TCC, model download/inference, signing/notarization/publication/installation. Plan has60 IDs with28 completed source/planning/check rows; acceptance, merge, landed and installed/running gates remain open. Preserve all prior worktrees and root authored files. No app is installed/running by this handoff; no billing/signing/provider ownership was changed.
