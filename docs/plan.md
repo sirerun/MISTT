@@ -115,6 +115,8 @@ Use one coordinator and isolated GPT-6-Luna workers, with no more than three wor
 
 Current lane boundary: prior Go/malgo, single-stream gateway and UI/Go-child capture candidates remain preserved in their external worktrees. They are paused, uncommitted and unverified. Reconcile and reuse compatible pieces only after T2.0; do not integrate their obsolete capture/transport paths or claim builds passed. This planning pass performs no capture implementation, model launch, public LIVE broadcast, release or install.
 
+Current T2.0 sub-lanes: Go owns the prototype's C atomics/header and atomic tests; the Apple worker owns watchdog, bounded streaming-conversion qualification and remaining prototype files; the DGX worker owns the standalone live app/helper ownership validator and its tests. These narrowly partitioned native preflight files do not start T2.1-T2.4/T2.9 product implementation. The coordinator integrates exact commits and owns actual hardware evidence.
+
 Wave 1: coordinator/Apple preflights T2.0 (including native permission/clock/cleanup prototype), then Go worker implements T2.1. Qualification T1.0-T1.5 is already landed; do not repeat its pod merely because scope changed.
 Wave 2: at most three GPT-6-Luna workers own Go relay (T2.2; cmd/internal/proto/gen), DGX gateway (T2.3; dgx/gateway) and native capture/control (T2.9/T2.4; desktop). Coordinator owns shared docs/contracts, integration and scoped Spark execution for T2.10. Serialize tasks within each owned track; one host inference allocation at a time unless refreshed admission permits more.
 Wave 3: integrated T2.5, independent exact-head T2.6, merge T2.7 and landed T2.8 follow dependency order. Do not review a moving author head or exceed shared build limits.
@@ -155,6 +157,8 @@ Use scoped task paths, clean worktrees and small logical commits. Preserve autho
 Before multi-package Go/Swift/Xcode builds, check load and acquire/release the shared build lease; hold when one-minute load exceeds 10. External SSD holds worktrees/caches/artifacts; if unavailable, stop that work instead of silently using internal disk. Run relevant formatting/lint/checks once per changed candidate; broaden testing only for new failures or risks. Native tests replace browser-only assumptions. A negative review never satisfies the merge gate.
 
 ## 9. Progress log
+
+- 2026-10-04 UTC: native prototype checkpoint `77a1515` passes 25 local arm64 Swift tests and ad-hoc packaging, but actual launch exposed NPF-005, an unsafe generic scalar cast in HAL inventory. Fix `745553b` passes 26 tests and opens successfully. The first start fails closed before permissions because TikTok's main app has no HAL object. Playing the owned quiet local test tone identifies its bundleless `MediaSDK_Server` as an active HAL output producer, while the named Electron helper stays idle. Draft contracts now allow one explicit vetted app-relative executable selector with live signature/ancestry/incarnation validation. Signal capture, both permissions, conversion, exclusion, timing and teardown remain unqualified; T2.0 stays open. No public broadcast, paired DGX service, release or installation was started. GitHub CI admission remains blocked by the account billing lock; owner requested local checks continue.
 
 - 2026-10-04 UTC: plan created; no feature, release, installation or updater tasks marked complete. Existing DGX smoke/import evidence remains partial. Owner confirmed use of their existing Apple Developer account.
 

@@ -58,7 +58,7 @@ Relay stdout is bounded JSON lines for authoritative status and `capture_start`/
 
 | Direction | `type` | Required fields beyond type |
 |---|---|---|
-| Go → native | `capture_start` | request_id, session_id, sources, microphone:{device}, call_audio:{bundle_id,include_helpers} |
+| Go → native | `capture_start` | request_id, session_id, sources, microphone:{device}, call_audio:{bundle_id,include_helpers,include_helper_executables?} |
 | Native → Go | `capture_started` | matching request_id/session_id, capture_epoch_host_ns, capture_epoch_unix_ms, exactly two source formats, microphone_ready=true, call_audio_ready=true |
 | Go → native | `capture_stop` | request_id, session_id, reason |
 | Native → Go | `capture_stopped` | matching request_id/session_id, cutoff_host_ns, microphone_io_stopped=true, tap_io_stopped=true, tap_destroyed=true, aggregate_destroyed=true |
@@ -84,6 +84,8 @@ Numeric stop/watchdog budgets remain preflight proposals until measured: `stop_a
 ## Target and acceptance
 
 First target: installed TikTok LIVE Studio, observed version 1.36.4, bundle ID `com.tiktok.livestudio.desktop`. Resolve inclusion-only HAL process IDs on macOS 14.2+, validating current process incarnation and app ownership. Identify any actual audio-producing helper before explicitly including its identity; installed helpers alone are insufficient. No global/exclusion tap, browser substitution, default output fallback or automatic target restore. Missing/ambiguous target, process exit/replacement or denied/revoked permission stops the pair. Silence is valid. Keep the target audible with `muteBehavior = unmuted`.
+
+The selected owner app need not itself have a HAL process object. Resolve its unique live main process from the configured bundle identity, then resolve only explicitly configured audio producers. Local test-tone playback identified TikTok's bundleless `MediaSDK_Server` as an active HAL output producer; that inventory correlation does not prove captured signal or exclusion. For this MVP, optional `include_helper_executables` defaults to `[]` and accepts only `Contents/Resources/app/electron/sdk/lib/MediaSDK_Server` under owner `com.tiktok.livestudio.desktop`. The native qualification allowlist fixes helper signing identifier `MediaSDK_Server` and owner/helper team `MJ797D8U6F`; a path-only match cannot authorize capture. Validate both live code signatures, exact canonical executable path inside the owner's bundle, same user, direct parent PID, owner/helper process-start fingerprints and current PID-to-HAL mapping. Revalidate immediately before start and during capture. Any mismatch, owner/helper replacement or loss fails the pair closed. Tap only the explicitly resolved producer object; never include all descendants or substitute an idle helper. Additional executable helpers require a new qualified allowlist entry, not an arbitrary path supplied by a client.
 
 Acceptance must include distinguishable simultaneous microphone/TikTok playback, unrelated-app exclusion, source/time isolation through jitter/resampling, permission failures, both source tails, cutoff-straddling buffers, app/helper loss, IPC death/stall and three actual subscribers counted as three. Local TikTok playback/preview is sufficient; this task does not authorize a public LIVE broadcast. Existing single-source synthetic inference proof is retained as a prerequisite, not dual-source acceptance.
 

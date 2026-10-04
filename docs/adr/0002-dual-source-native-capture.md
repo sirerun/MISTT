@@ -14,6 +14,8 @@ Convert valid Core Audio host ticks with `AudioConvertHostTimeToNanos` for epoch
 
 ## Consequences and required evidence
 
+Local test-tone playback identified TikTok's bundleless `MediaSDK_Server` as an active HAL output producer while its named Electron helper remained idle. The owner app need not have a HAL object. Explicit external configuration may select this one vetted app-relative executable; native must also validate live owner/helper signatures against the fixed team/signing identifiers, exact canonical path, direct ancestry, same user and process-start/HAL incarnations. A path alone or a wildcard descendant match never authorizes capture. See the [paired contract](../contracts/desktop-dgx-v1.md) for the qualification tuple. Inventory correlation is supporting evidence; actual signal, exclusion and loss acceptance remain open.
+
 Native spike must establish mic/system-audio permission attribution and denial/revocation behavior; exact app/helper targeting; tap teardown leaving call playback intact; callback clock validity/drift; and mute cutoff on both sources. Lack of one stream cannot silently reduce scope to microphone-only recording. Acoustic speaker leakage into the microphone remains possible; source labels express provenance, not diarization or echo cancellation.
 
 The existing single-stream DGX qualification remains valid as historical inference evidence. It does not establish two-source latency, memory/context capacity, atomic admission or fair scheduling. Repeat paced independent fixtures simultaneously; verify distinct transcripts, capture-derived timestamps and independent final tails before accepting the new MVP.

@@ -280,6 +280,21 @@
             "bundle_id",
             "include_helpers"
           ],
+          "allOf": [
+            {
+              "if": {
+                "required": ["include_helper_executables"],
+                "properties": {
+                  "include_helper_executables": {"minItems": 1}
+                }
+              },
+              "then": {
+                "properties": {
+                  "bundle_id": {"const": "com.tiktok.livestudio.desktop"}
+                }
+              }
+            }
+          ],
           "properties": {
             "bundle_id": {
               "$ref": "#/$defs/bundle_id"
@@ -290,6 +305,16 @@
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/bundle_id"
+              }
+            },
+            "include_helper_executables": {
+              "description": "Explicit app-relative selector for the vetted TikTok media helper. Native also validates the owner and helper live signatures, process ancestry and incarnations; a path alone never authorizes capture.",
+              "type": "array",
+              "maxItems": 1,
+              "uniqueItems": true,
+              "default": [],
+              "items": {
+                "const": "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
               }
             }
           }
@@ -736,7 +761,10 @@
       },
       "call_audio": {
         "bundle_id": "com.tiktok.livestudio.desktop",
-        "include_helpers": []
+        "include_helpers": [],
+        "include_helper_executables": [
+          "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
+        ]
       }
     },
     {
