@@ -56,6 +56,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN_PATH/MISTTDesktop" "$APP/Contents/MacOS/MISTTDesktop"
 cp "$RELAY" "$APP/Contents/MacOS/mistt"
 cp "$PACKAGE_DIR/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$PACKAGE_DIR/Resources/logo-3.svg" "$APP/Contents/Resources/logo-3.svg"
 cp "$PACKAGE_DIR/Resources/logo-3-muted.svg" "$APP/Contents/Resources/logo-3-muted.svg"
 ditto "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
