@@ -98,7 +98,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
                 if data.isEmpty { handle.readabilityHandler = nil }
                 else { reader?.append(data) }
             }
-            process = child; inputPipe = stdin; outputHandle = output; writer = writer; lineReader = reader
+            process = child; inputPipe = stdin; outputHandle = output; self.writer = writer; lineReader = reader
             presentation = RelayPresentation(status: nil, unavailableReason: nil, isStarting: true, controlPending: false)
             lastHeartbeat = .now
             heartbeatWatchdog?.cancel()
