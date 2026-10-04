@@ -1,0 +1,23 @@
+# Frozen MVP integration contracts
+
+2026-10-04 UTC. Coordinator contract for T2.0-T2.4. Local protobuf is exactly RFC 0001. Native macOS baseline proposed: macOS 14+, Apple Silicon. Toolkit: SwiftUI/AppKit. Go/malgo capture remains in the bundled relay; validate TCC attribution before accepting it.
+
+## Native bridge
+
+`mistt desktop --config <path>` owns one local gRPC relay, outputs newline JSON authoritative Status snapshots on stdout and accepts newline `{"muted": true}` control on stdin. It must use the same service/control authority as local RPC, never an independent UI state. Status keys: `muted`, `connected_clients`, `capturing`, `reason`, `revision`. Diagnostics go to stderr without transcript/credentials. EOF/parent exit shuts down capture and relay. The Swift app owns/terminates this process and starts muted; native processes must not be launched through a shell. UI only contains logo-3 microphone, On/Muted and count. Configuration defaults to the app's Application Support directory; permission reason is accessible on the mic. A running headless instance causes a clear muted unavailable state, not a second listener. Stdout is coalesced/bounded; a stalled UI must not block capture.
+
+## Gateway HTTPS/WebSocket
+
+Desktop endpoint is a base HTTPS URL ending `/mistt`. Append `/v1/capabilities` and `/v1/stream`. Verify standard TLS; optionally append an operator-provisioned CA via `stt.ca_file` (no global trust changes). Require Bearer token from a restricted file. Initial gateway version accepts English only until additional language acceptance exists.
+
+GET capabilities returns `{"transport":{"sample_rate":16000,"channels":1,"encoding":"s16le"},"languages":["en"],"model":"microsoft/VibeVoice-ASR-Streaming-7B","max_audio_samples":1920000}`. Capabilities are not readiness. Maximum audio is a conservative initial 120 seconds, including reserved tail capacity; actual model token-context cap is enforced separately.
+
+WS init is JSON `{"type":"start","language":"en","sample_rate":16000,"channels":1,"encoding":"s16le"}`. The gateway validates config, admits exactly one active session and loads the pinned model before returning ready JSON `{"type":"ready","session_id":"unique-id","model":"...","language":"en","sample_rate":16000,"channels":1,"encoding":"s16le","max_audio_samples":1920000}`. Desktop opens capture only after ready. It then sends ordered binary mono s16le PCM, no header; sample offsets derive from cumulative received samples. WS text `{"type":"end"}` means input EOF and final flush. Init/repeated end/malformed frames fail explicitly.
+
+Gateway messages: `{"type":"transcript","session_id":"...","segment_id":"1","sequence":1,"text":"full current cumulative text","is_final":false,"confidence":-1,"start_sample":0,"end_sample":46933}`. One revisable segment per MVP session is allowed; final only after successful EOF flush, never after each model chunk. End sample is bounded by received transport samples; timestamps are approximate model-window boundaries. Desktop assigns capture-epoch wall clock; no arrival-time timestamps. `{"type":"done","reason":"input_eof","code":0}` completes successfully. `{"type":"error","reason":"admission_limit|backend_failure|context_limit|audio_limit|invalid_config","code":8}` fails with canonical gRPC code and a sanitized reason; code is appropriate per failure (e.g. 3 invalid config, 8 resource limit, 13 inference). Unexpected EOF without done is failure.
+
+Gateway uses stable pinned source/checkpoint and measured SDPA path. Resampling must preserve continuity across transport frames and produce advertised 24 kHz float32. Read model geometry dynamically; reserve lookahead/final flush and token-budget capacity, never promise indefinite streaming. Shared model unload is after 60 seconds of global idle; admission/load/cancel/unload lock generations prevent unloading a new session. Never cancel inference unsafely while holding shared state or release admission while an inference thread still runs. Upstream source must be pinned and loading controlled; no client selects a model/path.
+
+## Timing and ownership
+
+Startup default is 180 seconds based on measured 125-second cached model load. Drain is 5 seconds, queues stay bounded. Coordinator owns integration edits and plan state. Go worker owns Go/proto/config/capture/backend transport/tests; DGX worker owns Python gateway/tests; Apple worker owns desktop app/tests. Worker dependencies on this frozen contract are explicitly speculative until the combined MVP candidate lands; there is no release/merge authority for worker lanes. Production/shared rollout waits independent review and candidate landing; isolated tests can run before that gate.

@@ -1,0 +1,8 @@
+{
+  "arch": "aarch64",
+  "torch": "2.11.0a0+eb65b36914.nv26.02",
+  "cuda": "13.1",
+  "transformers": "4.56.2",
+  "diffusers": "0.35.1",
+  "fastapi": "0.116.1"
+}

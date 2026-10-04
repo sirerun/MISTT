@@ -1,0 +1,356 @@
+{
+  "timing_scope": "Session seconds start after health/config preflight and WAV decode/resample.",
+  "limitations": [
+    "--max-audio-seconds is checked after WAV decode and resampling; it is not a pre-load file-size bound.",
+    "--cancel-after is checked at audio frame boundaries and cannot interrupt an in-flight socket send."
+  ],
+  "upstream": {
+    "repository": "microsoft/VibeVoice",
+    "commit": "1541f590c7099820f10ea012f48d2399282df69f",
+    "path": "demo/vibevoice_asr_streaming_fastapi_demo.py"
+  },
+  "endpoint": {
+    "base_url": "http://127.0.0.1:7870",
+    "health": {
+      "status": "ok"
+    },
+    "config": {
+      "sample_rate": 24000,
+      "chunk_seconds": 2.933333333333333
+    }
+  },
+  "input": {
+    "channels": 1,
+    "sample_width_bits": 16,
+    "sample_count_original": 261861,
+    "sample_rate_original": 16000,
+    "duration_seconds_original": 16.3663125,
+    "sample_rate_sent": 24000,
+    "sample_count_sent": 392792,
+    "duration_seconds_sent": 16.366333333333333,
+    "tail_test_appended_silence_samples": 0,
+    "tail_test_appended_silence_seconds": 0.0,
+    "tail_test_expected_mid_chunk_end": false
+  },
+  "options": {
+    "context_info": null,
+    "max_tokens": 256,
+    "temperature": 0.0
+  },
+  "started_at_utc": "2026-10-04T02:14:10.210605+00:00",
+  "send_events": [
+    {
+      "kind": "options",
+      "seconds": 0.0017035049968399107
+    },
+    {
+      "kind": "audio",
+      "sample_start": 0,
+      "sample_count": 2400,
+      "seconds": 0.00244532099168282,
+      "send_duration_seconds": 0.0004561489913612604
+    },
+    {
+      "kind": "audio",
+      "sample_start": 2400,
+      "sample_count": 2400,
+      "seconds": 0.10303033099626191,
+      "send_duration_seconds": 0.0005419420049292967
+    },
+    {
+      "kind": "audio",
+      "sample_start": 4800,
+      "sample_count": 2400,
+      "seconds": 0.2030923099955544,
+      "send_duration_seconds": 0.0005528689944185317
+    },
+    {
+      "kind": "audio",
+      "sample_start": 7200,
+      "sample_count": 2400,
+      "seconds": 0.30309315100021195,
+      "send_duration_seconds": 0.0005603250028798357
+    },
+    {
+      "kind": "audio",
+      "sample_start": 9600,
+      "sample_count": 2400,
+      "seconds": 0.4031042339920532,
+      "send_duration_seconds": 0.0005631739913951606
+    },
+    {
+      "kind": "audio",
+      "sample_start": 12000,
+      "sample_count": 2400,
+      "seconds": 0.5030977499991423,
+      "send_duration_seconds": 0.0005676860018866137
+    },
+    {
+      "kind": "audio",
+      "sample_start": 14400,
+      "sample_count": 2400,
+      "seconds": 0.602991342995665,
+      "send_duration_seconds": 0.000542021996807307
+    },
+    {
+      "kind": "audio",
+      "sample_start": 16800,
+      "sample_count": 2400,
+      "seconds": 0.7031014029926155,
+      "send_duration_seconds": 0.0005425019917311147
+    },
+    {
+      "kind": "audio",
+      "sample_start": 19200,
+      "sample_count": 2400,
+      "seconds": 0.8030846780020511,
+      "send_duration_seconds": 0.0005586780025623739
+    },
+    {
+      "kind": "audio",
+      "sample_start": 21600,
+      "sample_count": 2400,
+      "seconds": 0.9031099349958822,
+      "send_duration_seconds": 0.0005682939954567701
+    },
+    {
+      "kind": "audio",
+      "sample_start": 24000,
+      "sample_count": 2400,
+      "seconds": 1.0031043759954628,
+      "send_duration_seconds": 0.000606005996814929
+    },
+    {
+      "kind": "audio",
+      "sample_start": 26400,
+      "sample_count": 2400,
+      "seconds": 1.1027807339996798,
+      "send_duration_seconds": 0.0005338769988156855
+    },
+    {
+      "kind": "audio",
+      "sample_start": 28800,
+      "sample_count": 2400,
+      "seconds": 1.2030354500020621,
+      "send_duration_seconds": 0.0005714300059480593
+    },
+    {
+      "kind": "audio",
+      "sample_start": 31200,
+      "sample_count": 2400,
+      "seconds": 1.3030832029908197,
+      "send_duration_seconds": 0.0005562459991779178
+    },
+    {
+      "kind": "audio",
+      "sample_start": 33600,
+      "sample_count": 2400,
+      "seconds": 1.4031022529961774,
+      "send_duration_seconds": 0.0005589820066234097
+    },
+    {
+      "kind": "audio",
+      "sample_start": 36000,
+      "sample_count": 2400,
+      "seconds": 1.5030575889977627,
+      "send_duration_seconds": 0.0005640059971483424
+    },
+    {
+      "kind": "audio",
+      "sample_start": 38400,
+      "sample_count": 2400,
+      "seconds": 1.6031208469939884,
+      "send_duration_seconds": 0.0006187739927554503
+    },
+    {
+      "kind": "audio",
+      "sample_start": 40800,
+      "sample_count": 2400,
+      "seconds": 1.70301845499489,
+      "send_duration_seconds": 0.0005304049991536885
+    },
+    {
+      "kind": "audio",
+      "sample_start": 43200,
+      "sample_count": 2400,
+      "seconds": 1.8030783849972067,
+      "send_duration_seconds": 0.0005456850049085915
+    },
+    {
+      "kind": "audio",
+      "sample_start": 45600,
+      "sample_count": 2400,
+      "seconds": 1.9030885219981428,
+      "send_duration_seconds": 0.0005536060052691028
+    },
+    {
+      "kind": "audio",
+      "sample_start": 48000,
+      "sample_count": 2400,
+      "seconds": 2.003114225997706,
+      "send_duration_seconds": 0.0005675739957951009
+    },
+    {
+      "kind": "audio",
+      "sample_start": 50400,
+      "sample_count": 2400,
+      "seconds": 2.103089383992483,
+      "send_duration_seconds": 0.0005883900012122467
+    },
+    {
+      "kind": "audio",
+      "sample_start": 52800,
+      "sample_count": 2400,
+      "seconds": 2.203340449996176,
+      "send_duration_seconds": 0.0005694129940820858
+    },
+    {
+      "kind": "audio",
+      "sample_start": 55200,
+      "sample_count": 2400,
+      "seconds": 2.3030976070003817,
+      "send_duration_seconds": 0.0005341970099834725
+    },
+    {
+      "kind": "audio",
+      "sample_start": 57600,
+      "sample_count": 2400,
+      "seconds": 2.4030793589918176,
+      "send_duration_seconds": 0.0005473019991768524
+    },
+    {
+      "kind": "audio",
+      "sample_start": 60000,
+      "sample_count": 2400,
+      "seconds": 2.5029109329916537,
+      "send_duration_seconds": 0.0005525019951164722
+    },
+    {
+      "kind": "audio",
+      "sample_start": 62400,
+      "sample_count": 2400,
+      "seconds": 2.6027110339928186,
+      "send_duration_seconds": 0.0005482289998326451
+    },
+    {
+      "kind": "audio",
+      "sample_start": 64800,
+      "sample_count": 2400,
+      "seconds": 2.703039492989774,
+      "send_duration_seconds": 0.0005765019886894152
+    },
+    {
+      "kind": "audio",
+      "sample_start": 67200,
+      "sample_count": 2400,
+      "seconds": 2.8026194319973,
+      "send_duration_seconds": 0.00054558900592383
+    },
+    {
+      "kind": "audio",
+      "sample_start": 69600,
+      "sample_count": 2400,
+      "seconds": 2.9030856679892167,
+      "send_duration_seconds": 0.000542901994776912
+    },
+    {
+      "kind": "audio",
+      "sample_start": 72000,
+      "sample_count": 2400,
+      "seconds": 3.0026136039959965,
+      "send_duration_seconds": 0.0005458770028781146
+    },
+    {
+      "kind": "audio",
+      "sample_start": 74400,
+      "sample_count": 2400,
+      "seconds": 3.1030987679987447,
+      "send_duration_seconds": 0.0005735099985031411
+    },
+    {
+      "kind": "audio",
+      "sample_start": 76800,
+      "sample_count": 2400,
+      "seconds": 3.2031275740009733,
+      "send_duration_seconds": 0.000595718011027202
+    },
+    {
+      "kind": "audio",
+      "sample_start": 79200,
+      "sample_count": 2400,
+      "seconds": 3.3029096419923007,
+      "send_duration_seconds": 0.0005430140008684248
+    },
+    {
+      "kind": "audio",
+      "sample_start": 81600,
+      "sample_count": 2400,
+      "seconds": 3.40269162900222,
+      "send_duration_seconds": 0.0005398930079536512
+    },
+    {
+      "kind": "audio",
+      "sample_start": 84000,
+      "sample_count": 2400,
+      "seconds": 3.5033937379921554,
+      "send_duration_seconds": 0.000949288994888775
+    },
+    {
+      "kind": "audio",
+      "sample_start": 86400,
+      "sample_count": 2400,
+      "seconds": 3.603326718992321,
+      "send_duration_seconds": 0.0008917369996197522
+    },
+    {
+      "kind": "audio",
+      "sample_start": 88800,
+      "sample_count": 2400,
+      "seconds": 3.703288964999956,
+      "send_duration_seconds": 0.0008806650002952665
+    },
+    {
+      "kind": "audio",
+      "sample_start": 91200,
+      "sample_count": 2400,
+      "seconds": 3.8032782029913506,
+      "send_duration_seconds": 0.0008682009938638657
+    },
+    {
+      "kind": "audio",
+      "sample_start": 93600,
+      "sample_count": 2400,
+      "seconds": 3.9032877269928576,
+      "send_duration_seconds": 0.0008825370023259893
+    }
+  ],
+  "received_messages": [],
+  "transcript_snapshots": [],
+  "first_nonempty_transcript_seconds": null,
+  "audio_send_complete_seconds": null,
+  "first_nonempty_before_audio_send_complete": null,
+  "text_before_audio_send_complete": "",
+  "end_send_started_seconds": null,
+  "end_send_complete_seconds": null,
+  "text_before_end_send": "",
+  "expected_tail_phrase": null,
+  "expected_tail_phrase_completed_during_drain": null,
+  "expected_tail_phrase_drain_attribution": null,
+  "expected_tail_phrase_completion_uncertain": false,
+  "terminal_flush_seconds": null,
+  "final_text": "",
+  "websocket_cleanup": {
+    "done_message_received": false,
+    "close_frame_received": false,
+    "client_close_sent": false,
+    "client_abrupt_disconnect": true,
+    "transport_closed": true
+  },
+  "connected_seconds": 0.001673456994467415,
+  "cancelled_after_seconds": 4.002059878999717,
+  "cancelled_audio_sample_offset": 96000,
+  "audio_frames_sent": 40,
+  "status": "cancelled",
+  "completed_at_utc": "2026-10-04T02:14:14.213758+00:00",
+  "elapsed_seconds": 3.9032877269928576
+}

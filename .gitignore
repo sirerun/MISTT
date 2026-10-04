@@ -1,0 +1,15 @@
+.claude/
+.DS_Store
+__pycache__/
+*.pyc
+.build/
+DerivedData/
+.coverage
+coverage.out
+*.app/
+*.dmg
+*.zip
+.env
+secrets/
+local/
+ajent.social
