@@ -26,3 +26,12 @@
 
 - Native preflight T2.12/T2.13/T2.14: three Luna workers dispatched; coordinator owns integration and actual hardware checks.
 - Blocked: local heavy build admission (load >10), required CI (billing-lock annotation, run 37192784951), later Developer ID/notary setup. No installed working app yet.
+
+## Ship checkpoint — 2026-10-04
+
+- Draft PR #3: full SDLC plan and actual-C cutoff regression, exact-head independent review passed; coordinator owns continuation.
+- Blocked: required CI billing admission (run37194376424), local native build load>10, actual native capture/MVP and later Developer ID/local install acceptance. No working installed app.
+
+## 2026-10-04 code-first handoff
+
+All known coding tasks are complete in the reviewed task branch (source head65a3860). Continue later with lease-admitted compiled tests, native paired hardware/permission/clock/closure qualification, real paired DGX inference/resource validation, exact-head review and merge/landed checks, signed A/B release and feed/cask verification, then local install/multi-client/update acceptance. CPU/memory-heavy work is explicitly deferred; installed/running acceptance is still pending.

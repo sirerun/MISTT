@@ -39,9 +39,9 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E1 -- DGX qualification and reproducible evidence  -> docs/plans/E1.md  (6/6)
 
-### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (7/28)
+### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (16/32)
 
-### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (1/13)
+### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (5/13)
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
@@ -153,3 +153,5 @@ Release/signing setup uses the existing account; Xcode sign-in is confirmed but 
 ## Code-first owner steering — 2026-10-04
 
 Owner requested all coding now and heavy CPU/memory checks later. Three Luna product lanes (Go T2.1/T2.2, DGX T2.3, native T2.9/T2.4) plus coordinator release T3.1-T3.4 work on shared coding contracts. Worker artifacts integrate speculatively; T2.0 remains open and validation/merge/release/install gates do not clear from source completion. Heavy build/test/race,model/workload,physical capture,notarization and install/update experiments are deliberately deferred. E3/E4 are decomposed to known obligations rather than waiting for another planning prompt.
+
+2026-10-04 coding handoff: source candidate `65a386035fa67fcdb1e803512d5af426ec4383e7` has no unresolved known coding finding after independent source re-review. Deferred heavy qualification and installed/running acceptance remain open. The task branch is banked for later validation; it is not merged or installed.
