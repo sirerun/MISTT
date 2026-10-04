@@ -1,66 +1,46 @@
 import Foundation
 
-/// Reads JSON-lines away from the main thread and retains at most one pending UI update.
+/// Bounded stdout JSONL parser. Status snapshots are delivered in order; control
+/// messages are never coalesced or discarded.
 final class StatusLineReader: @unchecked Sendable {
     private let lock = NSLock()
-    private let deliver: @Sendable (Result<RelayStatus, RelayReadError>) -> Void
+    private let deliver: @Sendable (Result<RelayMessage, RelayReadError>) -> Void
     private var buffer = Data()
-    private var latest: Result<RelayStatus, RelayReadError>?
-    private var deliveryScheduled = false
     private var failed = false
-    private let maximumLineBytes = 16 * 1024
+    private let maximumLineBytes = 65_536
+    private let maximumBufferedBytes = 131_072
 
-    init(deliver: @escaping @Sendable (Result<RelayStatus, RelayReadError>) -> Void) {
+    init(deliver: @escaping @Sendable (Result<RelayMessage, RelayReadError>) -> Void) {
         self.deliver = deliver
     }
 
     func append(_ data: Data) {
         guard !data.isEmpty else { return }
         lock.lock()
-        guard !failed else { lock.unlock(); return }
+        guard !failed, data.count <= maximumBufferedBytes - buffer.count else {
+            failed = true; buffer.removeAll(keepingCapacity: false); lock.unlock()
+            deliver(.failure(.lineTooLarge)); return
+        }
         buffer.append(data)
-        var updates: [Result<RelayStatus, RelayReadError>] = []
+        var lines = [Data]()
         while let newline = buffer.firstIndex(of: 0x0A) {
             let line = Data(buffer[..<newline])
             buffer.removeSubrange(...newline)
-            if line.isEmpty { continue }
-            if line.count > maximumLineBytes {
-                updates = [.failure(RelayReadError.lineTooLarge)]
-                failed = true
-                break
-            }
-            do {
-                updates.append(.success(try RelayStatus.decodeLine(line)))
-            } catch {
-                updates = [.failure(RelayReadError.invalidMessage)]
-                failed = true
-                break
-            }
+            if line.count > maximumLineBytes { failed = true; break }
+            if !line.isEmpty { lines.append(line) }
+            if lines.count > 256 { failed = true; break }
         }
-        if buffer.count > maximumLineBytes {
-            updates = [.failure(RelayReadError.lineTooLarge)]
-            failed = true
-            buffer.removeAll(keepingCapacity: false)
-        }
-        if let update = updates.last {
-            latest = update
-            scheduleDeliveryLocked()
-        }
+        if buffer.count > maximumLineBytes { failed = true }
+        let mustFail = failed
+        if mustFail { buffer.removeAll(keepingCapacity: false) }
         lock.unlock()
-    }
-
-    private func scheduleDeliveryLocked() {
-        guard !deliveryScheduled else { return }
-        deliveryScheduled = true
-        DispatchQueue.main.async { [weak self] in self?.deliverLatest() }
-    }
-
-    private func deliverLatest() {
-        lock.lock()
-        let value = latest
-        latest = nil
-        deliveryScheduled = false
-        lock.unlock()
-        if let value { deliver(value) }
+        if mustFail { deliver(.failure(.lineTooLarge)); return }
+        for line in lines {
+            do { deliver(.success(try RelayMessage.decode(line))) }
+            catch {
+                lock.lock(); failed = true; buffer.removeAll(keepingCapacity: false); lock.unlock()
+                deliver(.failure(.invalidMessage)); return
+            }
+        }
     }
 }

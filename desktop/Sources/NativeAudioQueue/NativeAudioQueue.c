@@ -168,20 +168,53 @@ bool MISTTAudioQueuePushFloat32(MISTTAudioQueue *q, const float *left, const flo
 bool MISTTAudioQueuePop(MISTTAudioQueue *q, float *left, float *right,
                         uint32_t capacity, MISTTAudioBlock *block) {
     if (!q || !left || !right || !block) return false;
-    uint64_t read = atomic_load_explicit(&q->read_index, memory_order_relaxed);
-    uint64_t write = atomic_load_explicit(&q->write_index, memory_order_acquire);
-    if (read == write) return false;
-    AudioSlot *slot = &q->slots[read % q->slot_count];
-    if (!atomic_load_explicit(&slot->ready, memory_order_acquire) || slot->metadata.frame_count > capacity) return false;
-    *block = slot->metadata;
-    for (uint32_t i = 0; i < block->frame_count; i++) {
-        left[i] = slot->samples[i * 2];
-        right[i] = slot->samples[i * 2 + 1];
+    for (;;) {
+        uint64_t read = atomic_load_explicit(&q->read_index, memory_order_relaxed);
+        uint64_t write = atomic_load_explicit(&q->write_index, memory_order_acquire);
+        if (read == write) return false;
+        AudioSlot *slot = &q->slots[read % q->slot_count];
+        uint32_t stored_frames = slot->metadata.frame_count;
+        if (!atomic_load_explicit(&slot->ready, memory_order_acquire) || stored_frames > capacity) return false;
+
+        uint32_t first = 0;
+        uint32_t last = stored_frames;
+        uint64_t gate = atomic_load_explicit(&q->gate_open_ns, memory_order_acquire);
+        uint64_t cutoff = atomic_load_explicit(&q->cutoff_ns, memory_order_acquire);
+        if (gate > slot->metadata.host_start_ns) {
+            uint64_t offset = first_sample_at_or_after(gate - slot->metadata.host_start_ns, slot->metadata.sample_rate);
+            first = offset > stored_frames ? stored_frames : (uint32_t)offset;
+        }
+        if (cutoff != UINT64_MAX) {
+            if (cutoff <= slot->metadata.host_start_ns) last = 0;
+            else {
+                uint64_t offset = first_sample_at_or_after(cutoff - slot->metadata.host_start_ns, slot->metadata.sample_rate);
+                last = offset > stored_frames ? stored_frames : (uint32_t)offset;
+            }
+        }
+        if (last > stored_frames) last = stored_frames;
+        if (first > last) first = last;
+        uint32_t kept = last - first;
+        *block = slot->metadata;
+        if (kept > 0) {
+            __uint128_t start_delta = (__uint128_t)first * NANOS_PER_SECOND / slot->metadata.sample_rate;
+            if (start_delta > UINT64_MAX || UINT64_MAX - block->host_start_ns < (uint64_t)start_delta) {
+                atomic_store_explicit(&q->overflow, true, memory_order_release);
+                kept = 0;
+            } else {
+                block->host_start_ns += (uint64_t)start_delta;
+                block->frame_count = kept;
+                for (uint32_t i = 0; i < kept; i++) {
+                    left[i] = slot->samples[(first + i) * 2];
+                    right[i] = slot->samples[(first + i) * 2 + 1];
+                }
+            }
+        }
+        atomic_store_explicit(&slot->ready, false, memory_order_release);
+        atomic_store_explicit(&q->read_index, read + 1, memory_order_release);
+        atomic_fetch_sub_explicit(&q->pending_frames, stored_frames, memory_order_acq_rel);
+        if (kept == 0) continue;
+        return true;
     }
-    atomic_store_explicit(&slot->ready, false, memory_order_release);
-    atomic_store_explicit(&q->read_index, read + 1, memory_order_release);
-    atomic_fetch_sub_explicit(&q->pending_frames, block->frame_count, memory_order_acq_rel);
-    return true;
 }
 
 bool MISTTAudioQueueIsOpen(const MISTTAudioQueue *q) { return q && atomic_load_explicit(&q->gate_open, memory_order_acquire); }
