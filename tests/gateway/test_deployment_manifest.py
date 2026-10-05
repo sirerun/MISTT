@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from dgx.gateway.prefetch_model import verify_snapshot
+from dgx.gateway.prefetch_model import EXPECTED_WEIGHT_SHARDS, verify_snapshot
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -134,11 +137,12 @@ class ModelPrefetchTests(unittest.TestCase):
             root = Path(temp)
             (root / "config.json").write_text("{}", encoding="utf-8")
             (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            (root / "model-00001-of-00008.safetensors").write_bytes(b"partial")
             (root / "model.safetensors.index.json").write_text(
-                json.dumps({"weight_map": {"encoder.weight": "model-00001.safetensors"}}),
+                json.dumps({"weight_map": {"encoder.weight": "model-00001-of-00008.safetensors"}}),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(RuntimeError, "missing weight shard"):
+            with self.assertRaisesRegex(RuntimeError, "complete shard set"):
                 verify_snapshot(root)
 
     def test_complete_weight_index_reports_all_nonempty_shards(self) -> None:
@@ -147,17 +151,65 @@ class ModelPrefetchTests(unittest.TestCase):
             (root / "config.json").write_text("{}", encoding="utf-8")
             (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
             (root / "model.safetensors.index.json").write_text(
-                json.dumps({"weight_map": {
-                    "encoder.weight": "model-00001.safetensors",
-                    "decoder.weight": "model-00002.safetensors",
-                }}),
+                json.dumps({"weight_map": {f"weight.{i}": name for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS))}}),
                 encoding="utf-8",
             )
-            (root / "model-00001.safetensors").write_bytes(b"first")
-            (root / "model-00002.safetensors").write_bytes(b"second")
+            for name in EXPECTED_WEIGHT_SHARDS:
+                (root / name).write_bytes(name.encode())
             shards, size = verify_snapshot(root)
-            self.assertEqual(shards, ["model-00001.safetensors", "model-00002.safetensors"])
-            self.assertEqual(size, len(b"firstsecond"))
+            self.assertEqual(shards, sorted(EXPECTED_WEIGHT_SHARDS))
+            self.assertEqual(size, sum(len(name.encode()) for name in EXPECTED_WEIGHT_SHARDS))
+
+    def test_weight_index_rejects_parent_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            (root / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {"bad.weight": "../../escape.safetensors"}}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "complete shard set"):
+                verify_snapshot(root)
+
+    def test_snapshot_shard_symlink_must_stay_inside_hub_blob_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp)
+            repo_cache = temp_root / "models--microsoft--VibeVoice-ASR-Streaming-7B"
+            root = repo_cache / "snapshots" / "pinned-revision"
+            blobs = repo_cache / "blobs"
+            root.mkdir(parents=True)
+            blobs.mkdir()
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            (root / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {f"weight.{i}": name for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS))}}),
+                encoding="utf-8",
+            )
+            outside = temp_root / "outside.safetensors"
+            outside.write_bytes(b"outside")
+            for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS)):
+                destination = root / name
+                if i == 0:
+                    destination.symlink_to(outside)
+                else:
+                    destination.write_bytes(b"inside")
+            with self.assertRaisesRegex(RuntimeError, "outside the Hub blob cache"):
+                verify_snapshot(root)
+
+    def test_import_works_from_outside_repository_with_installed_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(ROOT)
+            result = subprocess.run(
+                [sys.executable, "-c", "from dgx.gateway.prefetch_model import verify_snapshot"],
+                cwd=temp,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
