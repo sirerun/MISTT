@@ -32,5 +32,10 @@ python -m pip install --disable-pip-version-check -r "$ROOT/dgx/gateway/requirem
 python -m pip install --disable-pip-version-check --no-deps -e "$CACHE/source"
 cd "$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# Projected Secret entries are symlinks; retain strict regular-file validation
+# by snapshotting the read-only mount into a service-private directory.
+CREDENTIAL_DIR=$(python -m dgx.gateway.credentials /run/mistt-input /tmp)
+export MISTT_TOKEN_FILE="$CREDENTIAL_DIR/bearer"
+export MISTT_TLS_CERT_FILE="$CREDENTIAL_DIR/tls.crt"
+export MISTT_TLS_KEY_FILE="$CREDENTIAL_DIR/tls.key"
 exec python -m dgx.gateway
-
