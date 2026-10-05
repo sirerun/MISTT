@@ -3,11 +3,11 @@
 This is the owner-scoped Spark Pod source for the VibeVoice paired gateway. It
 pins the NVIDIA image digest, VibeVoice source commit, and model revision. The
 source, Hugging Face/pip cache, and owner credentials use three separately
-named Podman volumes. The Pod manifest intentionally has no `hostPort`: the
-current Spark reconciler ignores `hostIP` when publishing a host port, so a
-manifest asking for a private-interface-only bind can expose that port on the
-other host interfaces. Do not submit this manifest as a Mac-reachable service
-until a private ingress path is qualified and reviewed.
+named Podman volumes. Direct home-LAN access is approved with verified TLS and
+bearer authentication. Spark ignores `hostIP` when publishing a `hostPort`, so
+the configurable host port is not private-interface scoped. Use it only for
+the approved direct LAN route; do not add router forwarding, firewall rules,
+public DNS, or another external ingress.
 
 ## Admission and rendering
 
@@ -21,14 +21,20 @@ Render the five placeholders in `pod.json.in` from one owner allocation:
   slash.
 - `MISTT_GATEWAY_CREDENTIALS_VOLUME`: a third unique Podman volume name, with
   no slash.
+- `MISTT_GATEWAY_HOST_PORT`: an unused numeric host port selected after
+  checking current Spark allocations. The template deliberately omits
+  `hostIP`; Spark does not enforce that field.
 
 Bootstrap snapshots the read-only credentials mount at `/run/mistt-input` into mode `0600` regular files in a mode `0700` temporary directory before strict validation and TLS loading. Rotation requires an owned service restart to read a fresh snapshot.
 
 Spark does not expand placeholders. Render structured JSON, validate it, and
 record its SHA-256 before submitting it with `POST /api/v1/pods`. Before
-submission, check `/api/v1/resources` and acquire the owner-specific resource
-claim. This gateway needs one GPU, 4 CPUs, and 48 GiB of memory; do not admit a
-second GPU Pod alongside it on the single-GPU node.
+submission, check `/api/v1/resources`, confirm the chosen host port is unused,
+and acquire the owner-specific resource claim. This gateway needs one GPU, 4
+CPUs, and 48 GiB of memory; do not admit a second GPU Pod alongside it on the
+single-GPU node. Deploy production only from the reviewed landed source. A
+separately named, bounded qualification Pod may use the exact reviewed
+candidate when the coordinator authorizes it.
 
 Podman interprets a slashless `hostPath.path` as a named volume. A two-Pod
 Spark test wrote a sentinel to one uniquely named volume, deleted only its
@@ -51,14 +57,14 @@ The gateway Pod then mounts source read-only and cache read-write. Keep
 `/opt/mistt` read-only and put the venv, Hugging Face weights, pip cache,
 temporary files, and XDG cache under `/var/cache/mistt`.
 
-Stage production bearer and TLS files through the owner-controlled credentials
-volume. The gateway mounts it read-only at `/run/mistt-input` and reads
+Stage the owner-issued bearer and TLS files through the owner-controlled
+credentials volume. The gateway mounts it read-only at `/run/mistt-input` and reads
 `bearer`, `tls.crt`, and `tls.key` from that directory. Set the directory to
 `0700`, the bearer and private key to `0600`, and public certificates to
 `0644`. Never put credential values in a manifest, environment variable,
-command argument, repository, or log. Use the production owner CA and token;
-the seven-day CA and bearer used by qualification are separate and not
-production credentials.
+command argument, repository, or log. The CA certificate stays on the Mac as
+the TLS trust file; never copy the CA private key to Spark. Temporary
+qualification credentials are separate from owner-issued service credentials.
 
 Prefetch model weights at the pinned Hub revision into the owner cache volume
 before a first-user readiness check. That download is provisioning time, not
@@ -105,11 +111,12 @@ longer fixture; final transcripts arrived 2.994 seconds after EOF. The
 evidence is retained outside the repository; this was candidate gateway
 qualification, not installed-app or production acceptance.
 
-Direct private host-port routing is blocked: a CPU-only negative control
-requested an unassigned documentation-range `hostIP`, yet a listener was
-reachable on the DGX LAN address. The owned test Pods were deleted immediately
-and both tested host ports now refuse connections. Spark's Pod detail omits
-the effective host IP. Do not restore a `hostPort` until Spark enforces its
-requested bind or an approved private-only ingress path passes a negative
-control from an unassigned interface. Production credentials, route, and the
-Mac application's acceptance remain separate gates.
+LAN host-port behavior was qualified with a CPU-only negative control: a
+listener requested an unassigned documentation-range `hostIP` and was still
+reachable at the DGX LAN address. This confirms the requested bind is ignored;
+it does not verify reachability from outside the home LAN. The temporary test
+Pods were deleted. The approved direct LAN route uses the selected `hostPort`
+with verified TLS and bearer checks from the Mac. No router forwarding,
+firewall change, public DNS, or public-hosting claim is part of this deployment.
+Production credentials, exact landed source, startup/readiness, and the Mac
+application's acceptance remain separate gates.
