@@ -22,6 +22,7 @@ VALUES = {
     "MISTT_GATEWAY_CACHE_VOLUME": "mistt-gateway-cache-owner-qual",
     "MISTT_GATEWAY_CREDENTIALS_VOLUME": "mistt-gateway-credentials-owner-qual",
     "MISTT_GATEWAY_HOST_PORT": "18772",
+    "MISTT_GATEWAY_TLS_SERVER_NAME": "192.0.2.10",
 }
 
 
@@ -110,8 +111,23 @@ class DeploymentManifestTests(unittest.TestCase):
             self.assertNotIn("/", volume_path)
             self.assertNotIn("type", volumes[volume_name])
 
-        self.assertEqual(container["readinessProbe"]["httpGet"]["scheme"], "HTTPS")
-        self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/mistt/healthz")
+        self.assertNotIn("readinessProbe", container)
+        self.assertEqual(
+            {item["name"]: item["value"] for item in container["env"]}[
+                "MISTT_TLS_PROBE_SERVER_NAME"
+            ],
+            VALUES["MISTT_GATEWAY_TLS_SERVER_NAME"],
+        )
+        probe = container["livenessProbe"]
+        self.assertEqual(
+            probe["exec"]["command"],
+            ["python3", "/opt/mistt/dgx/gateway/probe_tls.py"],
+        )
+        self.assertEqual(probe["initialDelaySeconds"], 120)
+        self.assertEqual(probe["periodSeconds"], 30)
+        self.assertEqual(probe["timeoutSeconds"], 5)
+        self.assertEqual(probe["failureThreshold"], 3)
+        self.assertNotIn("httpGet", probe)
         self.assertNotIn("secret", json.dumps(pod).lower())
         self.assertNotIn("persistentVolumeClaim", json.dumps(pod))
 

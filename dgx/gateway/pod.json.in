@@ -26,6 +26,7 @@
           {"name": "MISTT_TOKEN_FILE", "value": "/run/mistt-input/bearer"},
           {"name": "MISTT_TLS_CERT_FILE", "value": "/run/mistt-input/tls.crt"},
           {"name": "MISTT_TLS_KEY_FILE", "value": "/run/mistt-input/tls.key"},
+          {"name": "MISTT_TLS_PROBE_SERVER_NAME", "value": "${MISTT_GATEWAY_TLS_SERVER_NAME}"},
           {"name": "MISTT_STARTUP_TIMEOUT_SECONDS", "value": "180"}
         ],
         "ports": [{
@@ -42,13 +43,10 @@
           {"name": "cache", "mountPath": "/var/cache/mistt"},
           {"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": true}
         ],
-        "readinessProbe": {
-          "httpGet": {"path": "/mistt/healthz", "port": 7870, "scheme": "HTTPS"},
-          "initialDelaySeconds": 5, "periodSeconds": 5, "timeoutSeconds": 2
-        },
         "livenessProbe": {
-          "httpGet": {"path": "/mistt/healthz", "port": 7870, "scheme": "HTTPS"},
-          "initialDelaySeconds": 10, "periodSeconds": 10, "timeoutSeconds": 2
+          "exec": {"command": ["python3", "/opt/mistt/dgx/gateway/probe_tls.py"]},
+          "initialDelaySeconds": 120, "periodSeconds": 30, "timeoutSeconds": 5,
+          "failureThreshold": 3
         }
       }
     ],
