@@ -227,9 +227,15 @@ final class NativeCaptureDriver {
         capture.cancelStart(generation: generation, cutoff: cutoff)
         abortingCapture = capture
         capture.stop(reason: "relay connection lost", cutoff: cutoff, deadline: 1.0,
-                     onTeardown: { [weak self, weak capture] _ in
+                     onTeardown: { [weak self, weak capture] snapshot in
             Task { @MainActor [weak self, weak capture] in
-                guard let self, let capture, self.abortingCapture === capture else { return }
+                guard let self, let capture,
+                      snapshot.microphoneIOStopped == true,
+                      snapshot.tapIOStopped == true,
+                      snapshot.tapCallbacksQuiesced == true,
+                      snapshot.aggregateDestroyed == true,
+                      snapshot.tapDestroyed == true,
+                      self.abortingCapture === capture else { return }
                 self.abortingCapture = nil
             }
         })
