@@ -2,7 +2,29 @@
 
 This is bounded pre-merge candidate evidence, not an installed app or production deployment.
 
-## Frozen inputs
+## Accepted bounded paired measurement — 2026-10-05
+
+Independent Go accepts T2.38/T2.39 source/tool checks (41/41 pinned gateway,6/6 actual PSI fixtures,3/3 immutable imports) and T2.10 synthetic real-model qualification at gateway29a9f8b9ed28b76086e0dae2db09793e3a072a81 under frozen policy914c278d. Actual resources were oneGPU/CPU4/48Gi, not ADR0007's separate production CPU8 contract.
+
+| Observation | Actual result |
+| --- | --- |
+| Model readiness | 138.003s, within180s |
+| Final drains | 0.863s /1.929s, within5s |
+| Abrupt disconnect recovery | 12.655s, within30s |
+| Serialized pair compute demand ratios | 0.675622 /0.854043, each<=1 |
+| Memory samples | 28 valid, zero failures;23 periodic over26.752s |
+| Maximum sample gap | 1.288s, within2s |
+| Host available minimum /required reserve | 104857108480 /25703539507bytes |
+| Cgroup peak /observed48Gi limit | 3203145728 /51539607552bytes, below90% |
+| Memory events, swap growth, PSI full fraction | zero increments /zero growth /0.0 |
+
+Both sources produced pre-EOF text, isolated final offsets/tails and success. Actual queue capacity/high-water, simultaneous pending contention, fair scheduling, resampler totals and unequal nonzero tail identities passed. The external client's geometry marker describes its own lack of model-level observation; server-side telemetry measures and qualifies that geometry. End-to-end final wall/audio ratios remain separate latency reports (primary call_audio1.438, microphone0.903); the frozen capacity gate uses inference compute demand and the final-drain bound.
+
+Immutable runtime SHA256d8a8e1c0f4c9051467b680629304dcd24d4e23041943fa83a5431a4348afeef6, orchestrationd20cd791b3ca8300584ab69d5018ed9bd26e7e1901e4736c5369f50387a7e755, invocation158804a447a93b3535f49b1571b302f5c87d03537d9faa1439a0c431901d0ab3 and post-run source-bindingc41854eea7311ab03e7194bb52b4e390fc526a01bf2c3079d8ff4f79be27d214 are retained privately. Source/mode staging receipt4d0e5d68 and its unchanged-release reconciliation0f27269a remain bound. Fresh admission, TLS health/auth, DELETE200/detail404/inventory absence and exact owned claim9c9d0546 release completed in173.408s. No transcript text, hashes, audio or credentials were retained in these receipts.
+
+Host and cgroup readings remain separate UMA scopes, never summed; unavailable dedicated VRAM remains informational. Earlier failed28-sample and stopped-run receipts remain failures/cleanup-only evidence. This closes T2.38/T2.39 and T2.10 synthetic scope only; new production bootstrap/resources, physical native capture/TCC, UI acceptance, signed installation and genuine A→Bupdates remain unqualified.
+
+## Earlier liveness candidate inputs
 
 - Gateway source: `2f621330fc46ee7eeb3405dfee0aae05d7d946ce`.
 - Tracked gateway/test archive: SHA256 `4e5ba82c8c5a5178e9880a199299b57d849d08498dd9739fb9d73f21567ba7d3`; independent comparison found 23 exact files, no missing/extra/content differences.
@@ -10,7 +32,7 @@ This is bounded pre-merge candidate evidence, not an installed app or production
 - Image: `nvcr.io/nvidia/pytorch@sha256:bbc2b67e2533edd63ff1496bb1ed00a00338cdc1478af6c1a0bf9f4b369977e7`.
 - Owner-selected direct LAN route uses verified TLS and bearer authentication; private route and secret values are omitted.
 
-## Checks and review
+## Earlier liveness checks and review
 
 Local pinned Python 3.12 gateway suite passed 31/31. Independent source review accepted the in-container TLS exec health probe at the frozen source. The mounted leaf is trusted explicitly with IP SAN verification; no insecure TLS option is used. Spark's HTTP probe ignores HTTPS and uses node-local plain HTTP, so unsupported HTTP/readiness declarations were removed. Process health is distinct from model readiness.
 
@@ -62,4 +84,4 @@ A fresh reviewed CPU-only candidate mounted source, cache and credentials read-o
 
 Exact DELETE200, detail404, inventory absence and owned claim release completed in20.774s. Independent Go accepts private runtime receipt SHA256 `c0cf08302e3676695714c32a951137071343f0bdd34e829bc0df4fadecca69d4`, with wrapper invocation bound by addendum `83f3b3ad95ae381adb619e93d6b2ff1545ef998553051a39486e356fdee9b1f9`. Earlier missing GET receipts and two failed prospective CPU attempts remain failed/historical; this run qualifies current staging prospectively. T5.13/T5.14 close; production and measured-runtime gates remain open.
 
-The next-run memory sampler must continue through recovered-client teardown and finalized telemetry, taking its final snapshot before wrapper Pod deletion. Memory comparisons cover that final live-candidate boundary; exact Pod deletion is proven separately. The final telemetry source/harness is still being implemented and reviewed.
+The next-run memory sampler must continue through recovered-client teardown and finalized telemetry, taking its final snapshot before wrapper Pod deletion. Memory comparisons cover that final live-candidate boundary; exact Pod deletion is proven separately. At that earlier checkpoint the final telemetry source/harness was still being implemented and reviewed; the current accepted measurement above supersedes that pending state.
