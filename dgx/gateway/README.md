@@ -30,7 +30,7 @@ Bootstrap snapshots the read-only credentials mount at `/run/mistt-input` into m
 Spark does not expand placeholders. Render structured JSON, validate it, and
 record its SHA-256 before submitting it with `POST /api/v1/pods`. Before
 submission, check `/api/v1/resources`, confirm the chosen host port is unused,
-and acquire the owner-specific resource claim. This gateway needs one GPU, 4
+and acquire the owner-specific resource claim. This gateway needs one GPU, 8
 CPUs, and 48 GiB of memory; do not admit a second GPU Pod alongside it on the
 single-GPU node. Deploy production only from the reviewed landed source. A
 separately named, bounded qualification Pod may use the exact reviewed
@@ -106,24 +106,100 @@ tail checks, and memory headroom. Store raw speech and transcript text outside
 the repository; commit only redacted metrics and transcript hashes where the
 project record requires them.
 
-## Recovery and owner-only snapshots
+## Operator-controlled start, recovery, and rollback
 
-The manifest uses `restartPolicy: Never` so Spark records a failed process
-instead of hiding repeated startup failures. To recover, inspect only the
-owner Pod's events and redacted logs, confirm capacity, then submit a uniquely
-named replacement with the same reviewed image, source, model, and volume
-names. The tested sentinel volume survived Pod deletion. Model-cache
-persistence across a Pod replacement still needs a scoped runtime verification
-before it is relied on for recovery. Do not delete owner volumes during
-ordinary Pod cleanup. If cache validation fails, prefetch the exact pinned revision again and rerun the real paired
-probe; never relax the 180-second bound to hide a cold start.
+Recovery is an owner/coordinator action. Keep `restartPolicy: Never`; do not
+add a controller, retry loop, or automatic backend promotion. Before stopping
+an active service, mute and drain clients. Never unmute automatically after a
+restart or rollback.
 
-For rollback, retain the previous source volume and manifest until the new
-source passes review and the runtime gate. Create owner-only source/cache
-snapshots with a bounded CPU-only Pod that mounts those volumes read-only and
-writes an archive to a separate uniquely named snapshot volume. Verify the
-archive hash before using it. Do not include credentials in snapshots; rotate
-them through their dedicated owner volume. Snapshots on the same DGX protect
+Before each submit or replacement, use the reviewed owner renderer and
+validator with protected local input files. Render the exact `pod.json.in`
+template to a new manifest under a mode-`0700` owner-only directory and set the
+file to `0600`. Validate that it is complete JSON with no unresolved
+placeholders, that the image and source/model pins match the approved record,
+that source/cache/credentials volume names are the intended retained volumes,
+that credentials are mounted read-only, and that only the selected LAN
+`hostPort` is set. `hostIP` is not a boundary. The manifest contains no bearer,
+private key, CA private key, or credential path contents. Record its SHA-256
+in the protected owner receipt; never commit the rendered manifest or its
+private values.
+
+Recheck the immutable inputs before admitting a Pod:
+
+- Source: match the reviewed landed MISTT source SHA and exact source-volume
+  proof, including archive digest, complete file/directory inventory, and
+  canonical mode digest. The staging proof alone does not prove the process
+  loaded or served that source.
+- Model cache: match the pinned model ID and revision, verified cache record,
+  expected snapshot path, all eight shard names, total bytes, and prior full
+  shard size/SHA-256 proof. Do not treat a sentinel, nonempty directory, or
+  config-only snapshot as a valid model cache.
+- Credentials: verify the read-only credentials volume, owner and file modes,
+  server certificate/key match, certificate validity and IP SAN, and private
+  CA trust. Keep the bearer and key values out of commands, logs, manifests,
+  and receipts. Rotation stages a fresh owner-issued credential set and
+  restarts only the exact owned Pod.
+
+Then inspect fresh Spark capacity through the supported `GET /api/v1/resources`
+response, confirm the selected LAN port is unused, and
+acquire `R-mistt-dgx-deployment` with the established claim helper. The
+service requests one GPU, 8 CPUs, and 48 GiB; submit only when those resources
+are available without displacing another workload. Use the reviewed
+owner-orchestration version for the Spark request and persisted receipts. It
+must validate the current API schema and bound every request; if that exact
+orchestration artifact or its matching evidence is unavailable, stop rather
+than handcrafting a Pod API body or guessing a status field.
+
+For a failed or replaced service, inspect only its exact Pod status, events,
+and redacted logs. Preserve the rendered manifest and all prior source, model
+cache, and credential volumes. If the Pod is still present, mute/drain first,
+then issue a bounded `DELETE /api/v1/pods/{exact-owned-name}` through the
+reviewed orchestration. Require the exact detail GET to return 404 and the
+supported Pod inventory to omit that name before releasing the exact claim
+SHA. The currently reviewed owner-orchestration cleanup budget is at most 75
+seconds total; confirm the versioned artifact's bound before use. A timeout,
+ambiguous response, non-404 detail, or inventory mismatch keeps the claim held
+and blocks another submission until the owner resolves the state. Never delete
+or stop a foreign Pod, claim, or volume. Pod absence does not justify removing
+retained volumes.
+
+Submit a uniquely named replacement only after the fresh capacity/port checks,
+input proofs, and claim are current. Retain the same reviewed pins and known
+good volumes when their proofs still pass; use new uniquely named source/cache
+volumes if an existing tree or model cache fails validation, while preserving
+the old volumes for diagnosis or rollback. Repeat all readiness gates before
+switching clients back. Persist the actual POST acknowledgement, then require
+an exact-name detail GET with a documented active status and an explicit
+integer restart count of zero before probing the service. Missing or malformed
+status/restart fields are unavailable evidence, not zero.
+
+The sentinel Pod test proves slashless named-volume persistence only, not that
+the full model cache survives replacement. Treat a retained cache as
+unqualified until the exact verifier confirms the pinned snapshot and every
+shard after replacement. If that readback is unavailable or fails, keep the
+service out of rotation and prefetch the pinned model into a fresh cache volume;
+preserve the prior volume for diagnosis or rollback.
+
+Readiness has three separate checks. First, verified TLS to `/mistt/healthz`
+proves the process serves the expected certificate and IP SAN; it is only a
+liveness check. Second, a bearer-authenticated
+`GET /mistt/v1/capabilities` proves the protected route and pinned model
+metadata are available, but does not prove the model has loaded. Third, the
+authenticated WebSocket `/mistt/v1/stream` must emit its `ready` event within
+the unchanged 180-second bound, then pass the real paired known-speech check:
+both sources produce pre-EOF text, final transcripts, successful
+`source_done`, the shared cutoff/tail checks, and the approved memory and
+capacity criteria. Keep speech and transcript contents outside the repo;
+store only redacted results and hashes in the protected owner record.
+
+Rollback selects a previously reviewed source/config and repeats the same
+source, cache, credential, TLS, authenticated stream-ready, and paired gates.
+Keep the previous rendered manifest and volumes until the replacement passes.
+Do not restore from an unverified snapshot or delete the only known-good cache.
+Any snapshot Pod must be bounded, owner-scoped, mount source/cache read-only,
+and write only to a separate uniquely named snapshot volume. Verify its
+archive before use and exclude credentials. A snapshot on the DGX protects
 against a bad Pod update, not host or disk loss.
 
 ## Qualification evidence and open gates
