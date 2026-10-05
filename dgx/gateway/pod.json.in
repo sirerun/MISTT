@@ -36,7 +36,7 @@
           "protocol": "TCP"
         }],
         "resources": {
-          "limits": {"memory": "48Gi", "cpu": "4", "nvidia.com/gpu": "1"}
+          "limits": {"memory": "48Gi", "cpu": "8", "nvidia.com/gpu": "1"}
         },
         "volumeMounts": [
           {"name": "gateway", "mountPath": "/opt/mistt", "readOnly": true},
