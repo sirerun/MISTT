@@ -6,6 +6,7 @@ VOLUME=/Volumes/BuildOffload
 BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
 ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-code-native-20261004}
 RELAY=${MISTT_RELAY_BINARY:-}
+INFO_PLIST=${MISTT_INFO_PLIST:-$PACKAGE_DIR/Resources/Info.plist}
 : "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
 export CLAIM_REMOTE
@@ -31,6 +32,7 @@ if [ -z "$RELAY" ] || [ ! -x "$RELAY" ]; then
   echo "Set MISTT_RELAY_BINARY to the integrated arm64 Go relay; test fixtures are never bundled." >&2
   exit 2
 fi
+[ -f "$INFO_PLIST" ] || { echo "MISTT_INFO_PLIST must name an existing Info.plist." >&2; exit 2; }
 /usr/bin/lipo -verify_arch arm64 "$RELAY" >/dev/null 2>&1 || {
   echo "MISTT_RELAY_BINARY must contain an arm64 slice." >&2; exit 2;
 }
@@ -55,7 +57,7 @@ SPARKLE_FRAMEWORK=$(find "$BUILD_ROOT/swiftpm" -type d -name Sparkle.framework -
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_PATH/MISTTDesktop" "$APP/Contents/MacOS/MISTTDesktop"
 cp "$RELAY" "$APP/Contents/MacOS/mistt"
-cp "$PACKAGE_DIR/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$INFO_PLIST" "$APP/Contents/Info.plist"
 cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$PACKAGE_DIR/Resources/logo-3.svg" "$APP/Contents/Resources/logo-3.svg"
 cp "$PACKAGE_DIR/Resources/logo-3-muted.svg" "$APP/Contents/Resources/logo-3-muted.svg"
