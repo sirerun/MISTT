@@ -29,6 +29,10 @@ final class AutomaticUpdater: NSObject, SPUUpdaterDelegate {
         return true
     }
 
+    func updaterShouldPromptForPermissionToCheck(forUpdates updater: SPUUpdater) -> Bool {
+        true
+    }
+
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
                  untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
         schedule(installHandler)
