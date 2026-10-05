@@ -490,7 +490,7 @@ final class NativePairCapture: @unchecked Sendable {
             let callbackStart = AudioGetCurrentHostTime()
             let time = inputTime.pointee
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
-            let buffers = UnsafeMutableAudioBufferListPointer(inputData)
+            let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
             guard let buffer = buffers.first else {
                 self.failureSignal?.add(data: 1)
                 return
