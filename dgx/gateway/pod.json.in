@@ -3,7 +3,13 @@
   "kind": "Pod",
   "metadata": {
     "name": "${MISTT_GATEWAY_POD_NAME}",
-    "labels": {"app": "mistt", "purpose": "isolated-gateway-candidate"}
+    "labels": {
+      "app": "mistt",
+      "purpose": "owner-pinned-gateway",
+      "gateway-source-sha": "${MISTT_GATEWAY_SOURCE_SHA}",
+      "upstream-source-commit": "1541f590c7099820f10ea012f48d2399282df69f",
+      "model-revision": "60d858b518b4e19d404af3737f848fc185b30177"
+    }
   },
   "spec": {
     "restartPolicy": "Never",
@@ -18,9 +24,10 @@
           {"name": "PIP_CACHE_DIR", "value": "/var/cache/mistt/pip"},
           {"name": "XDG_CACHE_HOME", "value": "/var/cache/mistt/xdg"},
           {"name": "TMPDIR", "value": "/var/cache/mistt/tmp"},
-          {"name": "MISTT_TOKEN_FILE", "value": "/run/mistt/bearer"},
-          {"name": "MISTT_TLS_CERT_FILE", "value": "/run/mistt/tls.crt"},
-          {"name": "MISTT_TLS_KEY_FILE", "value": "/run/mistt/tls.key"}
+          {"name": "MISTT_TOKEN_FILE", "value": "/run/mistt-input/bearer"},
+          {"name": "MISTT_TLS_CERT_FILE", "value": "/run/mistt-input/tls.crt"},
+          {"name": "MISTT_TLS_KEY_FILE", "value": "/run/mistt-input/tls.key"},
+          {"name": "MISTT_STARTUP_TIMEOUT_SECONDS", "value": "180"}
         ],
         "ports": [{"name": "https", "containerPort": 7870, "protocol": "TCP"}],
         "resources": {
@@ -42,9 +49,9 @@
       }
     ],
     "volumes": [
-      {"name": "gateway", "hostPath": {"path": "${MISTT_GATEWAY_SOURCE_DIR}", "type": "Directory"}},
-      {"name": "cache", "hostPath": {"path": "${MISTT_GATEWAY_CACHE_DIR}", "type": "Directory"}},
-      {"name": "credentials", "secret": {"secretName": "${MISTT_GATEWAY_SECRET_NAME}", "defaultMode": 256}}
+      {"name": "gateway", "hostPath": {"path": "${MISTT_GATEWAY_SOURCE_VOLUME}"}},
+      {"name": "cache", "hostPath": {"path": "${MISTT_GATEWAY_CACHE_VOLUME}"}},
+      {"name": "credentials", "hostPath": {"path": "${MISTT_GATEWAY_CREDENTIALS_VOLUME}"}}
     ]
   }
 }
