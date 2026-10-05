@@ -268,3 +268,5 @@ Production review accepted cache-integrity sourcee801cdf locally but found runbo
 ## 2026-10-05 — qualification stopped for strict response review
 
 One PSI-corrected invocation was stopped after independent review found boolean exit-code coercion in two harness exec-response paths. Receipt2ae87ecf records termination_requested in50.572s, exact candidate DELETE200/detail404/inventory absence and owned claimfc7f4431 release. Independent Go accepts cleanup only; no memory or qualification pass is inferred. Both exec paths require exact integer zero with malformed-response regressions before another invocation. The stopped wrapper and child processes are absent; production rendering remains in its separate offline lane.
+
+Final PSI source correction independently accepted at runnerb7540670/wrapper78e75a65 with6/6 actual-script/type fixtures and3/3 immutable import checks. Both exec paths reject boolean exit codes. T2.58–T2.60 close source gates only; one fresh bounded measured invocation is underway, with full qualification still open.
