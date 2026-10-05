@@ -383,35 +383,37 @@ func (s *Service) supervise() {
 	}
 }
 func (s *Service) startPair() error {
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StartupTimeout)
 	s.mu.Lock()
 	if !s.demandLocked() || !s.closureConfirmed || s.starting || s.active != nil {
 		s.mu.Unlock()
+		cancel()
 		return nil
 	}
 	s.starting = true
+	// Publish the cancellation handle with the starting state. A concurrent
+	// mute must never observe startup without being able to cancel it.
+	s.startCancel = cancel
 	s.publishLocked()
 	s.mu.Unlock()
+	defer cancel()
 	defer func() {
 		s.mu.Lock()
-		if s.starting {
-			s.starting = false
-			s.publishLocked()
-		}
+		s.starting = false
+		s.startCancel = nil
+		s.publishLocked()
 		s.signalLocked()
 		s.mu.Unlock()
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StartupTimeout)
-	defer cancel()
-	s.mu.Lock()
-	s.startCancel = cancel
-	s.mu.Unlock()
-	defer func() { s.mu.Lock(); s.startCancel = nil; s.mu.Unlock() }()
 	id, err := newUUID()
 	if err != nil {
 		return err
 	}
 	remote, err := s.backend.Connect(ctx, backend.StartRequest{SessionID: id, Language: s.cfg.Language})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("paired remote readiness failed: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -430,6 +432,19 @@ func (s *Service) startPair() error {
 	}
 	formats := []ipc.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}}
 	start := ipc.NativeMessage{Type: "capture_start", RequestID: reqID, SessionID: id, Sources: formats, Device: s.cfg.MicrophoneDevice, BundleID: s.cfg.TargetBundleID, IncludeHelpers: s.cfg.IncludeHelperPIDs, IncludeHelperExecutables: s.cfg.IncludeHelperExecutables}
+	// Close the optimistic idle report before dispatch. From this point through
+	// the matching native closure acknowledgement, unmute/update must fail and
+	// mute must wait even if capture_started has not arrived yet.
+	s.mu.Lock()
+	if ctx.Err() != nil || !s.demandLocked() || s.shutdownRequested {
+		s.mu.Unlock()
+		_ = remote.Close()
+		return nil
+	}
+	s.closureConfirmed = false
+	s.publishLocked()
+	s.signalLocked()
+	s.mu.Unlock()
 	if err := s.output.SendControl(start); err != nil {
 		_ = remote.Close()
 		return fmt.Errorf("queue native paired start: %w", err)
