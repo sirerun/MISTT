@@ -22,6 +22,7 @@ from dgx.gateway.app import ModelManager, create_app
 from dgx.gateway.config import GatewaySettings
 from dgx.gateway.ledger import SourceLedger
 from dgx.gateway.pair import FairInferenceScheduler
+from dgx.gateway.qualification_telemetry import QualificationSessionTelemetry
 from dgx.gateway.protocol import (
     AudioFrame,
     ProtocolError,
@@ -430,6 +431,48 @@ class GatewayIntegrationTests(unittest.TestCase):
             self.assertNotIn("ctx", payload)
             self.assertNotIn("pcm", payload)
             self.assertLessEqual(records[0].stat().st_size, 8 * 1024)
+
+    def test_telemetry_faults_do_not_fail_stream_and_mark_record_invalid(self) -> None:
+        gateway_sha = "2f621330fc46ee7eeb3405dfee0aae05d7d946ce"
+        asr_sha = "1541f590c7099820f10ea012f48d2399282df69f"
+        with tempfile.TemporaryDirectory() as parent:
+            directory = Path(parent).resolve() / "telemetry"
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+            with patch.dict(os.environ, {
+                "MISTT_QUALIFICATION_TELEMETRY_DIR": str(directory),
+                "MISTT_QUALIFICATION_GATEWAY_SOURCE_SHA": gateway_sha,
+            }), patch.object(QualificationSessionTelemetry, "on_enqueue",
+                             side_effect=OSError("injected private detail")), \
+                 patch.object(QualificationSessionTelemetry, "on_inference",
+                              side_effect=OSError("injected private detail")), \
+                 patch.object(QualificationSessionTelemetry, "source_snapshot",
+                              side_effect=OSError("injected private detail")):
+                model = FakeRuntime()
+                settings = GatewaySettings(token="test-bearer", source_commit=asr_sha,
+                                           max_audio_samples=16_000, idle_unload_seconds=60,
+                                           unload_poll_seconds=1)
+                app = create_app(settings, lambda: model)
+                with TestClient(app) as client:
+                    with client.websocket_connect("/mistt/v1/stream?token=test-bearer",
+                                                  headers={"Authorization": "Bearer test-bearer"}) as socket:
+                        self._send_pair_start(socket)
+                        self._send_capture_started(socket)
+                        for source in ("microphone", "call_audio"):
+                            socket.send_bytes(encode_frame(SESSION, source, 1, 0, 0, [0] * 8))
+                        self._end(socket, "microphone", 1, 8)
+                        self._end(socket, "call_audio", 1, 8)
+                        events = []
+                        for _ in range(12):
+                            event = socket.receive_json()
+                            events.append(event)
+                            if event["type"] == "done":
+                                break
+            self.assertEqual(events[-1]["type"], "done")
+            records = list(directory.glob("stream-*.json"))
+            self.assertEqual(len(records), 1)
+            record = json.loads(records[0].read_text())
+            self.assertIs(record["telemetry_valid"], False)
 
     def test_authentication_is_bearer_header_only(self) -> None:
         app, _runtime = self._app()
