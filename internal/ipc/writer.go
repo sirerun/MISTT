@@ -11,6 +11,7 @@ import (
 )
 
 var ErrControlQueueFull = errors.New("native control output queue is full")
+var ErrWriterClosed = errors.New("native control writer is closed")
 
 type Writer struct {
 	control   chan NativeMessage
@@ -38,6 +39,13 @@ func (w *Writer) Close() {
 }
 func (w *Writer) SendControl(m NativeMessage) error {
 	select {
+	case <-w.closing:
+		return ErrWriterClosed
+	default:
+	}
+	select {
+	case <-w.closing:
+		return ErrWriterClosed
 	case w.control <- m:
 		return nil
 	default:
@@ -45,6 +53,11 @@ func (w *Writer) SendControl(m NativeMessage) error {
 	}
 }
 func (w *Writer) SendStatus(m NativeMessage) {
+	select {
+	case <-w.closing:
+		return
+	default:
+	}
 	select {
 	case w.status <- m:
 	default:

@@ -86,6 +86,16 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 	}
 }
 
+func TestRunClosesWriterWhenListenerIsMissing(t *testing.T) {
+	s := newTestService(t, config.Defaults(), false)
+	if err := s.Run(context.Background(), nil); err == nil {
+		t.Fatal("Run accepted a nil listener")
+	}
+	if err := s.output.SendControl(ipc.NativeMessage{Type: "heartbeat"}); err != ipc.ErrWriterClosed {
+		t.Fatalf("writer after Run failure = %v, want %v", err, ipc.ErrWriterClosed)
+	}
+}
+
 func TestMuteRequestCacheEvictsCompletedEntriesBeforeInsert(t *testing.T) {
 	s := newTestService(t, config.Defaults(), false)
 	for i := 1; i <= 130; i++ {
