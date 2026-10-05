@@ -128,10 +128,12 @@ func New(cfg config.Config, provider backend.Provider, in io.Reader, out *ipc.Wr
 
 // Run owns the only native IPC generation and loopback RPC state machine.
 func (s *Service) Run(ctx context.Context, listener net.Listener) error {
+	if s.output != nil {
+		defer s.output.Close()
+	}
 	if listener == nil {
 		return errors.New("loopback gRPC listener is required")
 	}
-	defer s.output.Close()
 	grpcServer := grpc.NewServer()
 	misttv1.RegisterMisttServer(grpcServer, s)
 	s.mu.Lock()
