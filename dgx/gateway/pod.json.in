@@ -29,7 +29,12 @@
           {"name": "MISTT_TLS_KEY_FILE", "value": "/run/mistt-input/tls.key"},
           {"name": "MISTT_STARTUP_TIMEOUT_SECONDS", "value": "180"}
         ],
-        "ports": [{"name": "https", "containerPort": 7870, "protocol": "TCP"}],
+        "ports": [{
+          "name": "https",
+          "containerPort": 7870,
+          "hostPort": ${MISTT_GATEWAY_HOST_PORT},
+          "protocol": "TCP"
+        }],
         "resources": {
           "limits": {"memory": "48Gi", "cpu": "4", "nvidia.com/gpu": "1"}
         },

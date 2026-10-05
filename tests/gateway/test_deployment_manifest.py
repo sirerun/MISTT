@@ -13,6 +13,7 @@ VALUES = {
     "MISTT_GATEWAY_SOURCE_VOLUME": "mistt-gateway-source-owner-qual",
     "MISTT_GATEWAY_CACHE_VOLUME": "mistt-gateway-cache-owner-qual",
     "MISTT_GATEWAY_CREDENTIALS_VOLUME": "mistt-gateway-credentials-owner-qual",
+    "MISTT_GATEWAY_HOST_PORT": "18772",
 }
 
 
@@ -26,7 +27,7 @@ def render_template() -> dict:
 
 
 class DeploymentManifestTests(unittest.TestCase):
-    def test_renders_pinned_owner_volumes_without_unscoped_host_port(self) -> None:
+    def test_renders_pinned_owner_volumes_and_configurable_lan_host_port(self) -> None:
         pod = render_template()
         self.assertEqual(pod["kind"], "Pod")
         self.assertEqual(pod["metadata"]["name"], VALUES["MISTT_GATEWAY_POD_NAME"])
@@ -54,11 +55,13 @@ class DeploymentManifestTests(unittest.TestCase):
             ],
             "180",
         )
-        self.assertEqual(container["ports"], [
-            {"name": "https", "containerPort": 7870, "protocol": "TCP"}
-        ])
-        self.assertTrue(all("hostPort" not in port and "hostIP" not in port
-                            for port in container["ports"]))
+        self.assertEqual(container["ports"], [{
+            "name": "https",
+            "containerPort": 7870,
+            "hostPort": 18772,
+            "protocol": "TCP",
+        }])
+        self.assertNotIn("hostIP", container["ports"][0])
 
         mounts = {item["name"]: item for item in container["volumeMounts"]}
         self.assertEqual(mounts["gateway"]["mountPath"], "/opt/mistt")
