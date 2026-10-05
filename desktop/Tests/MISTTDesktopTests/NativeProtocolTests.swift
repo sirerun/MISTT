@@ -49,6 +49,13 @@ final class NativeProtocolTests: XCTestCase {
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(tooDeep.utf8)))
     }
 
+    func testRelayMessageRejectsUnknownTopLevelAndNestedKeys() {
+        XCTAssertThrowsError(try RelayMessage.decode(Data(#"{"type":"heartbeat","counter":1,"extra":true}"#.utf8)))
+        let id = UUID().uuidString.lowercased()
+        let message = #"{"type":"capture_start","request_id":"\#(id)","session_id":"\#(id)","sources":[{"source":"microphone","sample_rate_hz":16000,"channels":1,"encoding":"s16le"},{"source":"call_audio","sample_rate_hz":16000,"channels":1,"encoding":"s16le"}],"microphone":{"device":"default","extra":true},"call_audio":{"bundle_id":"com.tiktok.livestudio.desktop","include_helpers":[],"include_helper_executables":["Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"]}}"#
+        XCTAssertThrowsError(try RelayMessage.decode(Data(message.utf8)))
+    }
+
     func testNativeCallbackQueueTrimsAtExclusiveSampleInstants() throws {
         guard let queue = MISTTAudioQueueCreate(4, 32) else { return XCTFail("queue allocation failed") }
         defer { MISTTAudioQueueDestroy(queue) }

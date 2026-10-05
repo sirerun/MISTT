@@ -18,6 +18,65 @@ struct StrictJSONValidator {
         guard parser.index == parser.bytes.count else { throw Failure.invalid }
     }
 
+    static func validateKeys(_ data: Data, type: String) throws {
+        let object = try objectValue(data)
+        let statusKeys: Set<String> = [
+            "muted", "capturing", "connected_clients", "reason", "revision", "update_ready", "update_reserved",
+        ]
+        let allowed: Set<String>
+        switch type {
+        case "capture_start":
+            allowed = ["type", "request_id", "session_id", "sources", "microphone", "call_audio"]
+        case "capture_stop":
+            allowed = ["type", "request_id", "session_id", "reason"]
+        case "status":
+            allowed = statusKeys.union(["type"])
+        case "control_result":
+            allowed = ["type", "request_id", "status", "error"]
+        case "heartbeat":
+            allowed = ["type", "counter"]
+        default:
+            throw Failure.invalid
+        }
+        try requireKeys(object, allowed: allowed)
+
+        switch type {
+        case "capture_start":
+            try requireKeys(try objectValue(object["microphone"]), allowed: ["device"])
+            try requireKeys(try objectValue(object["call_audio"]),
+                            allowed: ["bundle_id", "include_helpers", "include_helper_executables"])
+            guard let sources = object["sources"] as? [[String: Any]] else { throw Failure.invalid }
+            for source in sources {
+                try requireKeys(source, allowed: ["source", "sample_rate_hz", "channels", "encoding"])
+            }
+        case "control_result":
+            if let status = object["status"], !(status is NSNull) {
+                try requireKeys(try objectValue(status), allowed: statusKeys)
+            }
+            if let error = object["error"], !(error is NSNull) {
+                try requireKeys(try objectValue(error), allowed: ["code", "detail"])
+            }
+        default:
+            break
+        }
+    }
+
+    private static func objectValue(_ data: Data) throws -> [String: Any] {
+        guard let object = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw Failure.invalid
+        }
+        return object
+    }
+
+    private static func objectValue(_ value: Any?) throws -> [String: Any] {
+        guard let object = value as? [String: Any] else { throw Failure.invalid }
+        return object
+    }
+
+    private static func requireKeys(_ object: [String: Any], allowed: Set<String>) throws {
+        guard Set(object.keys).isSubset(of: allowed) else { throw Failure.invalid }
+    }
+
     private mutating func value(depth: Int) throws {
         skipSpace()
         guard index < bytes.count, depth <= Self.maximumNestingDepth else { throw Failure.invalid }

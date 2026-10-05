@@ -3,6 +3,7 @@ import Foundation
 extension RelayStatus {
     static func decodeLine(_ data: Data) throws -> RelayStatus {
         try StrictJSONValidator.validate(data)
+        try StrictJSONValidator.validateKeys(data, type: "status")
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let message = try decoder.decode(StatusMessage.self, from: data)

@@ -489,7 +489,11 @@ final class NativePairCapture: @unchecked Sendable {
             let callbackStart = AudioGetCurrentHostTime()
             let time = inputTime.pointee
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
-            let buffer = inputData.pointee.mBuffers
+            let buffers = UnsafeAudioBufferListPointer(inputData)
+            guard let buffer = buffers.first else {
+                self.failureSignal?.add(data: 1)
+                return
+            }
             let bytes = Int(buffer.mDataByteSize)
             let bytesPerFrame = max(1, Int(self.streamFormat.mBytesPerFrame))
             let frames = bytes / bytesPerFrame
@@ -671,7 +675,7 @@ final class NativePairCapture: @unchecked Sendable {
         let channels = min(8, Int(format.mChannelsPerFrame))
         guard channels > 0 else { return nil }
         let positions = min(32, frames)
-        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: listPointer))
+        let buffers = UnsafeAudioBufferListPointer(listPointer)
         let nonInterleaved = flags & kAudioFormatFlagIsNonInterleaved != 0
         guard !buffers.isEmpty else { return nil }
         var energy = 0.0
