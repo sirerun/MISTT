@@ -1,4 +1,5 @@
 import json
+import re
 import plistlib
 import base64
 import importlib.util
@@ -40,6 +41,24 @@ class ReleaseMetadataTest(unittest.TestCase):
         bundled = resources / icon_name
         self.assertEqual(bundled.read_bytes()[:4], b"icns")
         self.assertEqual(bundled.read_bytes(), (source / icon_name).read_bytes())
+
+    def test_bundle_contains_licenses_for_pinned_dependencies(self):
+        app = self.root / "MISTT.app"
+        resources = app / "Contents/Resources"
+        resources.mkdir(parents=True)
+        tools.copy_app_resources(app)
+        notices = (resources / "THIRD_PARTY_NOTICES.txt").read_bytes()
+        self.assertEqual(notices, (tools.ROOT / "desktop/Resources/THIRD_PARTY_NOTICES.txt").read_bytes())
+        self.assertEqual((resources / "MISTT-LICENSE.txt").read_bytes(), (tools.ROOT / "LICENSE").read_bytes())
+        text = notices.decode()
+        pins = re.findall(r"^\s*([\w./-]+)\s+(v\S+)", (tools.ROOT / "go.mod").read_text(), re.MULTILINE)
+        self.assertTrue(pins)
+        for module, version in pins:
+            self.assertIn(f"{module}@{version}", text)
+        package = json.loads((tools.ROOT / "desktop/Package.resolved").read_text())
+        for pin in package["pins"]:
+            self.assertEqual(pin["identity"], "sparkle")
+            self.assertIn(f'Sparkle {pin["state"]["version"]} ', text)
 
     def test_release_source_rejects_dirty_or_changed_checkout(self):
         sha = "a" * 40

@@ -1,0 +1,2 @@
+# Preserve verbatim upstream license bytes, including upstream whitespace.
+desktop/Resources/THIRD_PARTY_NOTICES.txt -whitespace
