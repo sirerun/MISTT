@@ -49,35 +49,45 @@ or shared project directory.
 
 ## Provisioning
 
-Use a short-lived, CPU-only staging Pod with the exact source, cache, and
-credentials named volumes mounted read-write. Transfer only the pinned source
-archive through Spark exec; verify the archive SHA and record the source SHA in
-the mounted volume. The archive intentionally has no `.git` metadata.
-The gateway Pod then mounts source read-only and cache read-write. Keep
-`/opt/mistt` read-only and put the venv, Hugging Face weights, pip cache,
-temporary files, and XDG cache under `/var/cache/mistt`.
+Provision the three named volumes independently. A short-lived CPU-only source
+staging Pod mounts only the fresh source volume read-write and installs the
+reviewed project archive. A separate CPU-only prefetch Pod mounts only the
+cache volume read-write. Owner-issued bearer and TLS files enter only the
+credentials volume through the task-scoped mutual-TLS transfer. Never mount all
+three volumes read-write in one staging Pod or expose a credentials or general
+cache directory through a transfer server.
 
-Stage the owner-issued bearer and TLS files through the owner-controlled
-credentials volume. The gateway mounts it read-only at `/run/mistt-input` and reads
-`bearer`, `tls.crt`, and `tls.key` from that directory. Set the directory to
-`0700` and all three files to `0600`; the loader rejects files accessible to
-group or other users, including the public server certificate. Never put
-credential values in a manifest, environment variable, command argument,
-repository, or log. The CA certificate stays on the Mac as the TLS trust file;
-never copy the CA private key to Spark. Temporary qualification credentials
-are separate from owner-issued service credentials.
+The source staging archive has no `.git` metadata. At startup, the gateway
+verifies the upstream VibeVoice archive for commit
+`1541f590c7099820f10ea012f48d2399282df69f` against its pinned archive SHA-256
+`cbd51f4539a709cb2ddc1f92406e69278af00f064ee420f1eda28f8b385a18e0` and
+checks the complete extracted file, directory, mode, size, and content
+inventory before use. It keeps that archive and a content-addressed canonical
+source tree under `/var/cache/mistt/upstream` so later starts can revalidate the
+tree without fetching mutable source. The preexisting `/var/cache/mistt/source`
+and `/var/cache/mistt/venv` paths are left untouched for compatibility; neither
+is trusted or used by this bootstrap. Dependencies install into a
+source-content-addressed venv, and the upstream package imports directly from
+the verified source tree. Startup checks the resolved package origin so an
+editable-install path cannot redirect imports to a legacy source tree.
+Existing archive or source paths that fail verification are preserved and
+cause startup to fail; recovery uses a new uniquely named cache/source volume
+after operator review rather than overwriting uncertain contents. The gateway
+Pod mounts project source read-only and cache read-write. Keep `/opt/mistt`
+read-only; put the venv, Hugging Face
+weights, upstream archive, pip cache, temporary files, and XDG cache under
+`/var/cache/mistt`.
 
-Stage the exact source archive into the source volume with a short-lived,
-CPU-only Pod. Transfer only from a dedicated public-only staging directory,
-verify the pinned archive SHA-256 before extraction, and record its source SHA
-in the volume. Never expose a credentials or general cache directory through
-the transfer server. Stage the owner-issued bearer and TLS files separately
-over the task-scoped mutual-TLS transfer; generate the client private key
-inside the staging Pod, keep it there, and install only the three allowlisted
-server files into the credentials volume with restrictive file modes. Map
+The credentials volume is mounted read-only at `/run/mistt-input` and contains
+`bearer`, `tls.crt`, and `tls.key`. Set the directory to `0700` and all three
+files to `0600`; the loader rejects files accessible to group or other users,
+including the public server certificate. Never put credential values in a
+manifest, environment variable, command argument, repository, or log. The CA
+certificate stays on the Mac as the TLS trust file; never copy the CA private
+key to Spark. Temporary qualification credentials are separate from
+owner-issued service credentials. During initial provisioning, map
 `server.crt` to `/run/mistt-input/tls.crt`, `server.key` to
-`/run/mistt-input/tls.key`, and `bearer` to `/run/mistt-input/bearer`; these
-destination names match the gateway manifest.
+`/run/mistt-input/tls.key`, and `bearer` to `/run/mistt-input/bearer`.
 
 Run `prefetch-pod.json.in` after source staging. This CPU-only Pod uses 1 CPU
 and 4 GiB, no GPU, and the same image and Hugging Face cache mount as the
@@ -118,17 +128,19 @@ against a bad Pod update, not host or disk loss.
 
 ## Qualification evidence and open gates
 
-The candidate at source SHA `6de92e6e576014fd42ee2d0e585c2f586f62ca1e`, using
+The historical candidate at source SHA `6de92e6e576014fd42ee2d0e585c2f586f62ca1e`, using
 image `nvcr.io/nvidia/pytorch@sha256:bbc2b67e2533edd63ff1496bb1ed00a00338cdc1478af6c1a0bf9f4b369977e7`, VibeVoice source
 `1541f590c7099820f10ea012f48d2399282df69f`, and model revision
 `60d858b518b4e19d404af3737f848fc185b30177`, completed paired known-speech
-inference. Both sources emitted pre-EOF text and successful completion; both
+inference before the upstream cache-integrity changes described above. Both
+sources emitted pre-EOF text and successful completion; both
 final transcript-tail checks passed. Ready latency was 136.436 seconds under
 the 180-second bound. Audio upload took 9.717 seconds for the 9.497-second
 longer fixture; final transcripts arrived 2.994 seconds after EOF. The
 48-GiB cgroup peak was 21,766,492,160 bytes, with no OOM events. The redacted
 evidence is retained outside the repository; this was candidate gateway
-qualification, not installed-app or production acceptance.
+qualification, not installed-app or production acceptance. This historical
+paired-runtime result does not verify the new upstream source bootstrap.
 
 LAN host-port behavior was qualified with a CPU-only negative control: a
 listener requested an unassigned documentation-range `hostIP` and was still
