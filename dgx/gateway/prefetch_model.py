@@ -12,35 +12,38 @@ from pathlib import Path
 MODEL_ID = "microsoft/VibeVoice-ASR-Streaming-7B"
 MODEL_REVISION = "60d858b518b4e19d404af3737f848fc185b30177"
 HUB_VERSION = "0.34.4"
+EXPECTED_WEIGHT_SHARDS = {
+    f"model-{index:05d}-of-00008.safetensors" for index in range(1, 9)
+}
 
 
 def verify_snapshot(model_path: Path) -> tuple[list[str], int]:
     for name in ("config.json", "preprocessor_config.json"):
         if not (model_path / name).is_file():
             raise RuntimeError(f"pinned model snapshot lacks {name}")
-    indexes = list(model_path.glob("*.index.json"))
-    if indexes:
-        shards: set[str] = set()
-        for index in indexes:
-            payload = json.loads(index.read_text(encoding="utf-8"))
-            weight_map = payload.get("weight_map")
-            if not isinstance(weight_map, dict) or not weight_map:
-                raise RuntimeError(f"weight index {index.name} has no weight map")
-            shards.update(weight_map.values())
-    else:
-        shards = {
-            p.name
-            for pattern in ("*.safetensors", "pytorch_model*.bin")
-            for p in model_path.glob(pattern)
-            if p.is_file()
-        }
-    if not shards:
-        raise RuntimeError("pinned model snapshot has no indexed or single-file weights")
+    index = model_path / "model.safetensors.index.json"
+    if not index.is_file():
+        raise RuntimeError("pinned model snapshot lacks its safetensors weight index")
+    payload = json.loads(index.read_text(encoding="utf-8"))
+    weight_map = payload.get("weight_map")
+    if not isinstance(weight_map, dict) or not weight_map:
+        raise RuntimeError("pinned model weight index has no weight map")
+    if not all(isinstance(name, str) for name in weight_map.values()):
+        raise RuntimeError("pinned model weight index contains a non-string shard path")
+    shards = set(weight_map.values())
+    if shards != EXPECTED_WEIGHT_SHARDS:
+        raise RuntimeError("pinned model weight index does not reference the complete shard set")
     total_bytes = 0
     for name in sorted(shards):
         shard = model_path / name
         if not shard.is_file() or shard.stat().st_size <= 0:
             raise RuntimeError(f"pinned model snapshot is missing weight shard {name}")
+        if shard.is_symlink():
+            blob_root = model_path.parent.parent / "blobs"
+            try:
+                shard.resolve(strict=True).relative_to(blob_root.resolve(strict=True))
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"pinned model shard {name} resolves outside the Hub blob cache") from exc
         total_bytes += shard.stat().st_size
     return sorted(shards), total_bytes
 
