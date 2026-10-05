@@ -7,6 +7,8 @@ BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
 ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-code-native-20261004}
 RELAY=${MISTT_RELAY_BINARY:-}
 INFO_PLIST=${MISTT_INFO_PLIST:-$PACKAGE_DIR/Resources/Info.plist}
+SIGN_IDENTITY=${MISTT_SIGNING_IDENTITY:--}
+SIGN_KEYCHAIN=${MISTT_SIGNING_KEYCHAIN:-}
 : "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
 export CLAIM_REMOTE
@@ -19,6 +21,18 @@ release_lease() {
   fi
 }
 trap release_lease EXIT HUP INT TERM
+if [ "$SIGN_IDENTITY" = "-" ] && [ -n "$SIGN_KEYCHAIN" ]; then
+  echo "MISTT_SIGNING_KEYCHAIN requires a Developer ID MISTT_SIGNING_IDENTITY." >&2
+  exit 2
+fi
+if [ "$SIGN_IDENTITY" != "-" ] && [ -z "$SIGN_KEYCHAIN" ]; then
+  echo "Developer ID signing requires an explicit MISTT_SIGNING_KEYCHAIN." >&2
+  exit 2
+fi
+SIGN_ARGS=(--force --sign "$SIGN_IDENTITY" --timestamp=none --options runtime)
+if [ -n "$SIGN_KEYCHAIN" ]; then
+  SIGN_ARGS+=(--keychain "$SIGN_KEYCHAIN")
+fi
 for path in "$BUILD_ROOT" "$ARTIFACT_ROOT"; do
   case "$path" in "$VOLUME"/*) ;; *) echo "Build caches and artifacts must stay on $VOLUME." >&2; exit 2 ;; esac
 done
@@ -66,13 +80,29 @@ if ! otool -l "$APP/Contents/MacOS/MISTTDesktop" | grep -Fq '@executable_path/..
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/MISTTDesktop"
 fi
 chmod 755 "$APP/Contents/MacOS/MISTTDesktop" "$APP/Contents/MacOS/mistt"
-# Keep the vendor Sparkle framework's verified upstream signature intact. Sign
-# app-owned executables and the outer local app bundle explicitly, without a
-# recursive resign that would overwrite nested signature identities.
-codesign --force --sign - --timestamp=none --options runtime \
-  --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" "$APP/Contents/MacOS/mistt"
-codesign --force --sign - --timestamp=none --options runtime \
-  --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" "$APP/Contents/MacOS/MISTTDesktop"
-codesign --force --sign - --timestamp=none --options runtime "$APP"
+# Re-sign Sparkle's nested helpers with the same identity as this app so
+# hardened-runtime library validation sees a consistent Team ID. Preserve
+# upstream helper entitlements, especially Autoupdate's application identifier.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+NESTED_BUNDLES=$(find "$SPARKLE" -type d \( -name '*.xpc' -o -name '*.app' \) -print \
+  | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+while IFS= read -r nested; do
+  [ -n "$nested" ] || continue
+  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$nested"
+done <<< "$NESTED_BUNDLES"
+AUTUPDATE="$SPARKLE/Versions/B/Autoupdate"
+if [ -e "$AUTUPDATE" ]; then
+  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$AUTUPDATE"
+fi
+codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$SPARKLE"
+codesign "${SIGN_ARGS[@]}" --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" \
+  "$APP/Contents/MacOS/mistt"
+codesign "${SIGN_ARGS[@]}" --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" \
+  "$APP/Contents/MacOS/MISTTDesktop"
+codesign "${SIGN_ARGS[@]}" "$APP"
 codesign --verify --deep --strict "$APP"
-printf 'Built local ad-hoc app (not a signed release): %s\n' "$APP"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  printf 'Built local ad-hoc app (not a signed release): %s\n' "$APP"
+else
+  printf 'Built local Developer ID signed app (not notarized): %s\n' "$APP"
+fi
