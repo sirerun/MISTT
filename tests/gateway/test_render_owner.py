@@ -100,6 +100,22 @@ class OwnerRenderTests(unittest.TestCase):
             with self.subTest(candidate=candidate[-100:]), self.assertRaises(render_owner.OwnerRenderError):
                 render_owner.render_manifest(candidate, CONFIG)
 
+    def test_rejects_float_values_for_integer_port_and_probe_fields(self) -> None:
+        mutations = [
+            ('"containerPort": 7870', '"containerPort": 7870.0'),
+            ('"hostPort": ${MISTT_GATEWAY_HOST_PORT}', '"hostPort": ${MISTT_GATEWAY_HOST_PORT}.0'),
+            ('"initialDelaySeconds": 120', '"initialDelaySeconds": 120.0'),
+            ('"periodSeconds": 30', '"periodSeconds": 30.0'),
+            ('"timeoutSeconds": 5', '"timeoutSeconds": 5.0'),
+            ('"failureThreshold": 3', '"failureThreshold": 3.0'),
+        ]
+        for old, new in mutations:
+            with self.subTest(field=old):
+                self.assertIn(old, self.template)
+                candidate = self.template.replace(old, new, 1)
+                with self.assertRaises(render_owner.OwnerRenderError):
+                    render_owner.render_manifest(candidate, CONFIG)
+
     def test_secure_render_creates_private_files_once_and_receipt_claims_no_submission(self) -> None:
         with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as root:
             directory = Path(root) / "owner"
