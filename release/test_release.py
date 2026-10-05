@@ -17,7 +17,9 @@ spec.loader.exec_module(tools)
 
 class ReleaseMetadataTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"] if os.environ.get("GITHUB_ACTIONS") == "true" else "/Volumes/BuildOffload/tmp")
+        parent = os.environ.get("RUNNER_TEMP") if os.environ.get("GITHUB_ACTIONS") == "true" else (
+            "/Volumes/BuildOffload/tmp" if sys.platform == "darwin" else None)
+        self.temp = tempfile.TemporaryDirectory(dir=parent)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.archive = self.root / "MISTT-0.1.0-arm64.zip"
