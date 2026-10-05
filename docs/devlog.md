@@ -234,3 +234,7 @@ Native review caught overlap accounting that would treat retained lookahead as n
 ### Current CPU source/cache/credential staging proof accepted
 
 Historical staging receipts lacked retained post-submit GET/status responses. Two prospective CPU attempts failed on harness status/inventory forms and brittle log completion matching; exact cleanup/release was reconciled and neither is a pass. Reviewed strict Spark exec now produces actual completion proof without Pod log parsing. Current read-only requalification at2f62133 returned exact source/cache/credential checks, POST/GET/zero-exit receipt, healthy post-check and DELETE/404/inventory absence, with exact owned claim released in20.774s. Independent Go accepts scoped T5.13/T5.14 closure. Prior full eight-shard hashes stay attached; no fresh model load, weight rehash, headroom or production acceptance is claimed.
+
+### Integrated telemetry source review findings
+
+Gateway telemetry source integrated cleanly at51aea546; root credentials-snapshot tests remain intact. Additional real-scheduler and initial/unequal-tail tests atae355a7 pass with the full37-case pinned suite. Independent review found swallowed telemetry callbacks could produce partial records appearing complete with zero counters; coordinator found zero-progress writes could stall terminal cleanup. T2.40–T2.42 track shared invalidation, bounded write failure, exact integer identities, affected fault tests and independent re-review. No GPU retry or measurement pass is authorized by test success alone.
