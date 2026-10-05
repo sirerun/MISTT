@@ -2,6 +2,8 @@
 
 ## Shipped
 
+- Public release icon packaging correction: PR #8, landed97bcb769; independently verified reviewed-tree equality and13/13 release checks. Final signed artifact acceptance remains open.
+
 - Reviewed native/relay/gateway/release source: PR #6, landed `485474f465f519e0d4ad5fdb98d06cbe647c3af2`; independently verified exact reviewed-tree equality. Source delivery only; physical MVP, signed installation and automatic updates remain open.
 
 - Bounded one-source VibeVoice streaming qualification and report: PR #1, landed `4255bd2362e6184e0e0687ea149db4815d8106a8`; six probe tests passed. Synthetic inference evidence, not a product release.
