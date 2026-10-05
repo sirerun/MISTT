@@ -286,10 +286,21 @@ def _validate_manifest(pod: Any, values: dict[str, Any]) -> None:
     if env_values != expected_env:
         _fail()
 
-    if container["ports"] != [{
+    ports = container["ports"]
+    if (
+        not isinstance(ports, list)
+        or len(ports) != 1
+        or not isinstance(ports[0], dict)
+        or set(ports[0]) != {"name", "containerPort", "hostPort", "protocol"}
+        or type(ports[0].get("containerPort")) is not int
+        or type(ports[0].get("hostPort")) is not int
+        or ports[0].get("name") != "https"
+        or ports[0].get("protocol") != "TCP"
+        or ports[0] != {
         "name": "https", "containerPort": 7870,
         "hostPort": values["MISTT_GATEWAY_HOST_PORT"], "protocol": "TCP",
-    }]:
+        }
+    ):
         _fail()
     resources = container["resources"]
     if resources != {"limits": {"memory": EXPECTED_MEMORY, "cpu": EXPECTED_CPU, "nvidia.com/gpu": EXPECTED_GPU}}:
@@ -346,7 +357,13 @@ def _validate_manifest(pod: Any, values: dict[str, Any]) -> None:
         "initialDelaySeconds": 120, "periodSeconds": 30,
         "timeoutSeconds": 5, "failureThreshold": 3,
     }
-    if container["livenessProbe"] != expected_probe:
+    probe = container["livenessProbe"]
+    if not isinstance(probe, dict) or set(probe) != set(expected_probe):
+        _fail()
+    numeric_probe_keys = ("initialDelaySeconds", "periodSeconds", "timeoutSeconds", "failureThreshold")
+    if any(type(probe.get(key)) is not int for key in numeric_probe_keys):
+        _fail()
+    if probe != expected_probe:
         _fail()
 
 
