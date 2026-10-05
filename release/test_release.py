@@ -1,3 +1,4 @@
+import json
 import base64
 import importlib.util
 import tempfile
@@ -22,6 +23,16 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.archive = self.root / "MISTT-0.1.0-arm64.zip"
         self.archive.write_bytes(b"synthetic metadata test only, not a release")
         self.signature = base64.b64encode(bytes(64)).decode()
+
+    def test_recovery_verification_rejects_modified_archive_before_commands(self):
+        (self.root / "manifest.json").write_text(json.dumps({
+            "version": "0.1.0", "build": "1", "repository": "sirerun/MISTT",
+            "archive": self.archive.name, "sha256": "0" * 64,
+        }))
+        with patch.object(tools, "run") as command:
+            with self.assertRaisesRegex(ValueError, "modified or renamed"):
+                tools.verify_artifacts(self.root)
+            command.assert_not_called()
 
     def test_enclosure_and_cask_bind_same_artifact(self):
         manifest = tools.generate_metadata(self.archive, self.signature, "0.1.0", "1", "sirerun/MISTT", self.root)
