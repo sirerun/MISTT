@@ -160,6 +160,11 @@ def require_release_source(expected: str | None = None, *, refresh: bool = True)
     return expected
 
 
+def copy_app_resources(app: Path) -> None:
+    for name in ["AppIcon.icns", "logo-3.svg", "logo-3-muted.svg"]:
+        shutil.copy2(ROOT / "desktop/Resources" / name, app / "Contents/Resources" / name)
+
+
 def build(version: str, build_number: str, output: Path) -> Path:
     validate_version(version, build_number)
     source_sha = require_release_source()
@@ -196,8 +201,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
         (app / "Contents" / folder).mkdir(parents=True, exist_ok=True)
     shutil.copy2(bins / "MISTTDesktop", app / "Contents/MacOS/MISTTDesktop")
     shutil.copy2(relay, app / "Contents/MacOS/mistt")
-    for name in ["logo-3.svg", "logo-3-muted.svg"]:
-        shutil.copy2(ROOT / "desktop/Resources" / name, app / "Contents/Resources" / name)
+    copy_app_resources(app)
     framework = app / "Contents/Frameworks/Sparkle.framework"
     shutil.copytree(frameworks[0], framework, symlinks=True)
     info = plistlib.loads((ROOT / "desktop/Resources/Info.plist").read_bytes())

@@ -4,7 +4,7 @@
 
 Owner requested source merge and then all remaining delivery. PR #6 merged at `485474f465f519e0d4ad5fdb98d06cbe647c3af2`; independent review confirmed the landed tree exactly equals reviewed head `a13ed196e04eb552bdd5855f8d924583ad0df680`. GitHub rejected rebase for both original and linearized histories; the owner-authorized standard merge preserved the reviewed files and original history without changing repository settings. This closes source landing only, recorded separately in T2.61. T2.5–T2.8 retain their full physical MVP acceptance requirements.
 
-Full execution is now authorized: qualify final production bootstrap/resources, test the native product, publish a signed/notarized release, install it and verify genuine automatic updates. Previous heavy-work deferral is lifted; current load/lease admission still applies. Signing authentication remains paused following the previous failure until the owner confirms recovery. Preserve existing keychains and signing access rules; no password guessing or authentication retry while unresolved. Three Luna lanes own gateway qualification, native readiness and independent release/evidence review; coordinator owns plan integration, serial UI/permission work and release publication.
+Full execution is now authorized: qualify final production bootstrap/resources, test the native product, publish a signed/notarized release, install it and verify genuine automatic updates. Previous heavy-work deferral is lifted; current load/lease admission still applies. Owner confirmed recovery and authorized one signing attempt; the native lane successfully signed and verified an owned diagnostic executable with the selected login keychain. Timestamped release signing and notarization remain open; stop further authentication attempts on any renewed failure. Preserve existing keychains and signing access rules; no password guessing or authentication retry while unresolved. Three Luna lanes own gateway qualification, native readiness and independent release/evidence review; coordinator owns plan integration, serial UI/permission work and release publication.
 
 Historical checkpoint paragraphs below describe earlier states and do not supersede this checkpoint. No production deployment, installed runtime or signed update acceptance follows from the source merge.
 
@@ -51,11 +51,11 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (47/62)
 
-### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (9/18)
+### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (11/23)
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
-### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (15/21)
+### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (16/21)
 
 ## 5. Parallel work and waves
 

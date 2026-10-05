@@ -1,4 +1,5 @@
 import json
+import plistlib
 import base64
 import importlib.util
 import tempfile
@@ -25,6 +26,20 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.archive = self.root / "MISTT-0.1.0-arm64.zip"
         self.archive.write_bytes(b"synthetic metadata test only, not a release")
         self.signature = base64.b64encode(bytes(64)).decode()
+
+    def test_bundle_contains_declared_microphone_icon(self):
+        app = self.root / "MISTT.app"
+        resources = app / "Contents/Resources"
+        resources.mkdir(parents=True)
+        tools.copy_app_resources(app)
+        source = tools.ROOT / "desktop/Resources"
+        info = plistlib.loads((source / "Info.plist").read_bytes())
+        icon_name = info["CFBundleIconFile"]
+        if not icon_name.endswith(".icns"):
+            icon_name += ".icns"
+        bundled = resources / icon_name
+        self.assertEqual(bundled.read_bytes()[:4], b"icns")
+        self.assertEqual(bundled.read_bytes(), (source / icon_name).read_bytes())
 
     def test_release_source_rejects_dirty_or_changed_checkout(self):
         sha = "a" * 40
