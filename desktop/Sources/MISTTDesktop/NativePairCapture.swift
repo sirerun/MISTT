@@ -467,7 +467,8 @@ final class NativePairCapture: @unchecked Sendable {
         guard status == noErr else { throw CaptureStartError.coreAudio("reading tap virtual stream format", status) }
         guard streamFormat.mSampleRate > 0, (1...2).contains(streamFormat.mChannelsPerFrame),
               streamFormat.mFormatID == kAudioFormatLinearPCM,
-              streamFormat.mFormatFlags.contains(.isFloat), streamFormat.mFormatFlags.contains(.isNonInterleaved),
+              streamFormat.mFormatFlags & kAudioFormatFlagIsFloat != 0,
+              streamFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0,
               streamFormat.mBitsPerChannel == 32, streamFormat.mBytesPerFrame == 4 else {
             throw CaptureStartError.unsupportedTapFormat
         }
@@ -489,7 +490,7 @@ final class NativePairCapture: @unchecked Sendable {
             let callbackStart = AudioGetCurrentHostTime()
             let time = inputTime.pointee
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
-            let buffers = UnsafeAudioBufferListPointer(inputData)
+            let buffers = UnsafeMutableAudioBufferListPointer(inputData)
             guard let buffer = buffers.first else {
                 self.failureSignal?.add(data: 1)
                 return
@@ -580,7 +581,7 @@ final class NativePairCapture: @unchecked Sendable {
                          sampleRate: Double, startNs: UInt64, source: AudioSource) -> Bool {
         guard frames > 0, frames <= 8192, sampleRate.isFinite,
               sampleRate.rounded() == sampleRate, (8_000...384_000).contains(sampleRate) else { return false }
-        let buffers = UnsafeAudioBufferListPointer(list)
+        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
         guard (1...2).contains(buffers.count), buffers.count == Int(streamFormat.mChannelsPerFrame) else { return false }
         guard let leftData = buffers[0].mData else { return false }
         let left = leftData.assumingMemoryBound(to: Float.self)
@@ -675,7 +676,7 @@ final class NativePairCapture: @unchecked Sendable {
         let channels = min(8, Int(format.mChannelsPerFrame))
         guard channels > 0 else { return nil }
         let positions = min(32, frames)
-        let buffers = UnsafeAudioBufferListPointer(listPointer)
+        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: listPointer))
         let nonInterleaved = flags & kAudioFormatFlagIsNonInterleaved != 0
         guard !buffers.isEmpty else { return nil }
         var energy = 0.0
