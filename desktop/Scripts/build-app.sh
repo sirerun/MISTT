@@ -81,20 +81,28 @@ if ! otool -l "$APP/Contents/MacOS/MISTTDesktop" | grep -Fq '@executable_path/..
 fi
 chmod 755 "$APP/Contents/MacOS/MISTTDesktop" "$APP/Contents/MacOS/mistt"
 # Re-sign Sparkle's nested helpers with the same identity as this app so
-# hardened-runtime library validation sees a consistent Team ID. Preserve
-# upstream helper entitlements, especially Autoupdate's application identifier.
+# hardened-runtime library validation sees a consistent Team ID. Sparkle 2.6+
+# requires preserving entitlements only for Downloader.xpc; Autoupdate,
+# Updater.app, and the framework must be signed without vendor entitlements.
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
 NESTED_BUNDLES=$(find "$SPARKLE" -type d \( -name '*.xpc' -o -name '*.app' \) -print \
   | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
 while IFS= read -r nested; do
   [ -n "$nested" ] || continue
-  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$nested"
+  case "${nested##*/}" in
+    Downloader.xpc)
+      codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$nested"
+      ;;
+    *)
+      codesign "${SIGN_ARGS[@]}" "$nested"
+      ;;
+  esac
 done <<< "$NESTED_BUNDLES"
 AUTUPDATE="$SPARKLE/Versions/B/Autoupdate"
 if [ -e "$AUTUPDATE" ]; then
-  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$AUTUPDATE"
+  codesign "${SIGN_ARGS[@]}" "$AUTUPDATE"
 fi
-codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$SPARKLE"
+codesign "${SIGN_ARGS[@]}" "$SPARKLE"
 codesign "${SIGN_ARGS[@]}" --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" \
   "$APP/Contents/MacOS/mistt"
 codesign "${SIGN_ARGS[@]}" --entitlements "$PACKAGE_DIR/Resources/MISTT.entitlements" \
