@@ -29,7 +29,7 @@
         "volumeMounts": [
           {"name": "gateway", "mountPath": "/opt/mistt", "readOnly": true},
           {"name": "cache", "mountPath": "/var/cache/mistt"},
-          {"name": "credentials", "mountPath": "/run/mistt", "readOnly": true}
+          {"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": true}
         ],
         "readinessProbe": {
           "httpGet": {"path": "/mistt/healthz", "port": 7870, "scheme": "HTTPS"},
@@ -48,4 +48,3 @@
     ]
   }
 }
-
