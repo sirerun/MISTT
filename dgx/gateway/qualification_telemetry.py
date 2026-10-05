@@ -119,7 +119,10 @@ class QualificationTelemetryStore:
                     return False
                 offset = 0
                 while offset < len(payload):
-                    offset += os.write(fd, payload[offset:])
+                    written = os.write(fd, payload[offset:])
+                    if written <= 0:
+                        return False
+                    offset += written
             finally:
                 os.close(fd)
             return True
@@ -191,6 +194,7 @@ class QualificationSessionTelemetry:
         self._window_distinct_samples = {source: 0 for source in SOURCES}
         self._tail: dict[str, dict[str, Any]] = {}
         self._finalized = False
+        self._collection_failed = False
 
     @property
     def overlap_epoch(self) -> int:
@@ -288,6 +292,9 @@ class QualificationSessionTelemetry:
         metrics["inference_total_ns"] += elapsed_ns
         metrics["inference_max_ns"] = max(metrics["inference_max_ns"], elapsed_ns)
 
+    def mark_failed(self) -> None:
+        self._collection_failed = True
+
     def source_snapshot(self, source: str, *, ingress_samples_16k: int,
                         resampler_output_samples: int,
                         distinct_window_samples_created: int,
@@ -325,6 +332,7 @@ class QualificationSessionTelemetry:
             "stream_ordinal": self.ordinal,
             "terminal_state": terminal_state if terminal_state in
                 {"completed", "disconnected", "failed"} else "other",
+            "telemetry_valid": not self._collection_failed,
             "geometry": {
                 "sample_rate_hz": int(self.geometry.sample_rate),
                 "chunk_samples": chunk_samples,

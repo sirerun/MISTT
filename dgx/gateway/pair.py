@@ -183,6 +183,10 @@ class FairInferenceScheduler:
             getattr(telemetry, method)(*args, **kwargs)
         except Exception:
             # Qualification-only instrumentation must never break a live stream.
+            try:
+                telemetry.mark_failed()
+            except Exception:
+                pass
             self._telemetry = None
 
 

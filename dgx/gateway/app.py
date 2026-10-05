@@ -351,7 +351,10 @@ def create_app(
                             qualification.on_inference(
                                 source, time.monotonic_ns() - inference_started_ns)
                         except Exception:
-                            pass
+                            try:
+                                qualification.mark_failed()
+                            except Exception:
+                                pass
                 if not isinstance(delta, str):
                     raise RuntimeError("pinned model returned a malformed transcript delta")
                 context.transcript += delta
@@ -611,6 +614,10 @@ def create_app(
                     )
                     qualification.finalize(terminal_state)
                 except Exception:
-                    pass
+                    try:
+                        qualification.mark_failed()
+                        qualification.finalize("failed")
+                    except Exception:
+                        pass
 
     return app

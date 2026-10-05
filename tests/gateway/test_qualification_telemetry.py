@@ -8,6 +8,7 @@ import unittest
 import uuid
 import asyncio
 import time
+from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
@@ -87,11 +88,27 @@ class QualificationTelemetryTests(unittest.TestCase):
             "emitted": True, "valid_input_samples": 15, "overlap_samples": 0,
             "distinct_samples": 15, "padded_samples": 15,
         })
+        self.assertEqual(initial.final_tail_geometry["overlap_samples"]
+                         + initial.final_tail_geometry["distinct_samples"],
+                         initial.final_tail_geometry["valid_input_samples"])
+        self.assertEqual(initial.final_tail_geometry["valid_input_samples"]
+                         + initial.final_tail_geometry["padded_samples"],
+                         initial.geometry.window_samples)
+        self.assertEqual(initial.resampler_output_samples, initial.distinct_window_samples)
         left, right = _context(22), _context(26)
         left.finish_input()
         right.finish_input()
         self.assertEqual(left.final_tail_geometry["valid_input_samples"], 21)
         self.assertEqual(right.final_tail_geometry["valid_input_samples"], 27)
+        for context in (left, right):
+            tail = context.final_tail_geometry
+            assert tail is not None
+            self.assertEqual(tail["overlap_samples"] + tail["distinct_samples"],
+                             tail["valid_input_samples"])
+            self.assertEqual(tail["valid_input_samples"] + tail["padded_samples"],
+                             context.geometry.window_samples)
+            self.assertEqual(context.resampler_output_samples,
+                             context.distinct_window_samples)
 
     def test_scheduler_observes_both_pending_at_real_queue_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -143,6 +160,62 @@ class QualificationTelemetryTests(unittest.TestCase):
                 else:
                     os.environ[GATEWAY_SOURCE_ENV] = previous_sha
 
+    def test_scheduler_observer_failures_are_latched_without_failing_work(self) -> None:
+        class FaultTelemetry:
+            overlap_epoch = 0
+
+            def __init__(self, broken: str) -> None:
+                self.broken = broken
+                self.valid = True
+                self.completed = 0
+
+            def mark_failed(self) -> None:
+                self.valid = False
+
+            def _call(self, name: str) -> None:
+                if self.broken == name:
+                    raise OSError("injected private write failure")
+
+            def queue_changed(self, _sizes) -> None:
+                self._call("queue_changed")
+
+            def on_enqueue(self, _source, _window) -> None:
+                self._call("on_enqueue")
+
+            def on_start(self, *_args) -> None:
+                self._call("on_start")
+
+            def on_complete(self, *_args, **_kwargs) -> None:
+                self._call("on_complete")
+                self.completed += 1
+
+        for broken in ("queue_changed", "on_enqueue", "on_start", "on_complete"):
+            with self.subTest(broken=broken):
+                telemetry = FaultTelemetry(broken)
+                worked: list[str] = []
+
+                async def exercise() -> None:
+                    scheduler = FairInferenceScheduler(telemetry=telemetry)
+
+                    async def worker(source, work) -> None:
+                        await work()
+
+                    async def no_work(source) -> None:
+                        worked.append(source)
+
+                    scheduler.start(worker)
+                    for source in ("microphone", "call_audio"):
+                        scheduler._queues[source].put_nowait(_ScheduledWork(
+                            work=lambda source=source: no_work(source),
+                            enqueued_ns=time.monotonic_ns(), valid_input_samples=30,
+                            overlap_samples=0, distinct_model_samples=30, padding_samples=0))
+                    scheduler.stop_when_empty()
+                    await asyncio.wait_for(scheduler.task, timeout=1)
+
+                asyncio.run(exercise())
+                self.assertCountEqual(worked, ["microphone", "call_audio"])
+                self.assertFalse(telemetry.valid)
+
 
     def test_telemetry_is_bounded_owner_only_and_splits_control_items(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -164,6 +237,18 @@ class QualificationTelemetryTests(unittest.TestCase):
                     os.environ.pop(GATEWAY_SOURCE_ENV, None)
                 else:
                     os.environ[GATEWAY_SOURCE_ENV] = previous_sha
+
+    def test_zero_or_failed_write_is_best_effort_and_nonblocking(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root).resolve() / "run"
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+            store = QualificationTelemetryStore(directory, GATEWAY_SHA, ASR_SHA)
+            record = {"schema_version": 1, "sources": {}}
+            with patch("dgx.gateway.qualification_telemetry.os.write", return_value=0):
+                self.assertFalse(store.write_record(record))
+            with patch("dgx.gateway.qualification_telemetry.os.write", side_effect=OSError("private detail")):
+                self.assertFalse(store.write_record(record))
 
     def _assert_telemetry_record(self, directory: Path) -> None:
         store = QualificationTelemetryStore.from_environment(ASR_SHA)
@@ -213,3 +298,18 @@ class QualificationTelemetryTests(unittest.TestCase):
         })
         self.assertLessEqual(records[0].stat().st_size, 8 * 1024)
         self.assertEqual(os.geteuid(), records[0].stat().st_uid)
+        self.assertIs(record["telemetry_valid"], True)
+
+    def test_collection_failure_is_latched_in_partial_record(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root).resolve() / "run"
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+            store = QualificationTelemetryStore(directory, GATEWAY_SHA, ASR_SHA)
+            telemetry = store.new_session(_geometry(), 2)
+            self.assertIsNotNone(telemetry)
+            assert telemetry is not None
+            telemetry.mark_failed()
+            self.assertTrue(telemetry.finalize("completed"))
+            record = json.loads(next(directory.glob("*.json")).read_text())
+            self.assertIs(record["telemetry_valid"], False)
