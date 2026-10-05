@@ -24,8 +24,13 @@ admitted() {
   uptime
   python3 -c 'import os,sys; sys.exit(0 if os.getloadavg()[0] <= 10 else 75)'
   claim_output=$("$MISTT_CLAIM_SCRIPT" claim R-build-lease --purpose "$*")
-  case "$claim_output" in WON:*) lease_held=1 ;; *) echo "$claim_output" >&2; return 75;; esac
-  lease_sha=$(printf '%s\n' "$claim_output" | awk '{print $3}')
+  if [[ "$claim_output" =~ ^WON:\ R-build-lease\ ([0-9a-f]{40})$ ]]; then
+    lease_sha=${BASH_REMATCH[1]}
+    lease_held=1
+  else
+    echo "$claim_output" >&2
+    return 75
+  fi
   local result=0
   "$@" || result=$?
   release_lease
