@@ -115,7 +115,12 @@ final class CoreAudioTargetOwnershipTests: XCTestCase {
 
     func testRejectsSameUIDMismatch() {
         let reader = fixture()
-        reader.processes[101]?.uid = 502
+        let helper = reader.processes[101]!
+        reader.processes[101] = ProcessIncarnation(
+            pid: helper.pid, parentPID: helper.parentPID, uid: 502,
+            startSeconds: helper.startSeconds, startMicroseconds: helper.startMicroseconds,
+            executablePath: helper.executablePath
+        )
         let candidate = AudioClient(objectID: 23, pid: 101, bundleID: nil, runningOutput: true)
 
         XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(
@@ -306,7 +311,7 @@ private final class FakeOwnershipReader: CoreAudioOwnershipReading {
         guard !invalidCodePIDs.contains(pid) else {
             throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
         }
-        guard let code,
+        guard let code = codes[pid],
               code.signingIdentifier == expected.signingIdentifier,
               code.teamIdentifier == expected.teamIdentifier,
               code.appleGenericTrustValidated else {
