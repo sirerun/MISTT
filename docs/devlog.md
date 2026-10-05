@@ -204,3 +204,7 @@ Independent review found and authors fixed the native pre-start abort closure-co
 ## 2026-10-05 — resumed durable cache qualification
 
 Owned source and credential staging completed through hash-pinned public source and verified mutual TLS for private runtime files. Temporary staging Pods and transfer helpers were removed, preserving named volumes. CPU-only model prefetch is running with a 3600-second limit; all eight pinned shard sizes and SHA256 values must pass before its completion record exists. Replacement-container verification and actual gateway readiness remain open. Independent review accepted source f29d757 after correcting credential destination filenames and private certificate mode documentation. Signing remains stopped pending owner resolution of private-key access; no installed release or automatic update is claimed.
+
+### Spark liveness mismatch found during real qualification
+
+The first bounded gateway candidate answered verified TLS health requests from the Mac but restarted repeatedly on Spark liveness failure. Spark upstream HTTPProbe hardcodes plain HTTP to node localhost, so the manifest HTTPS scheme cannot qualify this service. The owned candidate was removed, releasing all GPU allocation. T5.15–T5.17 track an in-container verified TLS exec probe, affected tests, bounded runtime retry and independent exact-head review. No production readiness is claimed.
