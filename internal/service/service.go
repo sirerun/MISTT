@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -996,6 +995,14 @@ func (s *Service) finishPair(pair *activePair, reason string, err error) {
 	}
 	s.mu.Unlock()
 }
+func transcriptWallClockUnixMS(epochUnixMS int64, startOffsetNS uint64) (int64, error) {
+	// Dividing a uint64 nanosecond offset by 1e6 always produces an int64 value.
+	offsetMS := int64(startOffsetNS / 1e6)
+	if epochUnixMS > math.MaxInt64-offsetMS {
+		return 0, errors.New("transcript wall clock overflows")
+	}
+	return epochUnixMS + offsetMS, nil
+}
 func (s *Service) publishTranscript(pair *activePair, t *backend.Transcript) error {
 	if t == nil || !t.Source.Valid() || t.SegmentID == "" || t.EndSample < t.StartSample || t.EndOffsetNS < t.StartOffsetNS {
 		return errors.New("DGX transcript has invalid source or sample interval")
@@ -1056,8 +1063,9 @@ func (s *Service) publishTranscript(pair *activePair, t *backend.Transcript) err
 	if t.EndOffsetNS > math.MaxUint64-pair.epochHostNS {
 		return errors.New("transcript end host offset overflows")
 	}
-	if t.StartOffsetNS/1e6 > math.MaxInt64-pair.epochUnixMS {
-		return errors.New("transcript wall clock overflows")
+	wallClockUnixMS, err := transcriptWallClockUnixMS(pair.epochUnixMS, t.StartOffsetNS)
+	if err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1065,7 +1073,7 @@ func (s *Service) publishTranscript(pair *activePair, t *backend.Transcript) err
 		return nil
 	}
 	pair.sequence++
-	event := &misttv1.StreamResponse{SessionId: pair.id, Sequence: pair.sequence, Payload: &misttv1.StreamResponse_Transcription{Transcription: &misttv1.TranscriptionEvent{Source: string(t.Source), SourceEventSequence: t.SourceEventSequence, SegmentId: t.SegmentID, Text: t.Text, IsFinal: t.Final, Confidence: t.Confidence, StartSample: t.StartSample, EndSample: t.EndSample, StartOffsetNs: t.StartOffsetNS, EndOffsetNs: t.EndOffsetNS, WallClockUnixMs: pair.epochUnixMS + int64(t.StartOffsetNS/1e6)}}}
+	event := &misttv1.StreamResponse{SessionId: pair.id, Sequence: pair.sequence, Payload: &misttv1.StreamResponse_Transcription{Transcription: &misttv1.TranscriptionEvent{Source: string(t.Source), SourceEventSequence: t.SourceEventSequence, SegmentId: t.SegmentID, Text: t.Text, IsFinal: t.Final, Confidence: t.Confidence, StartSample: t.StartSample, EndSample: t.EndSample, StartOffsetNs: t.StartOffsetNS, EndOffsetNs: t.EndOffsetNS, WallClockUnixMs: wallClockUnixMS}}}
 	s.broadcastLocked(event)
 	return nil
 }
