@@ -368,8 +368,8 @@ func TestMuteAfterNativeStartDispatchWaitsForStopAckAndBlocksUnmute(t *testing.T
 		MicrophoneIOStopped: true, TapIOStopped: true, TapDestroyed: true, AggregateDestroyed: true}}
 	select {
 	case err := <-startDone:
-		if err != nil {
-			t.Fatalf("canceled dispatched start returned error: %v", err)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled dispatched start error = %v, want context.Canceled after closure ACK", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("startup did not finish after matching native stop ACK")
