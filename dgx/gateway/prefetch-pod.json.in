@@ -12,6 +12,7 @@
   },
   "spec": {
     "restartPolicy": "Never",
+    "activeDeadlineSeconds": 3600,
     "containers": [
       {
         "name": "prefetch",

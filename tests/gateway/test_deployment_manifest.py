@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
+
+from dgx.gateway.prefetch_model import verify_snapshot
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -118,10 +121,43 @@ class DeploymentManifestTests(unittest.TestCase):
             "cpu": "1", "memory": "4Gi"
         })
         self.assertNotIn("nvidia.com/gpu", json.dumps(pod))
+        self.assertEqual(pod["spec"]["activeDeadlineSeconds"], 3600)
         mounts = {x["name"]: x["mountPath"] for x in container["volumeMounts"]}
         self.assertEqual(mounts, {
             "gateway": "/opt/mistt", "cache": "/var/cache/mistt"
         })
+
+
+class ModelPrefetchTests(unittest.TestCase):
+    def test_partial_weight_index_fails_instead_of_marking_cache_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            (root / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {"encoder.weight": "model-00001.safetensors"}}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "missing weight shard"):
+                verify_snapshot(root)
+
+    def test_complete_weight_index_reports_all_nonempty_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            (root / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {
+                    "encoder.weight": "model-00001.safetensors",
+                    "decoder.weight": "model-00002.safetensors",
+                }}),
+                encoding="utf-8",
+            )
+            (root / "model-00001.safetensors").write_bytes(b"first")
+            (root / "model-00002.safetensors").write_bytes(b"second")
+            shards, size = verify_snapshot(root)
+            self.assertEqual(shards, ["model-00001.safetensors", "model-00002.safetensors"])
+            self.assertEqual(size, len(b"firstsecond"))
 
 
 if __name__ == "__main__":
