@@ -79,7 +79,7 @@ final class NativeProtocolTests: XCTestCase {
             }
         }
         XCTAssertTrue(popped)
-        XCTAssertEqual(block.frameCount, 5)
+        XCTAssertEqual(block.frame_count, 5)
         XCTAssertEqual(block.host_start_ns, 187_500)
         XCTAssertEqual(Array(outputLeft.prefix(5)), [3, 4, 5, 6, 7])
         XCTAssertEqual(Array(outputRight.prefix(5)), [103, 104, 105, 106, 107])
