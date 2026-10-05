@@ -4,6 +4,15 @@ import XCTest
 
 @available(macOS 14.2, *)
 final class NativePairCaptureOwnershipTests: XCTestCase {
+    func testTeardownCompletionRunsWhenCaptureHasNoResources() {
+        let finished = DispatchSemaphore(value: 0)
+        let capture = NativePairCapture(generation: 1)
+
+        capture.stop(onTeardown: { _ in finished.signal() })
+
+        XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+    }
+
     func testQueuedTeardownRetainsNativeCaptureUntilWorkCompletes() {
         let started = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
