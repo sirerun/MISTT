@@ -70,7 +70,7 @@ class DeploymentManifestTests(unittest.TestCase):
         )
         self.assertEqual(container["resources"]["limits"], {
             "memory": "48Gi",
-            "cpu": "4",
+            "cpu": "8",
             "nvidia.com/gpu": "1",
         })
         self.assertEqual(

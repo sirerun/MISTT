@@ -11,7 +11,7 @@ public DNS, or another external ingress.
 
 ## Admission and rendering
 
-Render the five placeholders in `pod.json.in` from one owner allocation:
+The template has seven owner-configured values:
 
 - `MISTT_GATEWAY_POD_NAME`: a unique Spark Pod name containing the source SHA.
 - `MISTT_GATEWAY_SOURCE_SHA`: the exact MISTT source tree SHA staged in the
@@ -24,17 +24,60 @@ Render the five placeholders in `pod.json.in` from one owner allocation:
 - `MISTT_GATEWAY_HOST_PORT`: an unused numeric host port selected after
   checking current Spark allocations. The template deliberately omits
   `hostIP`; Spark does not enforce that field.
+- `MISTT_GATEWAY_TLS_SERVER_NAME`: the canonical IPv4 address in the server
+  certificate SAN, used by the TLS health probe.
 
 Bootstrap snapshots the read-only credentials mount at `/run/mistt-input` into mode `0600` regular files in a mode `0700` temporary directory before strict validation and TLS loading. Rotation requires an owned service restart to read a fresh snapshot.
 
 Spark does not expand placeholders. Render structured JSON, validate it, and
-record its SHA-256 before submitting it with `POST /api/v1/pods`. Before
+record its SHA-256 before the reviewed owner orchestration submits it. Before
 submission, check `/api/v1/resources`, confirm the chosen host port is unused,
 and acquire the owner-specific resource claim. This gateway needs one GPU, 8
 CPUs, and 48 GiB of memory; do not admit a second GPU Pod alongside it on the
 single-GPU node. Deploy production only from the reviewed landed source. A
 separately named, bounded qualification Pod may use the exact reviewed
 candidate when the coordinator authorizes it.
+
+The reviewed local renderer accepts an exact JSON object containing those
+seven values. Keep that file and its parent private (`0600` and `0700`), with
+no token or credential material in the object. Use a fresh private output
+directory; the renderer refuses symlinks, insecure modes, unknown keys, and
+existing output files. For example, after setting `MISTT_CONFIG` to the
+protected config file and `MISTT_PRIVATE_DIR` to a new owner-only directory:
+
+```sh
+umask 077
+mkdir -m 700 "$MISTT_PRIVATE_DIR"
+python3 -m dgx.gateway.render_owner \
+  --config "$MISTT_CONFIG" \
+  --output "$MISTT_PRIVATE_DIR/pod.json" \
+  --receipt "$MISTT_PRIVATE_DIR/render-receipt.json"
+```
+
+Run it from the reviewed landed checkout with that checkout on `PYTHONPATH`.
+Before rendering, compare the approved source SHA from the reviewed change
+record with the current landed main checkout. Set `MISTT_CHECKOUT` and
+`MISTT_APPROVED_GATEWAY_SOURCE_SHA` from that record, then run:
+
+```sh
+git -C "$MISTT_CHECKOUT" fetch origin main
+test "$(git -C "$MISTT_CHECKOUT" rev-parse origin/main)" = "$MISTT_APPROVED_GATEWAY_SOURCE_SHA"
+test "$(git -C "$MISTT_CHECKOUT" rev-parse HEAD)" = "$MISTT_APPROVED_GATEWAY_SOURCE_SHA"
+test -z "$(git -C "$MISTT_CHECKOUT" status --porcelain)"
+```
+
+The approved source SHA must also match the renderer input and the independent
+source-volume archive/inventory/mode receipt. The local receipt
+records the pins and rendered-manifest SHA and explicitly says
+`submitted_to_spark: false`; it is not deployment or readiness evidence. Only
+the separately reviewed owner orchestration may submit the protected manifest
+after fresh resource-capacity, selected-port, input-proof, and exact-claim
+checks. Record the actual POST acknowledgement and exact-name GET status with
+integer restart count before health probes. Keep the claim through bounded
+exact-Pod deletion, detail-GET absence and inventory absence; release only the
+exact claim SHA after those checks. If the response or status is ambiguous,
+preserve the claim and retained volumes for operator resolution. Never print
+or commit the rendered manifest or receipt.
 
 Podman interprets a slashless `hostPath.path` as a named volume. A two-Pod
 Spark test wrote a sentinel to one uniquely named volume, deleted only its
