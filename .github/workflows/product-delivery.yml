@@ -91,7 +91,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       MISTT_RELEASE_REPOSITORY: ${{ github.repository }}
-      MISTT_RELEASE_SOURCE_SHA: ${{ github.sha }}
+      MISTT_RELEASE_SOURCE_SHA: ${{ inputs.reviewed_sha }}
       MISTT_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/appcast.xml
       MISTT_SIGN_IDENTITY: ${{ secrets.MISTT_SIGN_IDENTITY }}
       MISTT_SPARKLE_PUBLIC_KEY: ${{ vars.MISTT_SPARKLE_PUBLIC_KEY }}
