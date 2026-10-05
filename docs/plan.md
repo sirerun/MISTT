@@ -45,7 +45,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
-### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (5/18)
+### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (7/18)
 
 ## 5. Parallel work and waves
 
@@ -198,3 +198,5 @@ Current runtime checkpoint, 2026-10-05: [bounded DGX candidate evidence](qualifi
 ### Resumed measured-runtime checkpoint — 2026-10-05
 
 Independent Go review accepts extended paired inference/busy/disconnect/recovery evidence at gateway 2f62133; independent native review closes T5.16/T5.17 using the combined exact-head liveness and runtime receipts. T2.37–T2.39 now gate private numeric queue/tail/memory instrumentation and its local verification/independent review before another T2.10 admission. Full backend/headroom, physical native capture, merge, signing/notarization, production deployment, installed A-to-B update and final running-muted gates remain open. Native signing stays stopped pending owner resolution of existing private-key access; no authentication retries or keychain changes are authorized by this checkpoint.
+
+Current T5.13/T5.14 staging/cache correction gates are independently accepted from a fresh recorded CPU-only POST/GET/readonly-exec/cleanup qualification at gateway2f62133. Historical missing status receipts remain historical gaps, not fabricated responses. Product telemetry implementation/testing/review T2.37–T2.39 and actual T2.10 measurement remain in progress; owner-blocked signing and physical installed acceptance remain open.

@@ -54,3 +54,12 @@ Actual ingress PCM samples / ingress sample rate define each captured duration. 
 Actual queue transitions record each source's peak/capacity and enqueue/start/complete counts, simultaneous-pending duration/dispatches and per-source wait/dispatch counts during those intervals. Fairness is assessed only while both sources are pending. Absent overlap observations leave that contention measurement open. Final-tail tests must cover initial partial input, exact full-window EOF, tiny residual after a full window, and unequal source tails; retained lookahead cannot be counted as newly captured audio.
 
 Telemetry is opt-in, private, numeric and bounded: at most eight 8-KiB receipts per candidate, mode 0600 in an owner-controlled directory. No audio/text/credentials or public telemetry endpoint. Disabled behavior is unchanged; terminal best-effort writes cannot change protocol results or strand cleanup. The existing 447s orchestration/600s Pod bounds remain.
+
+
+## Current staging requalification
+
+A fresh reviewed CPU-only candidate mounted source, cache and credentials read-only and captured POST201 plus actual GET200 pending/scheduled/running states with zero restarts. One bounded Spark exec ran the exact reviewed verification command and returned exit0, the exact static success marker and empty stderr; healthy post-exec GET followed. Source/archive marker, exact typed cache model/revision/snapshot/eight shard names/total bytes and credential mode/key/SAN checks passed. No model load or weight writes occurred. This fresh metadata check supplements the prior complete eight-shard hash proof on the unchanged retained cache; it is not a new full weight rehash.
+
+Exact DELETE200, detail404, inventory absence and owned claim release completed in20.774s. Independent Go accepts private runtime receipt SHA256 `c0cf08302e3676695714c32a951137071343f0bdd34e829bc0df4fadecca69d4`, with wrapper invocation bound by addendum `83f3b3ad95ae381adb619e93d6b2ff1545ef998553051a39486e356fdee9b1f9`. Earlier missing GET receipts and two failed prospective CPU attempts remain failed/historical; this run qualifies current staging prospectively. T5.13/T5.14 close; production and measured-runtime gates remain open.
+
+The next-run memory sampler must continue through recovered-client teardown and finalized telemetry, taking its final snapshot before wrapper Pod deletion. Memory comparisons cover that final live-candidate boundary; exact Pod deletion is proven separately. The final telemetry source/harness is still being implemented and reviewed.
