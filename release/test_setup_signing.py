@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import os
 import unittest
 from unittest.mock import patch
 
@@ -14,7 +15,8 @@ spec.loader.exec_module(release)
 
 class SigningEnvironmentTest(unittest.TestCase):
     def test_setup_exports_required_explicit_signing_keychain(self):
-        with tempfile.TemporaryDirectory(dir="/Volumes/BuildOffload/tmp") as directory:
+        parent = os.environ["RUNNER_TEMP"] if os.environ.get("GITHUB_ACTIONS") == "true" else "/Volumes/BuildOffload/tmp"
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
             path = Path(directory) / "environment"
             keychain = Path(directory) / "job.keychain-db"
             setup.write_environment(path, keychain, "private-key", "sign_update")
