@@ -131,6 +131,7 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 	if listener == nil {
 		return errors.New("loopback gRPC listener is required")
 	}
+	defer s.output.Close()
 	grpcServer := grpc.NewServer()
 	misttv1.RegisterMisttServer(grpcServer, s)
 	s.mu.Lock()

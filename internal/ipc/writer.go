@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -12,20 +13,29 @@ import (
 var ErrControlQueueFull = errors.New("native control output queue is full")
 
 type Writer struct {
-	control chan NativeMessage
-	status  chan NativeMessage
-	failed  chan error
+	control   chan NativeMessage
+	status    chan NativeMessage
+	failed    chan error
+	closing   chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 func NewWriter(out *os.File, capacity int) *Writer {
 	if capacity < 1 {
 		capacity = 32
 	}
-	w := &Writer{control: make(chan NativeMessage, capacity), status: make(chan NativeMessage, 1), failed: make(chan error, 1)}
+	w := &Writer{control: make(chan NativeMessage, capacity), status: make(chan NativeMessage, 1), failed: make(chan error, 1), closing: make(chan struct{}), stopped: make(chan struct{})}
 	go w.run(out)
 	return w
 }
 func (w *Writer) Failed() <-chan error { return w.failed }
+
+// Close stops the writer goroutine and waits until it no longer uses the output file.
+func (w *Writer) Close() {
+	w.closeOnce.Do(func() { close(w.closing) })
+	<-w.stopped
+}
 func (w *Writer) SendControl(m NativeMessage) error {
 	select {
 	case w.control <- m:
@@ -49,17 +59,27 @@ func (w *Writer) SendStatus(m NativeMessage) {
 	}
 }
 func (w *Writer) run(out *os.File) {
+	defer close(w.stopped)
 	if err := syscall.SetNonblock(int(out.Fd()), true); err != nil {
 		w.failed <- fmt.Errorf("set native stdout nonblocking: %w", err)
 		return
 	}
 	defer syscall.SetNonblock(int(out.Fd()), false)
 	for {
+		select {
+		case <-w.closing:
+			return
+		default:
+		}
 		var m NativeMessage
 		select {
+		case <-w.closing:
+			return
 		case m = <-w.control:
 		default:
 			select {
+			case <-w.closing:
+				return
 			case m = <-w.control:
 			case m = <-w.status:
 			}

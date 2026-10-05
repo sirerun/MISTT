@@ -10,6 +10,7 @@ import (
 	"github.com/sirerun/MISTT/internal/audio"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Service) StreamTranscription(stream misttv1.Mistt_StreamTranscriptionServer) error {
@@ -165,8 +166,7 @@ func cloneStatus(value *misttv1.Status) *misttv1.Status {
 	if value == nil {
 		return nil
 	}
-	copy := *value
-	return &copy
+	return proto.Clone(value).(*misttv1.Status)
 }
 
 func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*misttv1.Status, error) {
@@ -254,8 +254,7 @@ func (s *Service) addSubscriber(ctx context.Context, language string) (*subscrib
 	s.nextClient++
 	sub := &subscriber{id: s.nextClient, language: language, events: make(chan *misttv1.StreamResponse, s.cfg.ClientBuffer), done: make(chan struct{}), terminal: make(chan error, 1)}
 	if s.active != nil && s.active.started != nil {
-		clone := *s.active.started
-		sub.events <- &clone
+		sub.events <- proto.Clone(s.active.started).(*misttv1.StreamResponse)
 	}
 	s.clients[sub.id] = sub
 	if len(s.clients) == 1 && !s.muted {

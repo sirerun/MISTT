@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -19,14 +20,27 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
+func newTestService(t *testing.T, cfg config.Config, withNativeInput bool) *Service {
+	t.Helper()
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
-	s := New(config.Config{}, nil, nil, ipc.NewWriter(writeEnd, 8))
+	output := ipc.NewWriter(writeEnd, 8)
+	var input io.Reader
+	if withNativeInput {
+		input = readEnd
+	}
+	t.Cleanup(func() {
+		output.Close()
+		_ = writeEnd.Close()
+		_ = readEnd.Close()
+	})
+	return New(cfg, nil, input, output)
+}
+
+func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
+	s := newTestService(t, config.Config{}, false)
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -73,13 +87,7 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 }
 
 func TestMuteRequestCacheEvictsCompletedEntriesBeforeInsert(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
-	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	s := newTestService(t, config.Defaults(), false)
 	for i := 1; i <= 130; i++ {
 		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i, i)
 		if _, err := s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: id, Muted: true, ExpectedRevision: 1}); err != nil {
@@ -100,13 +108,7 @@ func TestMuteRequestCacheEvictsCompletedEntriesBeforeInsert(t *testing.T) {
 }
 
 func TestMuteRequestCacheRejectsWhenAllEntriesArePending(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
-	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	s := newTestService(t, config.Defaults(), false)
 	for i := 1; i <= 128; i++ {
 		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i, i)
 		s.muteRequests[id] = &muteRecord{payload: "pending", done: make(chan struct{})}
@@ -124,13 +126,7 @@ func TestMuteRequestCacheRejectsWhenAllEntriesArePending(t *testing.T) {
 }
 
 func TestNativeUpdateReservationAndCommandReplay(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
-	s := New(config.Config{}, nil, nil, ipc.NewWriter(writeEnd, 8))
+	s := newTestService(t, config.Config{}, false)
 	prepare := ipc.NativeMessage{Type: "native_prepare_update", RequestID: "00112233-4455-6677-8899-aabbccddeeff", CommandSequence: 1, ExpectedStatusRevision: 1}
 	if err := s.applyNativeCommand(prepare); err != nil {
 		t.Fatal(err)
@@ -173,13 +169,7 @@ func TestNativeUpdateReservationAndCommandReplay(t *testing.T) {
 }
 
 func TestNativeMuteResultWaitsForPairedClosure(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
-	s := New(config.Defaults(), nil, nil, ipc.NewWriter(writeEnd, 8))
+	s := newTestService(t, config.Defaults(), false)
 	s.muted, s.capturing, s.closureConfirmed = false, true, false
 	s.active = &activePair{ready: backend.Ready{DrainTimeoutMS: 5000}}
 	command := ipc.NativeMessage{Type: "native_set_muted", RequestID: "00112233-4455-6677-8899-aabbccddeeff", CommandSequence: 1, ExpectedStatusRevision: 1, Muted: true}
@@ -205,15 +195,9 @@ func TestNativeMuteResultWaitsForPairedClosure(t *testing.T) {
 }
 
 func TestNativeMuteClosureTimeoutReturnsCurrentConflict(t *testing.T) {
-	readEnd, writeEnd, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
 	cfg := config.Defaults()
 	cfg.DrainTimeout = 40 * time.Millisecond
-	s := New(cfg, nil, nil, ipc.NewWriter(writeEnd, 8))
+	s := newTestService(t, cfg, false)
 	s.muted, s.capturing, s.closureConfirmed = false, true, false
 	s.active = &activePair{ready: backend.Ready{DrainTimeoutMS: 40}}
 	command := ipc.NativeMessage{Type: "native_set_muted", RequestID: "00112233-4455-6677-8899-aabbccddeeff", CommandSequence: 1, ExpectedStatusRevision: 1, Muted: true}
@@ -249,17 +233,9 @@ func TestActivePairDemandIsIndependentOfIdleClosure(t *testing.T) {
 }
 
 func TestNativeEOFGentlyExitsOnlyFromConfirmedSafeIdle(t *testing.T) {
-	newService := func() (*Service, func()) {
-		readEnd, writeEnd, err := os.Pipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-		output := ipc.NewWriter(writeEnd, 8)
-		return New(config.Defaults(), nil, readEnd, output), func() { _ = readEnd.Close(); _ = writeEnd.Close() }
-	}
+	newService := func() *Service { return newTestService(t, config.Defaults(), true) }
 
-	safe, closeSafe := newService()
-	defer closeSafe()
+	safe := newService()
 	safe.handleNativeEOF()
 	safe.mu.Lock()
 	clean, requested := safe.cleanNativeEOF, safe.shutdownRequested
@@ -274,8 +250,7 @@ func TestNativeEOFGentlyExitsOnlyFromConfirmedSafeIdle(t *testing.T) {
 		t.Fatal("safe EOF did not complete relay shutdown")
 	}
 
-	unsafe, closeUnsafe := newService()
-	defer closeUnsafe()
+	unsafe := newService()
 	unsafe.mu.Lock()
 	unsafe.muted = false
 	unsafe.mu.Unlock()
