@@ -3,8 +3,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 VOLUME=/Volumes/BuildOffload
-BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-verify-native-20261005}
-ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-verify-native-20261005}
+BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
+ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-code-native-20261004}
 RELAY=${MISTT_RELAY_BINARY:-}
 : "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"

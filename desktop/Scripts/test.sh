@@ -3,7 +3,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 VOLUME=/Volumes/BuildOffload
-BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-verify-native-20261005}
+BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
 : "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
 export CLAIM_REMOTE
@@ -31,6 +31,10 @@ case "$CLAIM_OUTPUT" in
   "WON: R-build-lease "*) LEASE_SHA=${CLAIM_OUTPUT#WON: R-build-lease }; LEASE_HELD=1 ;;
   *) echo "$CLAIM_OUTPUT" >&2; exit 75 ;;
 esac
-swift test --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/desktop" --jobs 2
-swift test --package-path "$PACKAGE_DIR/Tools/NativeCapturePreflight" --scratch-path "$BUILD_ROOT/preflight" --jobs 2
+desktop_status=0
+preflight_status=0
+swift test --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/desktop" --jobs 2 || desktop_status=$?
+swift test --package-path "$PACKAGE_DIR/Tools/NativeCapturePreflight" --scratch-path "$BUILD_ROOT/preflight" --jobs 2 || preflight_status=$?
 release_lease
+if [ "$desktop_status" -ne 0 ]; then exit "$desktop_status"; fi
+if [ "$preflight_status" -ne 0 ]; then exit "$preflight_status"; fi
