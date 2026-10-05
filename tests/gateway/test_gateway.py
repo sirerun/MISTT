@@ -3,13 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from uuid import UUID
 from unittest.mock import patch
 
 import numpy as np
+import uvicorn
+from websockets.sync.client import connect as websocket_connect
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -249,6 +254,40 @@ class ResamplerAndSchedulerTests(unittest.TestCase):
 
         order = asyncio.run(scenario())
         self.assertEqual(order, ["m1", "c1", "m2", "c2", "m3", "c3", "m4"])
+
+
+class UvicornTransportTests(unittest.TestCase):
+    def test_pinned_websocket_transport_accepts_real_wire_handshake(self) -> None:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        listener.setblocking(False)
+        port = listener.getsockname()[1]
+        app = create_app(GatewaySettings(token="test-bearer"), lambda: FakeRuntime())
+        server = uvicorn.Server(uvicorn.Config(
+            app, host="127.0.0.1", port=port, ws="websockets",
+            lifespan="on", log_level="critical",
+        ))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + 5
+            while not server.started and thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(server.started, "Uvicorn did not start with its pinned WebSocket transport")
+            with websocket_connect(
+                f"ws://127.0.0.1:{port}/mistt/v1/stream",
+                additional_headers={"Authorization": "Bearer test-bearer"},
+                open_timeout=2,
+                close_timeout=1,
+            ) as websocket:
+                self.assertIsNotNone(websocket)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
+            listener.close()
+            self.assertFalse(thread.is_alive(), "Uvicorn server did not stop cleanly")
 
 
 class GatewayIntegrationTests(unittest.TestCase):
