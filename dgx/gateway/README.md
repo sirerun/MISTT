@@ -66,9 +66,14 @@ command argument, repository, or log. The CA certificate stays on the Mac as
 the TLS trust file; never copy the CA private key to Spark. Temporary
 qualification credentials are separate from owner-issued service credentials.
 
-Prefetch model weights at the pinned Hub revision into the owner cache volume
-before a first-user readiness check. That download is provisioning time, not
-live speech throughput. Keep the gateway's 180-second startup bound unchanged.
+Stage the exact source archive and cache volume, then run
+`prefetch-pod.json.in`. This CPU-only Pod uses 1 CPU and 4 GiB, no GPU, and
+the same image and Hugging Face cache mount as the gateway. Its helper checks
+for the pinned snapshot locally first and downloads only if missing; it writes
+a revision record after verifying the snapshot configuration files. Delete
+only the completed prefetch Pod and keep the named cache volume for the
+gateway. This download is provisioning time, not live speech throughput.
+Keep the gateway's 180-second startup bound unchanged.
 Run the real paired known-speech probe after the server is available; an HTTPS
 `/mistt/healthz` response alone does not prove the model loaded or that both
 sources transcribed. Record readiness, per-source first/final transcript

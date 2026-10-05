@@ -17,8 +17,7 @@
       {
         "name": "gateway",
         "image": "nvcr.io/nvidia/pytorch@sha256:bbc2b67e2533edd63ff1496bb1ed00a00338cdc1478af6c1a0bf9f4b369977e7",
-        "command": ["bash", "-lc"],
-        "args": ["exec /opt/mistt/dgx/gateway/bootstrap.sh"],
+        "command": ["bash", "-lc", "exec /opt/mistt/dgx/gateway/bootstrap.sh"],
         "env": [
           {"name": "HF_HOME", "value": "/var/cache/mistt/hf"},
           {"name": "PIP_CACHE_DIR", "value": "/var/cache/mistt/pip"},
