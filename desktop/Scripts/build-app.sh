@@ -75,6 +75,8 @@ cp "$INFO_PLIST" "$APP/Contents/Info.plist"
 cp "$PACKAGE_DIR/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$PACKAGE_DIR/Resources/logo-3.svg" "$APP/Contents/Resources/logo-3.svg"
 cp "$PACKAGE_DIR/Resources/logo-3-muted.svg" "$APP/Contents/Resources/logo-3-muted.svg"
+cp "$PACKAGE_DIR/Resources/THIRD_PARTY_NOTICES.txt" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt"
+cp "$PACKAGE_DIR/../LICENSE" "$APP/Contents/Resources/MISTT-LICENSE.txt"
 ditto "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
 if ! otool -l "$APP/Contents/MacOS/MISTTDesktop" | grep -Fq '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/MISTTDesktop"
