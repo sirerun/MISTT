@@ -58,12 +58,12 @@ Independent Go review verified private runtime receipt SHA256 `bb5812533adae8d9d
 
 ## Open gates
 
-Actual queue occupancy/headroom, partial-tail model-window geometry and GPU/unified-memory headroom remain to qualify. NVIDIA device memory readings were unavailable; host, cgroup and allocator scopes cannot be added or substituted for one another. Native physical capture/TCC/three-client acceptance, source landing, stable production deployment, signed/notarized release, installation and genuine automatic A-to-B update remain open. Developer ID signing is stopped after private-key access failure pending owner resolution. No production gateway or installed app is claimed.
+The current synthetic candidate passed measured queue occupancy, server-side window geometry and the frozen host/cgroup UMA headroom policy above. Dedicated-VRAM readings remain unavailable and informational; memory scopes cannot be added or substituted for one another. New production bootstrap/CPU8 resources, native physical capture/TCC/three-client acceptance, source landing, stable production deployment, signed/notarized release, installation and genuine automatic A-to-B update remain open. Signing-identity/notary/update-key custody preflight (T3.13) is complete; actual Developer ID signing remains paused after private-key access failure and owner denial. No production gateway or installed app is claimed.
 
 
-## Next-run measurement policy (frozen before admission)
+## Measurement policy (frozen before admission)
 
-Independent Go and native reviewers accept private immutable policy SHA256 `914c278dac18d72d5360fcb097e06b446052cbcd35b7ab0b67271c29ef87e11e`; the aligned implementation design is `1f63eee436840f94499e4411a746b24a83261f83cc08dbbe81465299a36ed197`. Source/tests/immutable harness review still precede any new workload. These are planned criteria, not measured passes.
+Independent Go and native reviewers accept private immutable policy SHA256 `914c278dac18d72d5360fcb097e06b446052cbcd35b7ab0b67271c29ef87e11e`; the aligned implementation design is `1f63eee436840f94499e4411a746b24a83261f83cc08dbbe81465299a36ed197`. The exact source/tests/immutable harness were subsequently accepted; the current measurement above reports the actual pass against these unchanged criteria.
 
 DGX Spark uses coherent CPU/GPU system memory; NVIDIA documents unsupported framebuffer-memory readings on this platform. Host, cgroup and allocator scopes remain separate, and unavailable dedicated-VRAM readings do not become zero or a pass. See [NVIDIA DGX Spark known issues](https://docs.nvidia.com/dgx/dgx-spark/known-issues.html). The following conservative thresholds are delivery policy, not vendor guarantees:
 
@@ -78,10 +78,10 @@ Actual queue transitions record each source's peak/capacity and enqueue/start/co
 Telemetry is opt-in, private, numeric and bounded: at most eight 8-KiB receipts per candidate, mode 0600 in an owner-controlled directory. No audio/text/credentials or public telemetry endpoint. Disabled behavior is unchanged; terminal best-effort writes cannot change protocol results or strand cleanup. The existing 447s orchestration/600s Pod bounds remain.
 
 
-## Current staging requalification
+## Earlier staging requalification
 
 A fresh reviewed CPU-only candidate mounted source, cache and credentials read-only and captured POST201 plus actual GET200 pending/scheduled/running states with zero restarts. One bounded Spark exec ran the exact reviewed verification command and returned exit0, the exact static success marker and empty stderr; healthy post-exec GET followed. Source/archive marker, exact typed cache model/revision/snapshot/eight shard names/total bytes and credential mode/key/SAN checks passed. No model load or weight writes occurred. This fresh metadata check supplements the prior complete eight-shard hash proof on the unchanged retained cache; it is not a new full weight rehash.
 
-Exact DELETE200, detail404, inventory absence and owned claim release completed in20.774s. Independent Go accepts private runtime receipt SHA256 `c0cf08302e3676695714c32a951137071343f0bdd34e829bc0df4fadecca69d4`, with wrapper invocation bound by addendum `83f3b3ad95ae381adb619e93d6b2ff1545ef998553051a39486e356fdee9b1f9`. Earlier missing GET receipts and two failed prospective CPU attempts remain failed/historical; this run qualifies current staging prospectively. T5.13/T5.14 close; production and measured-runtime gates remain open.
+Exact DELETE200, detail404, inventory absence and owned claim release completed in20.774s. Independent Go accepts private runtime receipt SHA256 `c0cf08302e3676695714c32a951137071343f0bdd34e829bc0df4fadecca69d4`, with wrapper invocation bound by addendum `83f3b3ad95ae381adb619e93d6b2ff1545ef998553051a39486e356fdee9b1f9`. Earlier missing GET receipts and two failed prospective CPU attempts remain failed/historical; this run qualifies current staging prospectively. T5.13/T5.14 closed at that checkpoint while production and measured-runtime gates were still open. The current synthetic measurement above later closed T2.10; production remains open.
 
 The next-run memory sampler must continue through recovered-client teardown and finalized telemetry, taking its final snapshot before wrapper Pod deletion. Memory comparisons cover that final live-candidate boundary; exact Pod deletion is proven separately. At that earlier checkpoint the final telemetry source/harness was still being implemented and reviewed; the current accepted measurement above supersedes that pending state.
