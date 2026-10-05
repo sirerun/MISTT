@@ -304,8 +304,18 @@ final class NativePairCapture: @unchecked Sendable {
         if reason != "User stopped both sources" {
             snapshot.firstFailure = snapshot.firstFailure ?? reason
         }
-        guard isOpen || aggregateID != kAudioObjectUnknown || tapID != kAudioObjectUnknown || engine != nil else {
+        guard isOpen || microphoneTapInstalled || tapIOStarted || ioProc != nil ||
+              aggregateID != kAudioObjectUnknown || tapID != kAudioObjectUnknown || engine != nil else {
             snapshot.status = "Muted · \(reason)"
+            let callbacksQuiesced = MISTTCallbackInFlight(atomicState, AudioSource.microphone.rawValue) == 0 &&
+                                    MISTTCallbackInFlight(atomicState, AudioSource.callAudio.rawValue) == 0
+            if callbacksQuiesced {
+                snapshot.microphoneIOStopped = true
+                snapshot.tapIOStopped = true
+                snapshot.tapCallbacksQuiesced = true
+                snapshot.aggregateDestroyed = true
+                snapshot.tapDestroyed = true
+            }
             let result = snapshot
             let handler = stoppedHandler
             let pendingCompletion = teardownCompletion ?? completion
