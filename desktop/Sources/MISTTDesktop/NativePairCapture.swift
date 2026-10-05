@@ -139,6 +139,15 @@ final class NativePairCapture: @unchecked Sendable {
         return result
     }
 
+    func isStartGenerationCurrent(_ expectedGeneration: UInt64) -> Bool {
+        do {
+            try ensureStartCurrent(expectedGeneration)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func setPermissionState(microphone: String? = nil, systemAudio: String? = nil) {
         lock.lock(); defer { lock.unlock() }
         if let microphone { snapshot.micPermission = microphone }
@@ -563,11 +572,11 @@ final class NativePairCapture: @unchecked Sendable {
                                           UInt32(buffer.format.sampleRate), startNs)
     }
 
-    private func pushPCM(_ list: UnsafeMutablePointer<AudioBufferList>, frames: Int,
+    private func pushPCM(_ list: UnsafePointer<AudioBufferList>, frames: Int,
                          sampleRate: Double, startNs: UInt64, source: AudioSource) -> Bool {
         guard frames > 0, frames <= 8192, sampleRate.isFinite,
               sampleRate.rounded() == sampleRate, (8_000...384_000).contains(sampleRate) else { return false }
-        let buffers = UnsafeMutableAudioBufferListPointer(list)
+        let buffers = UnsafeAudioBufferListPointer(list)
         guard (1...2).contains(buffers.count), buffers.count == Int(streamFormat.mChannelsPerFrame) else { return false }
         guard let leftData = buffers[0].mData else { return false }
         let left = leftData.assumingMemoryBound(to: Float.self)

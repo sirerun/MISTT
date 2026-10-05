@@ -36,10 +36,10 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     private var updateTimeout: Task<Void, Never>?
     private var shutdownControlContinuation: CheckedContinuation<Bool, Never>?
 
-    init(relayExecutableURL: URL = BridgeController.bundledRelayURL,
+    init(relayExecutableURL: URL? = nil,
          configurationURL: URL = RelayConfiguration.configuredURL(environment: ProcessInfo.processInfo.environment),
          fileManager: FileManager = .default) {
-        self.relayExecutableURL = relayExecutableURL
+        self.relayExecutableURL = relayExecutableURL ?? Self.bundledRelayURL
         self.configurationURL = configurationURL
         self.fileManager = fileManager
     }

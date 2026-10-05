@@ -49,11 +49,6 @@ final class NativeProtocolTests: XCTestCase {
         XCTAssertThrowsError(try StrictJSONValidator.validate(Data(tooDeep.utf8)))
     }
 
-    func testStrictJSONRejectsNestingBeyondBoundedDepth() {
-        let tooDeep = String(repeating: "[", count: 34) + "0" + String(repeating: "]", count: 34)
-        XCTAssertThrowsError(try StrictJSONValidator.validate(Data(tooDeep.utf8)))
-    }
-
     func testNativeCallbackQueueTrimsAtExclusiveSampleInstants() throws {
         guard let queue = MISTTAudioQueueCreate(4, 32) else { return XCTFail("queue allocation failed") }
         defer { MISTTAudioQueueDestroy(queue) }

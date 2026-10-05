@@ -3,8 +3,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
 VOLUME=/Volumes/BuildOffload
-BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-code-native-20261004}
-ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-code-native-20261004}
+BUILD_ROOT=${MISTT_BUILD_ROOT:-$VOLUME/build/MISTT-verify-native-20261005}
+ARTIFACT_ROOT=${MISTT_ARTIFACT_ROOT:-$VOLUME/artifacts/MISTT-verify-native-20261005}
 RELAY=${MISTT_RELAY_BINARY:-}
 : "${MISTT_CLAIM_SCRIPT:?Set the installed shared build claim script path}"
 : "${CLAIM_REMOTE:?Set the shared Mac build lease repository}"
@@ -44,8 +44,8 @@ case "$CLAIM_OUTPUT" in
   "WON: R-build-lease "*) LEASE_SHA=${CLAIM_OUTPUT#WON: R-build-lease }; LEASE_HELD=1 ;;
   *) echo "$CLAIM_OUTPUT" >&2; exit 75 ;;
 esac
-swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --product MISTTDesktop
-swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --show-bin-path > "$BUILD_ROOT/metadata/bin-path.txt"
+swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --jobs 2 --product MISTTDesktop
+swift build --package-path "$PACKAGE_DIR" --scratch-path "$BUILD_ROOT/swiftpm" --configuration release --arch arm64 --jobs 2 --show-bin-path > "$BUILD_ROOT/metadata/bin-path.txt"
 release_lease
 BIN_PATH=$(cat "$BUILD_ROOT/metadata/bin-path.txt")
 SPARKLE_FRAMEWORK=$(find "$BUILD_ROOT/swiftpm" -type d -name Sparkle.framework -print -quit)

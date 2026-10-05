@@ -51,6 +51,7 @@ final class NativeCaptureDriver {
         }
         Task { [weak self] in
             guard let self else { completion(false); return }
+            let driver = self
             do {
                 let permission: Bool
                 switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -70,20 +71,20 @@ final class NativeCaptureDriver {
                 self.policy = selectedPolicy
                 self.selectedLeases = leases
                 let targets = leases.map(\.audioClient)
-                let validate = { [weak self] () throws -> [AudioClient] in
-                    guard let self, self.generation == token, let policy = self.policy else {
+                let validate: @Sendable () throws -> [AudioClient] = {
+                    guard native.isStartGenerationCurrent(token) else {
                         throw CaptureStartError.cancelled
                     }
                     let live = try CoreAudioInventory.clients()
-                    let refreshed = try CoreAudioTargetOwnership.resolveHelpers(from: live, policy: policy)
+                    let refreshed = try CoreAudioTargetOwnership.resolveHelpers(from: live, policy: selectedPolicy)
                     guard refreshed == leases else { throw CoreAudioOwnershipChanged.changed }
                     return refreshed.map(\.audioClient)
                 }
                 try await Task.detached(priority: .userInitiated) {
                     try native.start(targets: targets, validateTargets: validate,
-                                     generation: token, onStop: { [weak self, writer] snapshot in
-                        Task { @MainActor in
-                            self?.unexpectedStop(snapshot, generation: token, request: request, writer: writer)
+                                     generation: token, onStop: { [weak driver, writer] snapshot in
+                        Task { @MainActor [weak driver] in
+                            driver?.unexpectedStop(snapshot, generation: token, request: request, writer: writer)
                         }
                     })
                 }.value
@@ -186,28 +187,29 @@ final class NativeCaptureDriver {
                                                  closureConfirmed: false))
             _exit(70)
         }
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let driver = self
+        Task.detached(priority: .userInitiated) {
             capture.stop(reason: request.reason, cutoff: cutoff, deadline: 1.0)
             let snapshot = capture.currentSnapshot()
             let closed = snapshot.microphoneIOStopped == true && snapshot.tapIOStopped == true &&
                          snapshot.aggregateDestroyed == true && snapshot.tapDestroyed == true
             await MainActor.run {
-                guard let self, self.generation == token else { completion(false); return }
-                self.watchdog?.cancel(); self.watchdog = nil
+                guard driver.generation == token else { completion(false); return }
+                driver.watchdog?.cancel(); driver.watchdog = nil
                 if !closed {
                     writer.enqueueControl(CaptureFailed(requestId: request.requestId, sessionId: request.sessionId,
                                                          code: "closure_unconfirmed", detail: "Paired audio closure could not be confirmed.",
                                                          closureConfirmed: false))
-                    self.busy = false
+                    driver.busy = false
                     completion(false)
                     return
                 }
                 writer.enqueueControl(CaptureStopped(requestId: request.requestId, sessionId: request.sessionId,
                                                        cutoffHostNs: cutoff.nanoseconds))
-                pump.finish { result in
-                    Task { @MainActor in
-                        self.pump = nil; self.capture = nil; self.currentStartRequest = nil; self.preclosedCutoff = nil
-                        self.selectedLeases = []; self.policy = nil; self.busy = false
+                pump.finish { [driver] result in
+                    Task { @MainActor [driver] in
+                        driver.pump = nil; driver.capture = nil; driver.currentStartRequest = nil; driver.preclosedCutoff = nil
+                        driver.selectedLeases = []; driver.policy = nil; driver.busy = false
                         completion(result.isSuccess)
                     }
                 }
