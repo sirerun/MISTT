@@ -161,8 +161,9 @@ def require_release_source(expected: str | None = None, *, refresh: bool = True)
 
 
 def copy_app_resources(app: Path) -> None:
-    for name in ["AppIcon.icns", "logo-3.svg", "logo-3-muted.svg"]:
+    for name in ["AppIcon.icns", "logo-3.svg", "logo-3-muted.svg", "THIRD_PARTY_NOTICES.txt"]:
         shutil.copy2(ROOT / "desktop/Resources" / name, app / "Contents/Resources" / name)
+    shutil.copy2(ROOT / "LICENSE", app / "Contents/Resources/MISTT-LICENSE.txt")
 
 
 def build(version: str, build_number: str, output: Path) -> Path:
