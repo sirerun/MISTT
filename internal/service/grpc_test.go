@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	misttv1 "github.com/sirerun/MISTT/gen/mistt/v1"
+	"github.com/sirerun/MISTT/internal/audio"
 	"github.com/sirerun/MISTT/internal/backend"
 	"github.com/sirerun/MISTT/internal/config"
 	"github.com/sirerun/MISTT/internal/ipc"
@@ -19,6 +21,51 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
+
+type providerFunc func(context.Context, backend.StartRequest) (backend.Session, error)
+
+func (f providerFunc) Connect(ctx context.Context, req backend.StartRequest) (backend.Session, error) {
+	return f(ctx, req)
+}
+
+type inertSession struct{ ready backend.Ready }
+
+func (s *inertSession) Ready() backend.Ready                           { return s.ready }
+func (*inertSession) CaptureStarted(backend.CaptureStarted) error      { return nil }
+func (*inertSession) QueueFrame(audio.Frame) error                     { return nil }
+func (*inertSession) EndSource(audio.Source, backend.EndRequest) error { return nil }
+func (*inertSession) Events() <-chan backend.Event                     { return make(chan backend.Event) }
+func (*inertSession) Close() error                                     { return nil }
+
+func serviceWithOutputReader(t *testing.T, cfg config.Config, provider backend.Provider) (*Service, *json.Decoder) {
+	t.Helper()
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := ipc.NewWriter(writeEnd, 8)
+	t.Cleanup(func() { output.Close(); _ = writeEnd.Close(); _ = readEnd.Close() })
+	return New(cfg, provider, nil, output), json.NewDecoder(readEnd)
+}
+
+func readNativeMessage(t *testing.T, reader *json.Decoder) ipc.NativeMessage {
+	t.Helper()
+	var message ipc.NativeMessage
+	if err := reader.Decode(&message); err != nil {
+		t.Fatalf("read native message: %v", err)
+	}
+	return message
+}
+
+func readNativeCommand(t *testing.T, reader *json.Decoder) ipc.NativeMessage {
+	t.Helper()
+	for {
+		message := readNativeMessage(t, reader)
+		if message.Type != "status" {
+			return message
+		}
+	}
+}
 
 func newTestService(t *testing.T, cfg config.Config, withNativeInput bool) *Service {
 	t.Helper()
@@ -201,6 +248,144 @@ func TestNativeMuteResultWaitsForPairedClosure(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("mute result did not follow confirmed closure")
+	}
+}
+
+func TestMuteDuringRemoteStartupCancelsBeforeNativeDispatch(t *testing.T) {
+	connected := make(chan struct{})
+	provider := providerFunc(func(ctx context.Context, _ backend.StartRequest) (backend.Session, error) {
+		close(connected)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	s, reader := serviceWithOutputReader(t, config.Defaults(), provider)
+	s.mu.Lock()
+	s.muted = false
+	s.clients[1] = &subscriber{id: 1}
+	s.mu.Unlock()
+	startDone := make(chan error, 1)
+	go func() { startDone <- s.startPair() }()
+	select {
+	case <-connected:
+	case <-time.After(time.Second):
+		t.Fatal("start did not reach remote readiness")
+	}
+	s.mu.Lock()
+	if !s.starting || s.startCancel == nil {
+		s.mu.Unlock()
+		t.Fatal("starting state was visible without an installed cancel function")
+	}
+	revision := s.revision
+	s.mu.Unlock()
+	muteDone := make(chan error, 1)
+	go func() {
+		_, err := s.setMuted(context.Background(), &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: revision})
+		muteDone <- err
+	}()
+	select {
+	case err := <-startDone:
+		if err != nil {
+			t.Fatalf("canceled pre-dispatch start returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("start did not unwind after mute cancellation")
+	}
+	select {
+	case err := <-muteDone:
+		if err != nil {
+			t.Fatalf("mute failed while canceling pre-dispatch start: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("mute waited forever for a native start that was never dispatched")
+	}
+	// No native command should have been emitted. The decoder times out by
+	// closing its pipe during test cleanup if this invariant is violated.
+	message := make(chan error, 1)
+	go func() {
+		for {
+			var m ipc.NativeMessage
+			if err := reader.Decode(&m); err != nil {
+				message <- err
+				return
+			}
+			if m.Type != "status" {
+				message <- fmt.Errorf("unexpected native command %q", m.Type)
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-message:
+		t.Fatalf("pre-dispatch cancellation wrote a native command (decode err %v)", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestMuteAfterNativeStartDispatchWaitsForStopAckAndBlocksUnmute(t *testing.T) {
+	provider := providerFunc(func(_ context.Context, req backend.StartRequest) (backend.Session, error) {
+		return &inertSession{ready: backend.Ready{SessionID: req.SessionID, Model: "test", Language: req.Language, DrainTimeoutMS: 1000}}, nil
+	})
+	s, reader := serviceWithOutputReader(t, config.Defaults(), provider)
+	s.mu.Lock()
+	s.muted = false
+	s.clients[1] = &subscriber{id: 1}
+	s.mu.Unlock()
+	startDone := make(chan error, 1)
+	go func() { startDone <- s.startPair() }()
+	start := readNativeCommand(t, reader)
+	if start.Type != "capture_start" {
+		t.Fatalf("first native command is %q, want capture_start", start.Type)
+	}
+	s.mu.Lock()
+	if s.closureConfirmed {
+		s.mu.Unlock()
+		t.Fatal("native start dispatch left closure optimistically confirmed")
+	}
+	revision := s.revision
+	s.mu.Unlock()
+	muteDone := make(chan error, 1)
+	go func() {
+		_, err := s.setMuted(context.Background(), &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: revision})
+		muteDone <- err
+	}()
+	stop := readNativeCommand(t, reader)
+	if stop.Type != "capture_stop" || stop.SessionID != start.SessionID {
+		t.Fatalf("canceled startup stop = %+v, want capture_stop for session %s", stop, start.SessionID)
+	}
+	select {
+	case err := <-muteDone:
+		t.Fatalf("mute acknowledged before native closure ACK: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	s.mu.Lock()
+	unmuteRevision := s.revision
+	s.mu.Unlock()
+	_, err := s.setMuted(context.Background(), &misttv1.SetMutedRequest{Muted: false, ExpectedRevision: unmuteRevision})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("unmute before closure ACK = %v, want FailedPrecondition", err)
+	}
+	s.incoming <- ipc.Event{Control: &ipc.NativeMessage{Type: "capture_stopped", RequestID: stop.RequestID, SessionID: stop.SessionID,
+		MicrophoneIOStopped: true, TapIOStopped: true, TapDestroyed: true, AggregateDestroyed: true}}
+	select {
+	case err := <-startDone:
+		if err != nil {
+			t.Fatalf("canceled dispatched start returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("startup did not finish after matching native stop ACK")
+	}
+	select {
+	case err := <-muteDone:
+		if err != nil {
+			t.Fatalf("mute failed after confirmed closure: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("mute did not complete after closure ACK")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.muted || s.capturing || s.starting || !s.closureConfirmed {
+		t.Fatalf("unsafe state after closure ACK: muted=%t capturing=%t starting=%t closure=%t", s.muted, s.capturing, s.starting, s.closureConfirmed)
 	}
 }
 

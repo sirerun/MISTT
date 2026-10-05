@@ -200,7 +200,7 @@ func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 	}
 	cancelStart := s.startCancel
 	snapshot := s.statusLocked()
-	needWait := req.Muted && s.capturing
+	needWait := req.Muted && (s.active != nil || s.starting || s.stopping || s.capturing || !s.closureConfirmed)
 	wait := s.statusChanged
 	s.mu.Unlock()
 	if cancelStart != nil {
@@ -218,7 +218,7 @@ func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 		case <-wait:
 			s.mu.Lock()
 			snapshot := s.statusLocked()
-			if !s.capturing && s.closureConfirmed {
+			if s.active == nil && !s.starting && !s.stopping && !s.capturing && s.closureConfirmed {
 				s.mu.Unlock()
 				return snapshot, nil
 			}
