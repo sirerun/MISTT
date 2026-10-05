@@ -26,6 +26,30 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.archive.write_bytes(b"synthetic metadata test only, not a release")
         self.signature = base64.b64encode(bytes(64)).decode()
 
+    def test_release_source_rejects_dirty_or_changed_checkout(self):
+        sha = "a" * 40
+        for head, status in [("b" * 40, ""), (sha, " M desktop/source.swift"),
+                             (sha, "?? desktop/injected.swift")]:
+            with patch.object(tools, "run", side_effect=[head, status]) as execute:
+                with self.assertRaises(ValueError):
+                    tools.require_release_source(sha)
+                self.assertLessEqual(execute.call_count, 2)
+
+    def test_release_source_requires_land_reachability(self):
+        sha = "a" * 40
+        failure = subprocess.CalledProcessError(1, "git merge-base")
+        with patch.object(tools, "run", side_effect=[sha, "", "", failure]) as execute:
+            with self.assertRaises(subprocess.CalledProcessError):
+                tools.require_release_source(sha)
+            self.assertEqual(execute.call_args.args,
+                             ("git", "merge-base", "--is-ancestor", sha, "origin/main"))
+
+    def test_clean_release_source_is_rechecked_without_refetch(self):
+        sha = "a" * 40
+        with patch.object(tools, "run", side_effect=[sha, "", ""]) as execute:
+            self.assertEqual(tools.require_release_source(sha, refresh=False), sha)
+            self.assertEqual(execute.call_count, 3)
+
     def test_recovery_verification_rejects_modified_archive_before_commands(self):
         (self.root / "manifest.json").write_text(json.dumps({
             "version": "0.1.0", "build": "1", "repository": "sirerun/MISTT",
