@@ -10,6 +10,7 @@ final class NativeCaptureDriver {
     private let helperExecutable = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
     private var generation: UInt64 = 0
     private var capture: NativePairCapture?
+    private var abortingCapture: NativePairCapture?
     private var pump: NativePCMStreamPump?
     private var selectedLeases: [VerifiedHelperTarget] = []
     private var policy: CoreAudioTargetOwnership.Policy?
@@ -22,7 +23,7 @@ final class NativeCaptureDriver {
     private var preclosedCutoff: PairedCutoff?
     var hasPendingStop: Bool { pendingStop != nil }
 
-    var isClosed: Bool { capture == nil && pump == nil && !busy }
+    var isClosed: Bool { capture == nil && abortingCapture == nil && pump == nil && !busy }
 
     func start(_ request: CaptureStartRequest, writer: NativeIPCWriter,
                completion: @escaping @MainActor (Bool) -> Void) {
@@ -224,7 +225,14 @@ final class NativeCaptureDriver {
         capture.closeGate(at: cutoff)
         pump?.pauseAtCutoff()
         capture.cancelStart(generation: generation, cutoff: cutoff)
-        capture.stop(reason: "relay connection lost", cutoff: cutoff, deadline: 1.0)
+        abortingCapture = capture
+        capture.stop(reason: "relay connection lost", cutoff: cutoff, deadline: 1.0,
+                     onTeardown: { [weak self, weak capture] _ in
+            Task { @MainActor [weak self, weak capture] in
+                guard let self, let capture, self.abortingCapture === capture else { return }
+                self.abortingCapture = nil
+            }
+        })
         pump = nil; self.capture = nil; currentStartRequest = nil; preclosedCutoff = nil
         startWatchdog?.cancel(); startWatchdog = nil
         runtimeStopWatchdog?.cancel(); runtimeStopWatchdog = nil
