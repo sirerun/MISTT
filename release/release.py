@@ -198,7 +198,11 @@ def build(version: str, build_number: str, output: Path) -> Path:
     bundles = sorted([p for p in framework.rglob("*") if p.suffix in (".xpc", ".app") and not p.is_symlink()],
                      key=lambda p: len(p.parts), reverse=True)
     for nested in bundles:
-        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(nested))
+        # Sparkle 2.6+ Downloader needs its sandbox/network entitlements preserved.
+        # Do not retain the vendor application identifier on Autoupdate.
+        preserve = ["--preserve-metadata=entitlements"] if nested.name == "Downloader.xpc" else []
+        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", *preserve,
+            "--sign", identity, str(nested))
     autoupdate = framework / "Versions/B/Autoupdate"
     if autoupdate.exists():
         run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(autoupdate))
