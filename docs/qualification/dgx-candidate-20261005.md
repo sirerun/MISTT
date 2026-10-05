@@ -24,6 +24,16 @@ Two simultaneous paced known-speech streams both emitted text before their own E
 
 Native independent review accepted the redacted runtime/paired metrics and cleanup. Only owned temporary containers/helpers were removed; candidate DELETE succeeded, subsequent GET returned 404, exact claim release was confirmed and all GPU allocation was released. Named source/cache/credential volumes remain. Private receipts stay outside the repository, mode 0600; no transcript text or credential value is published.
 
+## Extended contention and recovery run
+
+A later independently reviewed attempt at the same gateway source completed in 175.665s. Model readiness was 138.734s against the 180s budget. Both known-speech sources emitted text before their own EOF and completed matching final tails, offsets, source_done and terminal done. First text was 4.266s for microphone and 5.549s for call audio; final drain was 0.930s. Call audio progressed while the faster-paced microphone sender remained active.
+
+Two second-pair requests were rejected with close code 1008 in 0.043s and 0.045s. Abrupt disconnect without source_end followed observed microphone partial output; a recovered pair became ready in 12.620s after two busy responses during cleanup, completed both sources and drained in 1.907s. These are bounded synthetic fairness/recovery observations, not indefinite-load or physical-capture acceptance.
+
+The private runner's `per_source_final_rtf` uses audio seconds / wall seconds: throughput ratios were 1.112 and 0.699. Conventional wall/audio latency RTFs are approximately 0.899 and 1.431 and include paced upload plus final completion, not compute-only inference. The separately labeled upload metric used wall/audio; follow-up instrumentation will make labels consistent.
+
+Independent Go review verified private runtime receipt SHA256 `bb5812533adae8d9d0d32a3aa73b2c5ae081f215b9371ce9643cdf6346c151fd` and orchestration receipt `118cf84faa5a75bc704aee04c6323c2d2cb1bb0f1657219f0b9316fdbad4e9dc`, including exact source/model/image pins, verified TLS/auth, DELETE 200, detail GET 404, inventory absence and exact claim release. Gateway source and upstream ASR source are distinct pins: the model-ready field identifies upstream ASR commit `1541f590c7099820f10ea012f48d2399282df69f`.
+
 ## Open gates
 
-Busy-second admission, one-busy-source fairness, pair failure/recovery, queue/drain limits and GPU/unified-memory headroom remain to qualify. Native physical capture/TCC/three-client acceptance, source landing, stable production deployment, signed/notarized release, installation and genuine automatic A-to-B update remain open. Developer ID signing is stopped after private-key access failure pending owner resolution. No production gateway or installed app is claimed.
+Actual queue occupancy/headroom, partial-tail model-window geometry and GPU/unified-memory headroom remain to qualify. NVIDIA device memory readings were unavailable; host, cgroup and allocator scopes cannot be added or substituted for one another. Native physical capture/TCC/three-client acceptance, source landing, stable production deployment, signed/notarized release, installation and genuine automatic A-to-B update remain open. Developer ID signing is stopped after private-key access failure pending owner resolution. No production gateway or installed app is claimed.
