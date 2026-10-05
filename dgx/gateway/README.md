@@ -60,11 +60,12 @@ temporary files, and XDG cache under `/var/cache/mistt`.
 Stage the owner-issued bearer and TLS files through the owner-controlled
 credentials volume. The gateway mounts it read-only at `/run/mistt-input` and reads
 `bearer`, `tls.crt`, and `tls.key` from that directory. Set the directory to
-`0700`, the bearer and private key to `0600`, and public certificates to
-`0644`. Never put credential values in a manifest, environment variable,
-command argument, repository, or log. The CA certificate stays on the Mac as
-the TLS trust file; never copy the CA private key to Spark. Temporary
-qualification credentials are separate from owner-issued service credentials.
+`0700` and all three files to `0600`; the loader rejects files accessible to
+group or other users, including the public server certificate. Never put
+credential values in a manifest, environment variable, command argument,
+repository, or log. The CA certificate stays on the Mac as the TLS trust file;
+never copy the CA private key to Spark. Temporary qualification credentials
+are separate from owner-issued service credentials.
 
 Stage the exact source archive into the source volume with a short-lived,
 CPU-only Pod. Transfer only from a dedicated public-only staging directory,
@@ -73,7 +74,10 @@ in the volume. Never expose a credentials or general cache directory through
 the transfer server. Stage the owner-issued bearer and TLS files separately
 over the task-scoped mutual-TLS transfer; generate the client private key
 inside the staging Pod, keep it there, and install only the three allowlisted
-server files into the credentials volume with restrictive file modes.
+server files into the credentials volume with restrictive file modes. Map
+`server.crt` to `/run/mistt-input/tls.crt`, `server.key` to
+`/run/mistt-input/tls.key`, and `bearer` to `/run/mistt-input/bearer`; these
+destination names match the gateway manifest.
 
 Run `prefetch-pod.json.in` after source staging. This CPU-only Pod uses 1 CPU
 and 4 GiB, no GPU, and the same image and Hugging Face cache mount as the
