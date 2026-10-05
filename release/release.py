@@ -148,6 +148,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     validate_version(version, build_number)
     output = artifact_root(output)
     identity = required("MISTT_SIGN_IDENTITY")
+    signing_keychain = required("MISTT_SIGN_KEYCHAIN")
     if not identity.startswith("Developer ID Application:"):
         raise ValueError("Public release requires a Developer ID Application identity")
     key = required("MISTT_SPARKLE_PUBLIC_KEY")
@@ -197,15 +198,15 @@ def build(version: str, build_number: str, output: Path) -> Path:
     bundles = sorted([p for p in framework.rglob("*") if p.suffix in (".xpc", ".app") and not p.is_symlink()],
                      key=lambda p: len(p.parts), reverse=True)
     for nested in bundles:
-        run("codesign", "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(nested))
+        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(nested))
     autoupdate = framework / "Versions/B/Autoupdate"
     if autoupdate.exists():
-        run("codesign", "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(autoupdate))
-    run("codesign", "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(framework))
+        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(autoupdate))
+    run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(framework))
     for executable in [app / "Contents/MacOS/mistt", app / "Contents/MacOS/MISTTDesktop"]:
         run("lipo", "-verify_arch", "arm64", str(executable))
-        run("codesign", "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(executable))
-    run("codesign", "--force", "--options", "runtime", "--timestamp", "--entitlements", entitlements,
+        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(executable))
+    run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--entitlements", entitlements,
         "--sign", identity, str(app))
     run("codesign", "--verify", "--deep", "--strict", str(app))
     zip_path = output / f"MISTT-{version}-arm64.zip"
