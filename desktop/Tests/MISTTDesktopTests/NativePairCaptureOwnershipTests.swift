@@ -8,7 +8,14 @@ final class NativePairCaptureOwnershipTests: XCTestCase {
         let finished = DispatchSemaphore(value: 0)
         let capture = NativePairCapture(generation: 1)
 
-        capture.stop(onTeardown: { _ in finished.signal() })
+        capture.stop(onTeardown: { snapshot in
+            XCTAssertTrue(snapshot.microphoneIOStopped == true)
+            XCTAssertTrue(snapshot.tapIOStopped == true)
+            XCTAssertTrue(snapshot.tapCallbacksQuiesced == true)
+            XCTAssertTrue(snapshot.aggregateDestroyed == true)
+            XCTAssertTrue(snapshot.tapDestroyed == true)
+            finished.signal()
+        })
 
         XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
     }
