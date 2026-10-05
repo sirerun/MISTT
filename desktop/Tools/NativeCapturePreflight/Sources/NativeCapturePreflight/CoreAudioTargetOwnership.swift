@@ -362,7 +362,7 @@ private struct SystemCoreAudioOwnershipReader: CoreAudioOwnershipReading {
         }
 
         // PROC_PIDPATHINFO_MAXSIZE is defined by libproc's headers but not imported by Swift.
-        var pathBuffer = [CChar](repeating: 0, count: Int(PATH_MAX) * 4)
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let pathBytes = pathBuffer.withUnsafeMutableBufferPointer { buffer in
             proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
         }
