@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 
 from dgx.gateway.config import read_restricted_secret, validate_tls_files
@@ -9,7 +10,8 @@ from dgx.gateway.credentials import snapshot_credentials
 
 class ProjectedCredentialsTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir="/Volumes/BuildOffload/tmp")
+        parent = "/Volumes/BuildOffload/tmp" if sys.platform == "darwin" else None
+        self.temp = tempfile.TemporaryDirectory(dir=parent)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.mount = self.root / "secret"
