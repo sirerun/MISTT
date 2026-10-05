@@ -139,3 +139,11 @@ with verified TLS and bearer checks from the Mac. No router forwarding,
 firewall change, public DNS, or public-hosting claim is part of this deployment.
 Production credentials, exact landed source, startup/readiness, and the Mac
 application's acceptance remain separate gates.
+
+The qualified Spark/Podman probe contract does not support `readinessProbe` or
+`startupProbe`, and its HTTP liveness probe forces plain HTTP. The gateway
+manifest therefore uses an in-container liveness command that requests the
+health endpoint over TLS, trusts the mounted server leaf certificate, and
+verifies the configured IP SAN. It starts after a 120-second grace period and
+requires three consecutive failures before restart. This checks that the
+process can serve verified TLS health; it does not claim model readiness.
