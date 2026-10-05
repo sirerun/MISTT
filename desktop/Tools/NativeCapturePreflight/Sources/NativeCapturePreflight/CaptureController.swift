@@ -217,7 +217,7 @@ final class CaptureController: ObservableObject {
 
     private static func ownershipFailureText(_ error: Error) -> String {
         guard let error = error as? CoreAudioTargetOwnership.ValidationError else { return error.localizedDescription }
-        switch error {
+        return switch error {
         case .invalidPolicy: "Unapproved owner or audio helper path was configured"
         case .ownerMissing: "TikTok LIVE Studio is not running"
         case .ownerAmbiguous: "TikTok LIVE Studio process identity is ambiguous"

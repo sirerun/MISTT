@@ -2,6 +2,7 @@ import AppKit
 import CoreAudio
 import Darwin
 import Foundation
+import Darwin.libproc
 import Security
 
 struct ProcessIncarnation: Equatable {
@@ -360,7 +361,8 @@ private struct SystemCoreAudioOwnershipReader: CoreAudioOwnershipReading {
             throw CoreAudioTargetOwnership.ValidationError.helperChanged
         }
 
-        var pathBuffer = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
+        // PROC_PIDPATHINFO_MAXSIZE is defined by libproc's headers but not imported by Swift.
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let pathBytes = pathBuffer.withUnsafeMutableBufferPointer { buffer in
             proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
         }
@@ -378,22 +380,28 @@ private struct SystemCoreAudioOwnershipReader: CoreAudioOwnershipReading {
 
     func liveCodeIdentity(pid: pid_t, expected: CodeSignatureExpectation) throws -> LiveCodeIdentity {
         let attributes = [kSecGuestAttributePid as String: NSNumber(value: pid)] as CFDictionary
+        let defaultFlags = SecCSFlags()
         var code: SecCode?
-        guard SecCodeCopyGuestWithAttributes(nil, attributes, kSecCSDefaultFlags, &code) == errSecSuccess,
+        guard SecCodeCopyGuestWithAttributes(nil, attributes, defaultFlags, &code) == errSecSuccess,
               let code else {
             throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
         }
 
         let requirementText = "anchor apple generic and identifier \"\(expected.signingIdentifier)\" and certificate leaf[subject.OU] = \"\(expected.teamIdentifier)\""
         var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(requirementText as CFString, SecCSFlags(), &requirement) == errSecSuccess,
+        guard SecRequirementCreateWithString(requirementText as CFString, defaultFlags, &requirement) == errSecSuccess,
               let requirement,
-              SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement) == errSecSuccess else {
+              SecCodeCheckValidity(code, defaultFlags, requirement) == errSecSuccess else {
             throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
         }
 
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, defaultFlags, &staticCode) == errSecSuccess,
+              let staticCode else {
+            throw CoreAudioTargetOwnership.ValidationError.helperIdentityMismatch
+        }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(code, kSecCSSigningInformation, &information) == errSecSuccess,
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
               let values = information as? [String: Any],
               let signingIdentifier = values[kSecCodeInfoIdentifier as String] as? String,
               let teamIdentifier = values[kSecCodeInfoTeamIdentifier as String] as? String else {

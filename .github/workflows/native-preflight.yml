@@ -1,14 +1,7 @@
 name: Native capture preflight
+# Owner-selected local validation: do not schedule paid hosted runners automatically.
 on:
-  pull_request:
-    paths:
-      - desktop/Tools/NativeCapturePreflight/**
-      - .github/workflows/native-preflight.yml
-  push:
-    branches: [main]
-    paths:
-      - desktop/Tools/NativeCapturePreflight/**
-      - .github/workflows/native-preflight.yml
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

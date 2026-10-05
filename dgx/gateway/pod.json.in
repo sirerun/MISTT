@@ -1,0 +1,59 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "${MISTT_GATEWAY_POD_NAME}",
+    "labels": {
+      "app": "mistt",
+      "purpose": "owner-pinned-gateway",
+      "gateway-source-sha": "${MISTT_GATEWAY_SOURCE_SHA}",
+      "upstream-source-commit": "1541f590c7099820f10ea012f48d2399282df69f",
+      "model-revision": "60d858b518b4e19d404af3737f848fc185b30177"
+    }
+  },
+  "spec": {
+    "restartPolicy": "Never",
+    "containers": [
+      {
+        "name": "gateway",
+        "image": "nvcr.io/nvidia/pytorch@sha256:bbc2b67e2533edd63ff1496bb1ed00a00338cdc1478af6c1a0bf9f4b369977e7",
+        "command": ["bash", "-lc", "exec /opt/mistt/dgx/gateway/bootstrap.sh"],
+        "env": [
+          {"name": "HF_HOME", "value": "/var/cache/mistt/hf"},
+          {"name": "PIP_CACHE_DIR", "value": "/var/cache/mistt/pip"},
+          {"name": "XDG_CACHE_HOME", "value": "/var/cache/mistt/xdg"},
+          {"name": "TMPDIR", "value": "/var/cache/mistt/tmp"},
+          {"name": "MISTT_TOKEN_FILE", "value": "/run/mistt-input/bearer"},
+          {"name": "MISTT_TLS_CERT_FILE", "value": "/run/mistt-input/tls.crt"},
+          {"name": "MISTT_TLS_KEY_FILE", "value": "/run/mistt-input/tls.key"},
+          {"name": "MISTT_TLS_PROBE_SERVER_NAME", "value": "${MISTT_GATEWAY_TLS_SERVER_NAME}"},
+          {"name": "MISTT_STARTUP_TIMEOUT_SECONDS", "value": "180"}
+        ],
+        "ports": [{
+          "name": "https",
+          "containerPort": 7870,
+          "hostPort": ${MISTT_GATEWAY_HOST_PORT},
+          "protocol": "TCP"
+        }],
+        "resources": {
+          "limits": {"memory": "48Gi", "cpu": "8", "nvidia.com/gpu": "1"}
+        },
+        "volumeMounts": [
+          {"name": "gateway", "mountPath": "/opt/mistt", "readOnly": true},
+          {"name": "cache", "mountPath": "/var/cache/mistt"},
+          {"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": true}
+        ],
+        "livenessProbe": {
+          "exec": {"command": ["python3", "/opt/mistt/dgx/gateway/probe_tls.py"]},
+          "initialDelaySeconds": 120, "periodSeconds": 30, "timeoutSeconds": 5,
+          "failureThreshold": 3
+        }
+      }
+    ],
+    "volumes": [
+      {"name": "gateway", "hostPath": {"path": "${MISTT_GATEWAY_SOURCE_VOLUME}"}},
+      {"name": "cache", "hostPath": {"path": "${MISTT_GATEWAY_CACHE_VOLUME}"}},
+      {"name": "credentials", "hostPath": {"path": "${MISTT_GATEWAY_CREDENTIALS_VOLUME}"}}
+    ]
+  }
+}
