@@ -171,3 +171,12 @@ Final review accepted a canonical-document mismatch: the candidate proto/service
 ## 2026-10-04 — owner-authorized local delivery validation
 
 Owner approved continuing implementation/deployment and explicitly selected local validation without GitHub runner spending. ADR0006 supersedes the earlier heavy-work deferral and hosted-CI billing gate while preserving exact-head independent review and all runtime/signing/update acceptance gates. Three isolated Luna lanes are validating Go, native and DGX source. Native preflight is manual-only to prevent automatic hosted runner use; no Actions dispatch or billing change is authorized. Existing Apple Developer ID Application certificate found in the account; no matching local signing identity is yet confirmed. No production installation or auto-update acceptance is claimed.
+
+
+## 2026-10-04 — local execution preflight and signing setup
+
+T5.0 inventory/authority is recorded; owner approved continuation and selected local checks. Production compile runs identified Go and Swift defects, now being fixed and integrated; full passing qualification remains open. Gateway local suite passes 16 tests, release tooling passes seven, stream probe passes six. Split plan has 76 unique task IDs with resolving dependencies and an acyclic graph. These are local fixture/source checks, not native/model or installed-release acceptance.
+
+Owner-created notarization API key validated successfully through notarytool and was stored securely in Keychain; its original download remains with restricted permissions and a protected task copy supports recovery. A separate task-created notarization key also validated; no existing keys were revoked or changed. Release config now selects the owner-created credential. Sparkle's official 2.10.0 tool archive matches its pinned SHA256; an app-specific update key was stored in Keychain with a restricted export. Developer ID CSR/private key prepared locally; browser upload needs the extension's file-URL permission or owner selection before certificate issuance. No Developer ID identity, signed release, publication, installation or automatic update is claimed.
+
+DGX qualification uses one explicitly owned admitted Pod and task-local cache after Spark failed to create a new hostPath. TLS qualification uses a task-scoped private CA and IP-SAN leaf, with verified TLS/authentication gates still pending. No private addresses or secrets are recorded here; no foreign pod or storage is modified.
