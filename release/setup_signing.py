@@ -21,6 +21,12 @@ def run(*args):
         raise SystemExit("Credential setup command failed; secret arguments and diagnostics are suppressed.") from None
 
 
+def write_environment(path, keychain, sparkle_key, sign_tool):
+    with Path(path).open("a") as env:
+        env.write(f"MISTT_NOTARY_PROFILE=MISTT-Release\nMISTT_NOTARY_KEYCHAIN={keychain}\nMISTT_SIGN_KEYCHAIN={keychain}\n")
+        env.write(f"MISTT_SPARKLE_KEY_FILE={sparkle_key}\nMISTT_SPARKLE_SIGN_TOOL={sign_tool}\n")
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("This helper is CI-only. Local release uses an existing qualified keychain profile.")
@@ -39,10 +45,8 @@ def main():
     run("security", "unlock-keychain", "-p", password, str(keychain))
     run("security", "import", str(certificate), "-k", str(keychain), "-P", required("MISTT_CERTIFICATE_PASSWORD"), "-T", "/usr/bin/codesign")
     run("security", "set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", password, str(keychain))
-    # The CI runner is disposable; preserve its existing search list alongside this job keychain.
-    prior = subprocess.run(["security", "list-keychains", "-d", "user"], check=True, text=True, capture_output=True).stdout
-    import shlex
-    run("security", "list-keychains", "-d", "user", "-s", str(keychain), *shlex.split(prior))
+    # Every signing/notary operation explicitly selects this job keychain.
+    # Leave the user's persistent default and search list unchanged.
     notary_key = secrets_dir / "AuthKey.p8"
     notary_key.write_text(required("MISTT_NOTARY_KEY")); notary_key.chmod(0o600)
     run("xcrun", "notarytool", "store-credentials", "MISTT-Release", "--keychain", str(keychain),
@@ -60,9 +64,7 @@ def main():
     sign_tools = [p for p in tools.rglob("sign_update") if p.is_file() and os.access(p, os.X_OK)]
     if len(sign_tools) != 1:
         raise SystemExit("Pinned tool bundle has an ambiguous sign_update executable")
-    with Path(required("GITHUB_ENV")).open("a") as env:
-        env.write(f"MISTT_NOTARY_PROFILE=MISTT-Release\nMISTT_NOTARY_KEYCHAIN={keychain}\n")
-        env.write(f"MISTT_SPARKLE_KEY_FILE={sparkle_key}\nMISTT_SPARKLE_SIGN_TOOL={sign_tools[0]}\n")
+    write_environment(required("GITHUB_ENV"), keychain, sparkle_key, sign_tools[0])
 
 
 if __name__ == "__main__":
