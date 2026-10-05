@@ -39,6 +39,7 @@ from .protocol import (
     strict_json_loads,
     decode_frame,
 )
+from .qualification_telemetry import QualificationSessionTelemetry, QualificationTelemetryStore
 from .resample import StatefulLinearResampler
 from .runtime import ModelGeometry, StreamingRuntime, VibeVoiceRuntime, cached_context_tokens
 
@@ -193,6 +194,7 @@ def create_app(
     # Tests inject a deterministic runtime. The production entrypoint always
     # constructs the pinned VibeVoice adapter.
     manager = ModelManager(settings, runtime_factory or (lambda: VibeVoiceRuntime(settings)))
+    qualification_store = QualificationTelemetryStore.from_environment(settings.source_commit)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -238,7 +240,10 @@ def create_app(
         admission: Admission | None = None
         runtime: StreamingRuntime | None = None
         states: dict[str, object] = {}
+        contexts: dict[str, SourceContext] = {}
+        geometry: ModelGeometry | None = None
         scheduler: FairInferenceScheduler | None = None
+        qualification: QualificationSessionTelemetry | None = None
         send_lock = asyncio.Lock()
         session_id: UUID | None = None
         terminal_reason: str | None = None
@@ -327,14 +332,26 @@ def create_app(
                 )
                 for source in SOURCES
             }
-            scheduler = FairInferenceScheduler()
+            if qualification_store is not None:
+                qualification = qualification_store.new_session(
+                    geometry, MAX_QUEUED_WINDOWS_PER_SOURCE)
+            scheduler = FairInferenceScheduler(telemetry=qualification)
 
             async def infer(source: str, job: WindowJob) -> None:
                 context = contexts[source]
                 state = context.state
                 if cached_context_tokens(state) + geometry.reserved_tokens_per_window > geometry.max_context_tokens:
                     raise ProtocolError("context_limit")
-                delta = await manager.run_blocking(runtime.transcribe_window, state, job.audio)
+                inference_started_ns = time.monotonic_ns()
+                try:
+                    delta = await manager.run_blocking(runtime.transcribe_window, state, job.audio)
+                finally:
+                    if qualification is not None:
+                        try:
+                            qualification.on_inference(
+                                source, time.monotonic_ns() - inference_started_ns)
+                        except Exception:
+                            pass
                 if not isinstance(delta, str):
                     raise RuntimeError("pinned model returned a malformed transcript delta")
                 context.transcript += delta
@@ -410,7 +427,13 @@ def create_app(
 
             async def enqueue_jobs(source: str, jobs: list[WindowJob]) -> None:
                 for job in jobs:
-                    await scheduler.submit(source, lambda source=source, job=job: infer(source, job))
+                    await scheduler.submit(
+                        source, lambda source=source, job=job: infer(source, job),
+                        valid_input_samples=job.valid_input_samples,
+                        overlap_samples=job.overlap_samples,
+                        distinct_model_samples=job.distinct_model_samples,
+                        padding_samples=job.padding_samples,
+                    )
 
             async def finish_source(source: str) -> None:
                 context = contexts[source]
@@ -517,8 +540,7 @@ def create_app(
                     context.ledger.finish(last_sequence, total_samples, cutoff)
                     shared_cutoff = cutoff
                     ended_sources.add(source)
-                    for job in context.finish_input():
-                        await scheduler.submit(source, lambda source=source, job=job: infer(source, job))
+                    await enqueue_jobs(source, context.finish_input())
                     if len(ended_sources) == len(SOURCES):
                         for source_name in SOURCES:
                             await scheduler.submit(
@@ -573,5 +595,22 @@ def create_app(
                 states.clear()
             if admission is not None:
                 await manager.release(admission)
+            if qualification is not None and geometry is not None:
+                try:
+                    for source, context in contexts.items():
+                        qualification.source_snapshot(
+                            source,
+                            ingress_samples_16k=context.source_samples,
+                            resampler_output_samples=context.resampler_output_samples,
+                            distinct_window_samples_created=context.distinct_window_samples,
+                            tail=context.final_tail_geometry,
+                        )
+                    terminal_state = (
+                        "completed" if completed_normally else
+                        "failed" if terminal_reason is not None else "disconnected"
+                    )
+                    qualification.finalize(terminal_state)
+                except Exception:
+                    pass
 
     return app
