@@ -3,10 +3,10 @@
 numpy==2.2.6
 fastapi==0.116.1
 uvicorn==0.35.0
+websockets==15.0.1
 transformers==4.56.2
 accelerate==1.10.1
 diffusers==0.35.1
 huggingface_hub==0.34.4
 safetensors==0.6.2
 tokenizers==0.22.0
-
