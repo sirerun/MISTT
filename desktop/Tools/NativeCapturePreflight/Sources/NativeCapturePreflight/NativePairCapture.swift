@@ -256,7 +256,11 @@ final class NativePairCapture: @unchecked Sendable {
             startupCompletion = nil
             lock.unlock()
             handler?(result)
-            if !outcome.succeeded { DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { _exit(71) } }
+            if !outcome.succeeded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [self] in
+                    withExtendedLifetime(self) { _exit(71) }
+                }
+            }
             throw error
         }
     }
@@ -302,8 +306,10 @@ final class NativePairCapture: @unchecked Sendable {
         }
         let started = DispatchTime.now()
         let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) {
-            if finished.wait(timeout: .now()) == .timedOut { _exit(70) }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [self] in
+            if finished.wait(timeout: .now()) == .timedOut {
+                withExtendedLifetime(self) { _exit(70) }
+            }
         }
         isOpen = false
         teardownInProgress = true
@@ -311,30 +317,37 @@ final class NativePairCapture: @unchecked Sendable {
         snapshot.status = "Stopping both sources…"
         lock.unlock()
 
-        stopQueue.async { [weak self] in
-            guard let self else { finished.signal(); return }
-            let outcome = self.stopSynchronously()
-            self.lock.lock()
+        enqueueStopQueueWork { capture in
+            let outcome = capture.stopSynchronously()
+            capture.lock.lock()
             let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
-            self.snapshot.lastStopDurationMilliseconds = elapsed
-            self.snapshot.microphoneIOStopped = outcome.microphoneStopped
-            self.snapshot.tapIOStopped = outcome.tapStopped && outcome.ioProcDestroyed
-            self.snapshot.tapCallbacksQuiesced = outcome.tapCallbacksQuiesced
-            self.snapshot.aggregateDestroyed = outcome.aggregateDestroyed
-            self.snapshot.tapDestroyed = outcome.tapDestroyed
-            self.snapshot.firstFailure = self.snapshot.firstFailure ?? outcome.firstFailure
-            self.teardownInProgress = false
-            self.snapshot.status = outcome.succeeded
+            capture.snapshot.lastStopDurationMilliseconds = elapsed
+            capture.snapshot.microphoneIOStopped = outcome.microphoneStopped
+            capture.snapshot.tapIOStopped = outcome.tapStopped && outcome.ioProcDestroyed
+            capture.snapshot.tapCallbacksQuiesced = outcome.tapCallbacksQuiesced
+            capture.snapshot.aggregateDestroyed = outcome.aggregateDestroyed
+            capture.snapshot.tapDestroyed = outcome.tapDestroyed
+            capture.snapshot.firstFailure = capture.snapshot.firstFailure ?? outcome.firstFailure
+            capture.teardownInProgress = false
+            capture.snapshot.status = outcome.succeeded
                 ? "Muted · paired I/O closed in \(String(format: "%.1f", elapsed)) ms"
                 : "Muted · closure unconfirmed: \(outcome.firstFailure ?? "Core Audio resource release failed")"
-            let result = self.snapshot
-            let handler = self.stoppedHandler
-            self.stoppedHandler = nil
-            self.lock.unlock()
+            let result = capture.snapshot
+            let handler = capture.stoppedHandler
+            capture.stoppedHandler = nil
+            capture.lock.unlock()
             handler?(result)
             finished.signal()
-            if !outcome.succeeded { DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { _exit(71) } }
+            if !outcome.succeeded {
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [capture] in
+                    withExtendedLifetime(capture) { _exit(71) }
+                }
+            }
         }
+    }
+
+    func enqueueStopQueueWork(_ operation: @escaping @Sendable (NativePairCapture) -> Void) {
+        stopQueue.async { [self] in operation(self) }
     }
 
     private func ensureStartCurrent(_ expectedGeneration: UInt64) throws {
