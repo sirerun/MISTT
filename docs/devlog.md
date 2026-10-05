@@ -190,3 +190,13 @@ Owner restored full task access; external-volume write probe passed and shared l
 ### Resumed source review and recovered DGX pair evidence
 
 Independent review found and authors fixed the native pre-start abort closure-confirmation gap, the release setup signing-keychain environment contract, and projected Secret symlinks rejected by the production gateway entrypoint. Nine release helper checks and three credential-snapshot regressions pass; exact-head re-review remains pending. Recovered qualification evidence records actual paired source-labeled text before EOF, both successful source_done/final events and expected tails, startup-ready 127.492s within the 180s bound. This proves a temporary real-model pair, not durable deployment or final latency/headroom budgets. The expired owned Pod is not reused as production. Final Go/native validation is waiting for Husky's foreign build lease; no foreign release or process change is attempted.
+
+## 2026-10-05: Release provenance fixes and renewed runtime qualification
+
+**Type:** finding
+**Tags:** signing, release, Spark, validation
+
+**Problem:** Packaged app launch failed at Sparkle library validation; corrected Developer ID signing still returned errSecInternalComponent. Independent review also found loose build-lease response parsing, release source provenance and selected-workflow input gaps.
+**Root cause:** Vendor/app Team-ID mismatch explains the original launch crash. Private-key signing access remains unresolved; an unlocked keychain and discovered identity do not establish authorization. The all-ad-hoc alternative also fails hardened library validation. Spark pending submission with separate command/args did not materialize; the full command-array form completed the owned volume writer.
+**Fix:** Source corrections through 829c898 are independently accepted; release helper 12/12 and gateway 21/21 checks pass. Credential retries and protection changes are stopped. DGX lane is qualifying durable named-volume staging and bounded model prefetch.
+**Impact:** No signed release, installed capture, automatic update or durable production gateway is claimed. Local fixture/source acceptance is distinct from physical runtime qualification. Luna lanes intermittently hit429; UpCloud/AWS read-only capacity checks found no qualified subscription worker image, with no cloud reservations or new spending.
