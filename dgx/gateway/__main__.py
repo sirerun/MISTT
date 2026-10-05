@@ -29,6 +29,7 @@ def main() -> None:
         ssl_keyfile=str(key_path),
         access_log=False,
         log_level=os.environ.get("MISTT_LOG_LEVEL", "info"),
+        ws="websockets",
         ws_max_size=64 * 1024,
         ws_ping_interval=20.0,
         ws_ping_timeout=20.0,
