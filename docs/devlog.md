@@ -208,3 +208,5 @@ Owned source and credential staging completed through hash-pinned public source 
 ### Spark liveness mismatch found during real qualification
 
 The first bounded gateway candidate answered verified TLS health requests from the Mac but restarted repeatedly on Spark liveness failure. Spark upstream HTTPProbe hardcodes plain HTTP to node localhost, so the manifest HTTPS scheme cannot qualify this service. The owned candidate was removed, releasing all GPU allocation. T5.15–T5.17 track an in-container verified TLS exec probe, affected tests, bounded runtime retry and independent exact-head review. No production readiness is claimed.
+
+The verified TLS exec-probe correction is integrated and independently source-approved at 2f62133; all 31 gateway fixtures pass in pinned Python 3.12. Exact-leaf and wrong-IP/wrong-leaf rejection are covered. T5.15 source is complete; T5.13 now explicitly waits on T5.16 affected runtime verification. Replacement GPU qualification is bounded and does not claim production readiness.
