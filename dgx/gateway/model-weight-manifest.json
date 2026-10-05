@@ -1,0 +1,14 @@
+{
+  "model_id": "microsoft/VibeVoice-ASR-Streaming-7B",
+  "revision": "60d858b518b4e19d404af3737f848fc185b30177",
+  "weights": {
+    "model-00001-of-00008.safetensors": {"size": 2488346304, "sha256": "3685d210ad49c49521e71a0cc5418ea94b20761c801dc8fc95938c4ec1ab27b3"},
+    "model-00002-of-00008.safetensors": {"size": 2389316008, "sha256": "d0252f5e9bdf7e65bb0ae051c49148fd5d77e531057556eb955fc6dc72f4f0bc"},
+    "model-00003-of-00008.safetensors": {"size": 2466376400, "sha256": "eeeb0c24e4a3746f16512c0d4aef84732bf8bb4dc5452782e4db356eb5fc7ce7"},
+    "model-00004-of-00008.safetensors": {"size": 2466376432, "sha256": "02fec24aaf3e59cbc653b55d94665d6393543f2550364c2c8bc9e75e2a2ca3c0"},
+    "model-00005-of-00008.safetensors": {"size": 2499431160, "sha256": "a78637bdc2b44f28601f7ee12503e28f5e9faedde35ff5bcdc2e7356c9a6458e"},
+    "model-00006-of-00008.safetensors": {"size": 2483469960, "sha256": "5bc9dfef14c62989192ab39356da45a9ccc9f0ef82f7f7127e48c17b5bd5a2f8"},
+    "model-00007-of-00008.safetensors": {"size": 1464887514, "sha256": "bb6da42b3547124eb67645fc6fb92523e93310a107872643f7df6dd75f85b4d7"},
+    "model-00008-of-00008.safetensors": {"size": 1089994880, "sha256": "b1499fbe8bc0454eeafc1177db144679940f2456eae188299214c629d4d618b4"}
+  }
+}

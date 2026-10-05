@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -8,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dgx.gateway.prefetch_model import EXPECTED_WEIGHT_SHARDS, verify_snapshot
+from dgx.gateway.prefetch_model import verify_snapshot
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -137,28 +138,55 @@ class ModelPrefetchTests(unittest.TestCase):
             root = Path(temp)
             (root / "config.json").write_text("{}", encoding="utf-8")
             (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
-            (root / "model-00001-of-00008.safetensors").write_bytes(b"partial")
+            partial = b"partial"
+            (root / "model-00001.safetensors").write_bytes(partial)
             (root / "model.safetensors.index.json").write_text(
-                json.dumps({"weight_map": {"encoder.weight": "model-00001-of-00008.safetensors"}}),
+                json.dumps({"weight_map": {"encoder.weight": "model-00001.safetensors"}}),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(RuntimeError, "complete shard set"):
-                verify_snapshot(root)
+                verify_snapshot(root, {
+                    "model-00001.safetensors": {"size": len(partial), "sha256": hashlib.sha256(partial).hexdigest()},
+                    "model-00002.safetensors": {"size": 1, "sha256": hashlib.sha256(b"x").hexdigest()},
+                })
 
     def test_complete_weight_index_reports_all_nonempty_shards(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "config.json").write_text("{}", encoding="utf-8")
             (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            fixture_weights = {
+                "model-00001.safetensors": b"first",
+                "model-00002.safetensors": b"second",
+            }
             (root / "model.safetensors.index.json").write_text(
-                json.dumps({"weight_map": {f"weight.{i}": name for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS))}}),
+                json.dumps({"weight_map": {
+                    f"weight.{i}": name for i, name in enumerate(fixture_weights)
+                }}),
                 encoding="utf-8",
             )
-            for name in EXPECTED_WEIGHT_SHARDS:
-                (root / name).write_bytes(name.encode())
-            shards, size = verify_snapshot(root)
-            self.assertEqual(shards, sorted(EXPECTED_WEIGHT_SHARDS))
-            self.assertEqual(size, sum(len(name.encode()) for name in EXPECTED_WEIGHT_SHARDS))
+            expected = {}
+            for name, content in fixture_weights.items():
+                (root / name).write_bytes(content)
+                expected[name] = {"size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+            shards, size = verify_snapshot(root, expected)
+            self.assertEqual(shards, sorted(fixture_weights))
+            self.assertEqual(size, sum(map(len, fixture_weights.values())))
+
+    def test_truncated_or_wrong_content_weight_fails_hash_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            name = "model-00001.safetensors"
+            (root / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {"encoder.weight": name}}), encoding="utf-8"
+            )
+            content = b"truncated"
+            (root / name).write_bytes(content)
+            expected = {name: {"size": len(content), "sha256": hashlib.sha256(b"complete").hexdigest()}}
+            with self.assertRaisesRegex(RuntimeError, "wrong SHA-256"):
+                verify_snapshot(root, expected)
 
     def test_weight_index_rejects_parent_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -170,7 +198,10 @@ class ModelPrefetchTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(RuntimeError, "complete shard set"):
-                verify_snapshot(root)
+                verify_snapshot(root, {
+                    "model-00001.safetensors": {"size": 1, "sha256": hashlib.sha256(b"x").hexdigest()},
+                    "model-00002.safetensors": {"size": 1, "sha256": hashlib.sha256(b"x").hexdigest()},
+                })
 
     def test_snapshot_shard_symlink_must_stay_inside_hub_blob_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -182,20 +213,24 @@ class ModelPrefetchTests(unittest.TestCase):
             blobs.mkdir()
             (root / "config.json").write_text("{}", encoding="utf-8")
             (root / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+            fixture_names = ["model-00001.safetensors", "model-00002.safetensors"]
             (root / "model.safetensors.index.json").write_text(
-                json.dumps({"weight_map": {f"weight.{i}": name for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS))}}),
+                json.dumps({"weight_map": {f"weight.{i}": name for i, name in enumerate(fixture_names)}}),
                 encoding="utf-8",
             )
             outside = temp_root / "outside.safetensors"
             outside.write_bytes(b"outside")
-            for i, name in enumerate(sorted(EXPECTED_WEIGHT_SHARDS)):
+            expected = {}
+            for i, name in enumerate(fixture_names):
                 destination = root / name
+                content = b"outside" if i == 0 else b"inside"
+                expected[name] = {"size": len(content), "sha256": hashlib.sha256(content).hexdigest()}
                 if i == 0:
                     destination.symlink_to(outside)
                 else:
-                    destination.write_bytes(b"inside")
+                    destination.write_bytes(content)
             with self.assertRaisesRegex(RuntimeError, "outside the Hub blob cache"):
-                verify_snapshot(root)
+                verify_snapshot(root, expected)
 
     def test_import_works_from_outside_repository_with_installed_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -12,12 +13,18 @@ from pathlib import Path
 MODEL_ID = "microsoft/VibeVoice-ASR-Streaming-7B"
 MODEL_REVISION = "60d858b518b4e19d404af3737f848fc185b30177"
 HUB_VERSION = "0.34.4"
-EXPECTED_WEIGHT_SHARDS = {
-    f"model-{index:05d}-of-00008.safetensors" for index in range(1, 9)
-}
+WEIGHT_MANIFEST_PATH = Path(__file__).with_name("model-weight-manifest.json")
+_WEIGHT_MANIFEST = json.loads(WEIGHT_MANIFEST_PATH.read_text(encoding="utf-8"))
+if _WEIGHT_MANIFEST.get("model_id") != MODEL_ID or _WEIGHT_MANIFEST.get("revision") != MODEL_REVISION:
+    raise RuntimeError("prefetch weight manifest does not match the pinned model identity")
+EXPECTED_WEIGHT_MANIFEST = _WEIGHT_MANIFEST["weights"]
+EXPECTED_WEIGHT_SHARDS = set(EXPECTED_WEIGHT_MANIFEST)
 
 
-def verify_snapshot(model_path: Path) -> tuple[list[str], int]:
+def verify_snapshot(
+    model_path: Path, expected_weights: dict[str, dict[str, int | str]] | None = None
+) -> tuple[list[str], int]:
+    expected_weights = expected_weights or EXPECTED_WEIGHT_MANIFEST
     for name in ("config.json", "preprocessor_config.json"):
         if not (model_path / name).is_file():
             raise RuntimeError(f"pinned model snapshot lacks {name}")
@@ -31,20 +38,33 @@ def verify_snapshot(model_path: Path) -> tuple[list[str], int]:
     if not all(isinstance(name, str) for name in weight_map.values()):
         raise RuntimeError("pinned model weight index contains a non-string shard path")
     shards = set(weight_map.values())
-    if shards != EXPECTED_WEIGHT_SHARDS:
+    if shards != set(expected_weights):
         raise RuntimeError("pinned model weight index does not reference the complete shard set")
     total_bytes = 0
     for name in sorted(shards):
         shard = model_path / name
-        if not shard.is_file() or shard.stat().st_size <= 0:
-            raise RuntimeError(f"pinned model snapshot is missing weight shard {name}")
+        metadata = expected_weights[name]
+        expected_size = metadata.get("size")
+        expected_digest = metadata.get("sha256")
+        if not isinstance(expected_size, int) or expected_size <= 0:
+            raise RuntimeError(f"pinned model manifest has an invalid size for {name}")
+        if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+            raise RuntimeError(f"pinned model manifest has an invalid SHA-256 for {name}")
+        if not shard.is_file() or shard.stat().st_size != expected_size:
+            raise RuntimeError(f"pinned model snapshot has a missing, empty, or truncated weight shard {name}")
         if shard.is_symlink():
             blob_root = model_path.parent.parent / "blobs"
             try:
                 shard.resolve(strict=True).relative_to(blob_root.resolve(strict=True))
             except (OSError, ValueError) as exc:
                 raise RuntimeError(f"pinned model shard {name} resolves outside the Hub blob cache") from exc
-        total_bytes += shard.stat().st_size
+        digest = hashlib.sha256()
+        with shard.open("rb") as source_file:
+            for chunk in iter(lambda: source_file.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_digest:
+            raise RuntimeError(f"pinned model weight shard {name} has the wrong SHA-256")
+        total_bytes += expected_size
     return sorted(shards), total_bytes
 
 
@@ -91,7 +111,7 @@ def main() -> None:
         revision = {MODEL_REVISION!r}
         from dgx.gateway.prefetch_model import verify_snapshot
 
-        model_path = Path(snapshot_download(repo_id=repo_id, revision=revision))
+        model_path = Path(snapshot_download(repo_id=repo_id, revision=revision, token=False))
         shards, total_bytes = verify_snapshot(model_path)
         record = {{"model_id": repo_id, "model_revision": revision,
                   "snapshot_path": str(model_path), "weight_shards": shards,
