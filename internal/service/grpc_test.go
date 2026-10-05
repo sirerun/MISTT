@@ -124,7 +124,7 @@ func TestMuteRequestCacheRejectsWhenAllEntriesArePending(t *testing.T) {
 		s.muteRequests[id] = &muteRecord{payload: "pending", done: make(chan struct{})}
 		s.muteOrder = append(s.muteOrder, id)
 	}
-	_, err = s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: "00000081-0000-4000-8000-000000000081", Muted: true, ExpectedRevision: 1})
+	_, err := s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: "00000081-0000-4000-8000-000000000081", Muted: true, ExpectedRevision: 1})
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("full pending cache should reject without evicting in-flight requests, got %v", err)
 	}
