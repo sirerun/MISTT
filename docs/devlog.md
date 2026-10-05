@@ -1,5 +1,15 @@
 # MISTT development log
 
+## 2026-10-05: Source landed; full runtime delivery resumed
+
+**Type:** finding
+**Tags:** delivery, source-landing, local-validation, signing
+
+**Problem:** The source checkpoint still described PR #6 as unmerged after the owner requested merge.
+**Root cause:** Source merge was explicitly advanced before deferred physical/release acceptance; the existing MVP tasks intentionally include those broader gates.
+**Fix:** Added separate T2.61 source-only landing evidence. PR #6 landed at `485474f465f519e0d4ad5fdb98d06cbe647c3af2`, with exact tree equality to independently reviewed `a13ed196e04eb552bdd5855f8d924583ad0df680`. GitHub rejected rebasing both histories; the enabled standard merge preserved original history and reviewed files without settings changes. Owner subsequently requested all remaining delivery. Gateway, native readiness and independent release/evidence lanes resumed in parallel.
+**Impact:** Hardware/TCC/UI, final production bootstrap/resources, signed release, installation and genuine automatic-update gates remain open. Current Mac load exceeds the shared build limit. Keychain Access read-only inspection found the valid Developer ID certificate and its associated private key with codesign already allowed; this is not a successful authentication/signing result. Signing remains paused pending owner confirmation that the previous authentication failure is resolved. No keychain configuration was changed.
+
 ## 2026-10-04: Publish mute cutoff before lifecycle lock
 
 **Type:** finding

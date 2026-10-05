@@ -2,9 +2,13 @@
 
 ## Shipped
 
+- Reviewed native/relay/gateway/release source: PR #6, landed `485474f465f519e0d4ad5fdb98d06cbe647c3af2`; independently verified exact reviewed-tree equality. Source delivery only; physical MVP, signed installation and automatic updates remain open.
+
 - Bounded one-source VibeVoice streaming qualification and report: PR #1, landed `4255bd2362e6184e0e0687ea149db4815d8106a8`; six probe tests passed. Synthetic inference evidence, not a product release.
 
 ## In progress
+
+- Full delivery resumed by owner: final gateway bootstrap/resource qualification, native runtime acceptance and independent release-readiness review in three Luna lanes; coordinator owns installation/update delivery.
 
 - Dual-source scope planned: native microphone plus selected-app Core Audio tap, timestamp/source framing and paired DGX inference. See [delivery plan](plan.md), [RFC v0.4](rfc/rfc-0001.md) and [capture ADR](adr/0002-dual-source-native-capture.md).
 
