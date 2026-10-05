@@ -88,15 +88,15 @@ struct AudioSampleInstant {
         }
         let last: Int
         if let cutoffNanoseconds {
-            guard cutoffNanoseconds > startNanoseconds else { return 0..<0 }
+            guard cutoffNanoseconds > startNanoseconds else { return first..<first }
             let delta = cutoffNanoseconds - startNanoseconds
             let scaled = delta.multipliedReportingOverflow(by: UInt64(rate))
-            guard !scaled.overflow else { last = total; return first < last ? first..<last : 0..<0 }
+            guard !scaled.overflow else { last = total; return first < last ? first..<last : first..<first }
             let rounded = scaled.partialValue.addingReportingOverflow(999_999_999)
-            guard !rounded.overflow else { last = total; return first < last ? first..<last : 0..<0 }
+            guard !rounded.overflow else { last = total; return first < last ? first..<last : first..<first }
             let frame = rounded.partialValue / 1_000_000_000
             last = min(total, Int(min(frame, UInt64(Int.max))))
         } else { last = total }
-        return last > first ? first..<last : 0..<0
+        return last > first ? first..<last : first..<first
     }
 }
