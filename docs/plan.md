@@ -177,3 +177,6 @@ Current remote main is `26d4062c4fefc640540cf93ffd21d8eaf317a980`. Historical pr
 ## 13. Concluded Greeter dependency discussion
 
 The Greeter RFC editor accepted and concluded the MISTT technical peer subthread on 2026-10-04. [ADR 0005](adr/0005-greeter-consumer-boundary.md) holds the agreed ownership, separately installed/versioned loopback-consumer recommendation, cancellation versus all-sources mute distinction, client compatibility/reconnect and audio provenance/no-feedback boundaries. Greeter founder product/output/privacy/model questions and RFC revision remain open in its owning repository; peer agreement supplies no implementation or runtime authority. No Greeter code/task is silently added here. Existing T2.16/T2.6/T4.4 acceptance covers the MISTT-side consumer contract across updates.
+
+
+Execution steering, 2026-10-04: owner approved completing delivery, lifted the earlier heavy-work deferral and selected local validation without GitHub runner spending. ADR0006 supersedes historical billing-recovery/hosted-CI requirements for this run. Exact-head local checks and independent review remain mandatory, as do hardware, signing, deployment and automatic-update acceptance. T5.0 readiness is being reconciled; no installed-running acceptance is claimed.
