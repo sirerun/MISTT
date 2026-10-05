@@ -6,12 +6,14 @@ import stat
 import tempfile
 import unittest
 import uuid
+import asyncio
+import time
 from pathlib import Path
 
 import numpy as np
 
 from dgx.gateway.ledger import SourceLedger
-from dgx.gateway.pair import SourceContext
+from dgx.gateway.pair import FairInferenceScheduler, SourceContext, _ScheduledWork
 from dgx.gateway.protocol import AudioFrame
 from dgx.gateway.qualification_telemetry import (
     GATEWAY_SOURCE_ENV,
@@ -76,6 +78,70 @@ class QualificationTelemetryTests(unittest.TestCase):
             "padded_samples": 9,
         })
         self.assertEqual(context.distinct_window_samples, 33)
+
+    def test_runtime_geometry_records_initial_partial_and_unequal_tails(self) -> None:
+        initial = _context(10)
+        initial.finish_input()
+        self.assertEqual(initial.resampler_output_samples, 15)
+        self.assertEqual(initial.final_tail_geometry, {
+            "emitted": True, "valid_input_samples": 15, "overlap_samples": 0,
+            "distinct_samples": 15, "padded_samples": 15,
+        })
+        left, right = _context(22), _context(26)
+        left.finish_input()
+        right.finish_input()
+        self.assertEqual(left.final_tail_geometry["valid_input_samples"], 21)
+        self.assertEqual(right.final_tail_geometry["valid_input_samples"], 27)
+
+    def test_scheduler_observes_both_pending_at_real_queue_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root).resolve() / "run"
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+            previous_dir = os.environ.get(TELEMETRY_DIR_ENV)
+            previous_sha = os.environ.get(GATEWAY_SOURCE_ENV)
+            os.environ[TELEMETRY_DIR_ENV] = str(directory)
+            os.environ[GATEWAY_SOURCE_ENV] = GATEWAY_SHA
+            try:
+                store = QualificationTelemetryStore.from_environment(ASR_SHA)
+                self.assertIsNotNone(store)
+                assert store is not None
+                telemetry = store.new_session(_geometry(), 2)
+                self.assertIsNotNone(telemetry)
+                assert telemetry is not None
+
+                async def exercise() -> None:
+                    scheduler = FairInferenceScheduler(telemetry=telemetry)
+
+                    async def worker(_source, work) -> None:
+                        await work()
+
+                    async def no_work() -> None:
+                        return None
+
+                    scheduler.start(worker)
+                    for source in ("microphone", "call_audio"):
+                        scheduler._queues[source].put_nowait(_ScheduledWork(
+                            work=no_work, enqueued_ns=time.monotonic_ns(),
+                            valid_input_samples=30, overlap_samples=0,
+                            distinct_model_samples=30, padding_samples=0))
+                    scheduler.stop_when_empty()
+                    await asyncio.wait_for(scheduler.task, timeout=1)
+
+                asyncio.run(exercise())
+                self.assertEqual(telemetry.scheduler["simultaneous_pending_mutation_observations"], 1)
+                self.assertEqual(telemetry.scheduler["simultaneous_pending_dispatches"], 1)
+                self.assertEqual(telemetry.sources["microphone"]["queue_high_water"], 1)
+                self.assertEqual(telemetry.sources["call_audio"]["queue_high_water"], 1)
+            finally:
+                if previous_dir is None:
+                    os.environ.pop(TELEMETRY_DIR_ENV, None)
+                else:
+                    os.environ[TELEMETRY_DIR_ENV] = previous_dir
+                if previous_sha is None:
+                    os.environ.pop(GATEWAY_SOURCE_ENV, None)
+                else:
+                    os.environ[GATEWAY_SOURCE_ENV] = previous_sha
 
 
     def test_telemetry_is_bounded_owner_only_and_splits_control_items(self) -> None:
