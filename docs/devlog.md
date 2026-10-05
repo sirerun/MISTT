@@ -238,3 +238,7 @@ Historical staging receipts lacked retained post-submit GET/status responses. Tw
 ### Integrated telemetry source review findings
 
 Gateway telemetry source integrated cleanly at51aea546; root credentials-snapshot tests remain intact. Additional real-scheduler and initial/unequal-tail tests atae355a7 pass with the full37-case pinned suite. Independent review found swallowed telemetry callbacks could produce partial records appearing complete with zero counters; coordinator found zero-progress writes could stall terminal cleanup. T2.40–T2.42 track shared invalidation, bounded write failure, exact integer identities, affected fault tests and independent re-review. No GPU retry or measurement pass is authorized by test success alone.
+
+## 2026-10-05 — telemetry review and runtime provenance correction
+
+Go independently accepts root29 source validity/writer/tail fixes; all41 root gateway tests pass. Private orchestration progressed through independent50/50 offline checks. A bounded runtime attempt failed measurement admission due to a mismatched telemetry path; its source-volume bytes were not proved to match advertised root29. It is not accepted root29 runtime evidence. Exact candidate cleanup/claim release was confirmed. T2.43–T2.45 track CPU-only staged-byte verification and independent review before further GPU work. A separate narrow Developer ID signing probe passed strict verification; full app signing was stopped at Autoupdate after owner-reported password rejection. No keychain changes, production install, update or landing is claimed.
