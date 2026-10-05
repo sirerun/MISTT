@@ -66,14 +66,24 @@ command argument, repository, or log. The CA certificate stays on the Mac as
 the TLS trust file; never copy the CA private key to Spark. Temporary
 qualification credentials are separate from owner-issued service credentials.
 
-Stage the exact source archive and cache volume, then run
-`prefetch-pod.json.in`. This CPU-only Pod uses 1 CPU and 4 GiB, no GPU, and
-the same image and Hugging Face cache mount as the gateway. Its helper checks
-for the pinned snapshot locally first and downloads only if missing; it writes
-a revision record after verifying the snapshot configuration files. Delete
-only the completed prefetch Pod and keep the named cache volume for the
-gateway. This download is provisioning time, not live speech throughput.
-Keep the gateway's 180-second startup bound unchanged.
+Stage the exact source archive into the source volume with a short-lived,
+CPU-only Pod. Transfer only from a dedicated public-only staging directory,
+verify the pinned archive SHA-256 before extraction, and record its source SHA
+in the volume. Never expose a credentials or general cache directory through
+the transfer server. Stage the owner-issued bearer and TLS files separately
+over the task-scoped mutual-TLS transfer; generate the client private key
+inside the staging Pod, keep it there, and install only the three allowlisted
+server files into the credentials volume with restrictive file modes.
+
+Run `prefetch-pod.json.in` after source staging. This CPU-only Pod uses 1 CPU
+and 4 GiB, no GPU, and the same image and Hugging Face cache mount as the
+gateway. The helper resumes the exact pinned public revision without using a
+Hugging Face token, then verifies the complete index shard set, expected file
+sizes, and SHA-256 digests before writing its completion record. A nonempty or
+configuration-only partial cache is not sufficient. Delete only the completed
+prefetch Pod and keep the named cache volume for the gateway. This download is
+provisioning time, not live speech throughput. Keep the gateway's 180-second
+startup bound unchanged.
 Run the real paired known-speech probe after the server is available; an HTTPS
 `/mistt/healthz` response alone does not prove the model loaded or that both
 sources transcribed. Record readiness, per-source first/final transcript
