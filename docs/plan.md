@@ -45,7 +45,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
-### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (3/18)
+### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (5/18)
 
 ## 5. Parallel work and waves
 
@@ -194,3 +194,7 @@ Next runnable gates: finish signing diagnosis and aligned nested signing, qualif
 Resume checkpoint, 2026-10-05: exact source f29d757 incorporates independently accepted credential staging filename/mode corrections. Gateway fixture checks passed 28/28 and release helper checks 12/12; these remain local checks. CPU-only pinned-model prefetch is active in persistent named storage with a one-hour deadline, followed by a separate replacement-container hash/credential check. Completed transfer containers/helpers are removed; volumes are preserved. Developer ID private-key access still blocks signing and owner action is pending; no authentication retry, production readiness, installed app, or automatic-update success is claimed. T5.12 implementation is complete; T5.13/T5.14 remain dependency-gated.
 
 Current runtime checkpoint, 2026-10-05: [bounded DGX candidate evidence](qualification/dgx-candidate-20261005.md) records completed persistent cache proof, reviewed TLS exec-probe fix, strict TLS/auth checks and actual paired inference at source 2f62133. Temporary candidate and claim are removed, retained volumes remain. T2.10 contention/fairness/failure/headroom checks continue autonomously; no production or installed-app acceptance follows. Earlier active-download checkpoints are historical. Signing remains owner-blocked after private-key access failure; source landing and E3/E4 acceptance remain open.
+
+### Resumed measured-runtime checkpoint — 2026-10-05
+
+Independent Go review accepts extended paired inference/busy/disconnect/recovery evidence at gateway 2f62133; independent native review closes T5.16/T5.17 using the combined exact-head liveness and runtime receipts. T2.37–T2.39 now gate private numeric queue/tail/memory instrumentation and its local verification/independent review before another T2.10 admission. Full backend/headroom, physical native capture, merge, signing/notarization, production deployment, installed A-to-B update and final running-muted gates remain open. Native signing stays stopped pending owner resolution of existing private-key access; no authentication retries or keychain changes are authorized by this checkpoint.
