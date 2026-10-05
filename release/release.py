@@ -144,8 +144,25 @@ end
     return manifest
 
 
+
+def require_release_source(expected: str | None = None, *, refresh: bool = True) -> str:
+    """Bind artifacts to clean, reviewed source already reachable from origin/main."""
+    expected = expected or required("MISTT_RELEASE_SOURCE_SHA")
+    if not re.fullmatch(r"[0-9a-f]{40}", expected):
+        raise ValueError("Release source must be an exact reviewed landed SHA")
+    if run("git", "rev-parse", "HEAD", cwd=ROOT) != expected:
+        raise ValueError("Release checkout changed or differs from the reviewed landed SHA")
+    if run("git", "status", "--porcelain", "--untracked-files=all", cwd=ROOT):
+        raise ValueError("Release checkout must be clean, including untracked source")
+    if refresh:
+        run("git", "fetch", "--quiet", "origin", "main", cwd=ROOT)
+    run("git", "merge-base", "--is-ancestor", expected, "origin/main", cwd=ROOT)
+    return expected
+
+
 def build(version: str, build_number: str, output: Path) -> Path:
     validate_version(version, build_number)
+    source_sha = require_release_source()
     output = artifact_root(output)
     identity = required("MISTT_SIGN_IDENTITY")
     signing_keychain = required("MISTT_SIGN_KEYCHAIN")
@@ -235,8 +252,9 @@ def build(version: str, build_number: str, output: Path) -> Path:
     run(sign_tool, *key_args, "--verify", str(zip_path), signature)
     manifest_path = output / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
+    require_release_source(source_sha, refresh=False)
     manifest.update(notarization_id=notarization["id"], notarization_status="Accepted",
-                    source_sha=run("git", "rev-parse", "HEAD", cwd=ROOT))
+                    source_sha=source_sha)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     return zip_path
 
@@ -271,6 +289,8 @@ def verify_artifacts(directory: Path) -> dict:
 def publish(directory: Path) -> None:
     directory = artifact_root(directory)
     manifest = verify_artifacts(directory)
+    if manifest.get("source_sha") != require_release_source():
+        raise ValueError("Published artifact source differs from the reviewed landed SHA")
     repo = manifest["repository"]
     archive = directory / manifest["archive"]
     tap = required("MISTT_TAP_REPOSITORY")
