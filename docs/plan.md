@@ -180,3 +180,13 @@ The Greeter RFC editor accepted and concluded the MISTT technical peer subthread
 
 
 Execution steering, 2026-10-04: owner approved completing delivery, lifted the earlier heavy-work deferral and selected local validation without GitHub runner spending. ADR0006 supersedes historical billing-recovery/hosted-CI requirements for this run. Exact-head local checks and independent review remain mandatory, as do hardware, signing, deployment and automatic-update acceptance. T5.0 readiness is being reconciled; no installed-running acceptance is claimed.
+
+## Active delivery wave: owner renewed ship instruction
+
+The owner renewed full delivery execution and reaffirmed local validation in global AGENTS.md. Earlier heavy-work deferral is superseded by ADR0006; no hosted runner or billing action is authorized. The earlier discovery sections retain historical snapshots, not current readiness.
+
+Coordinator owns integration, T2.5/T2.33 physical acceptance, T2.6 exact-head review, T2.7/T2.8 landing, E3 release, E4 installation/update verification and final handoff. Native Luna lane owns T3.2 packaging repair and signing diagnosis; Go Luna lane owns independent integrated-source and gateway-fixture review; DGX Luna lane owns T5.1-T5.3 direct home-LAN TLS/bearer wiring and persistent named-volume provisioning design. Existing isolated SSD worktrees are reused with exclusive file ownership.
+
+Current evidence: Go race/vet/arm64 build passed at d6550ea; desktop 25 tests, capture-free preflight 68 tests and Release build passed at e501a39. Temporary real-model paired streaming passed with both tails. These do not close physical capture, final installed runtime or durable deployment. Sparkle Team-ID mismatch caused packaged launch failure; packaging fix is integrated, signing remains stopped after errSecInternalComponent against the selected login keychain. Release helper nine checks pass at 6513ec7. Public release, production service, signed cask install and genuine automatic A-to-B update remain open.
+
+Next runnable gates: finish signing diagnosis and aligned nested signing, qualify safe muted launch, recheck available DGX admission, validate integrated gateway/deployment inputs, then physical paired/three-client acceptance before exact-head review and merge. Direct home-LAN verified TLS and bearer transport is owner-selected; SSH is optional and exact interface isolation is not a required gate. No public exposure/router/firewall changes are included.
