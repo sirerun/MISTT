@@ -73,4 +73,3 @@ class StatefulLinearResampler:
         if discard:
             self._buffer = self._buffer[discard:]
             self._buffer_start += discard
-
