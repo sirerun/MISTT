@@ -1,0 +1,149 @@
+from __future__ import annotations
+
+import json
+import os
+import stat
+import tempfile
+import unittest
+import uuid
+from pathlib import Path
+
+import numpy as np
+
+from dgx.gateway.ledger import SourceLedger
+from dgx.gateway.pair import SourceContext
+from dgx.gateway.protocol import AudioFrame
+from dgx.gateway.qualification_telemetry import (
+    GATEWAY_SOURCE_ENV,
+    TELEMETRY_DIR_ENV,
+    QualificationTelemetryStore,
+)
+from dgx.gateway.resample import StatefulLinearResampler
+from dgx.gateway.runtime import ModelGeometry
+
+
+GATEWAY_SHA = "2f621330fc46ee7eeb3405dfee0aae05d7d946ce"
+ASR_SHA = "1541f590c7099820f10ea012f48d2399282df69f"
+
+
+def _geometry() -> ModelGeometry:
+    # Small injected geometry makes overlap/tail arithmetic exact and cheap.
+    return ModelGeometry(24_000, 12, 18, 1, 20_000, 8)
+
+
+def _context(sample_count: int) -> SourceContext:
+    session = uuid.uuid4()
+    context = SourceContext(
+        source="microphone",
+        ledger=SourceLedger(session, "microphone", 1000),
+        state={},
+        resampler=StatefulLinearResampler(),
+        geometry=_geometry(),
+        prompt_tokens=8,
+        base_context_tokens=8,
+        max_context_tokens=20_000,
+    )
+    pcm = np.arange(sample_count, dtype="<i2").tobytes()
+    frame = AudioFrame(session, "microphone", 1, 0, 0, sample_count, pcm)
+    context.push_frame(frame)
+    return context
+
+
+class QualificationTelemetryTests(unittest.TestCase):
+    def test_runtime_geometry_records_overlap_only_exact_window_tail(self) -> None:
+        context = _context(20)
+        context.finish_input()
+        self.assertEqual(context.resampler_output_samples, 30)
+        self.assertEqual(context.final_tail_geometry, {
+            "emitted": True,
+            "valid_input_samples": 18,
+            "overlap_samples": 18,
+            "distinct_samples": 0,
+            "padded_samples": 12,
+        })
+        self.assertEqual(context.distinct_window_samples, 30)
+
+
+    def test_runtime_geometry_records_only_new_tail_after_full_window(self) -> None:
+        context = _context(22)
+        context.finish_input()
+        self.assertEqual(context.resampler_output_samples, 33)
+        self.assertEqual(context.final_tail_geometry, {
+            "emitted": True,
+            "valid_input_samples": 21,
+            "overlap_samples": 18,
+            "distinct_samples": 3,
+            "padded_samples": 9,
+        })
+        self.assertEqual(context.distinct_window_samples, 33)
+
+
+    def test_telemetry_is_bounded_owner_only_and_splits_control_items(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root) / "run"
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+            previous_dir = os.environ.get(TELEMETRY_DIR_ENV)
+            previous_sha = os.environ.get(GATEWAY_SOURCE_ENV)
+            os.environ[TELEMETRY_DIR_ENV] = str(directory.resolve())
+            os.environ[GATEWAY_SOURCE_ENV] = GATEWAY_SHA
+            try:
+                self._assert_telemetry_record(directory)
+            finally:
+                if previous_dir is None:
+                    os.environ.pop(TELEMETRY_DIR_ENV, None)
+                else:
+                    os.environ[TELEMETRY_DIR_ENV] = previous_dir
+                if previous_sha is None:
+                    os.environ.pop(GATEWAY_SOURCE_ENV, None)
+                else:
+                    os.environ[GATEWAY_SOURCE_ENV] = previous_sha
+
+    def _assert_telemetry_record(self, directory: Path) -> None:
+        store = QualificationTelemetryStore.from_environment(ASR_SHA)
+        self.assertIsNotNone(store)
+        assert store is not None
+        telemetry = store.new_session(_geometry(), 2)
+        self.assertIsNotNone(telemetry)
+        assert telemetry is not None
+        telemetry.queue_changed({"microphone": 1, "call_audio": 1})
+        telemetry.on_enqueue("microphone", {"valid_input_samples": 30})
+        telemetry.on_start("microphone", 0, True, telemetry.overlap_epoch, {
+            "valid_input_samples": 30,
+            "overlap_samples": 0,
+            "distinct_model_samples": 30,
+            "padding_samples": 0,
+        })
+        telemetry.on_inference("microphone", 10_000)
+        telemetry.on_complete("microphone", True)
+        telemetry.on_enqueue("microphone", {})
+        telemetry.on_start("microphone", 0, False, telemetry.overlap_epoch, {})
+        telemetry.on_complete("microphone", False)
+        telemetry.source_snapshot("microphone", ingress_samples_16k=20,
+                                  resampler_output_samples=30,
+                                  distinct_window_samples_created=30,
+                                  tail={"emitted": True, "valid_input_samples": 18,
+                                        "overlap_samples": 18, "distinct_samples": 0,
+                                        "padded_samples": 12})
+        telemetry.source_snapshot("call_audio", ingress_samples_16k=20,
+                                  resampler_output_samples=30,
+                                  distinct_window_samples_created=30, tail=None)
+        self.assertTrue(telemetry.finalize("completed"))
+
+        records = list(directory.glob("*.json"))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(stat.S_IMODE(records[0].stat().st_mode), 0o600)
+        record = json.loads(records[0].read_text())
+        mic = record["sources"]["microphone"]
+        self.assertEqual(mic["window_items_enqueued"], 1)
+        self.assertEqual(mic["control_items_enqueued"], 1)
+        self.assertEqual(mic["window_items_completed"], 1)
+        self.assertEqual(mic["control_items_completed"], 1)
+        self.assertGreaterEqual(mic["simultaneous_pending_wait_total_ns"], 0)
+        self.assertEqual(record["scheduler"]["simultaneous_pending_transitions"], 1)
+        self.assertEqual(record["privacy"], {
+            "audio_or_text_retained": False,
+            "credential_values_retained": False,
+        })
+        self.assertLessEqual(records[0].stat().st_size, 8 * 1024)
+        self.assertEqual(os.geteuid(), records[0].stat().st_uid)
