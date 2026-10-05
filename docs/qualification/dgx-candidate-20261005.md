@@ -37,3 +37,20 @@ Independent Go review verified private runtime receipt SHA256 `bb5812533adae8d9d
 ## Open gates
 
 Actual queue occupancy/headroom, partial-tail model-window geometry and GPU/unified-memory headroom remain to qualify. NVIDIA device memory readings were unavailable; host, cgroup and allocator scopes cannot be added or substituted for one another. Native physical capture/TCC/three-client acceptance, source landing, stable production deployment, signed/notarized release, installation and genuine automatic A-to-B update remain open. Developer ID signing is stopped after private-key access failure pending owner resolution. No production gateway or installed app is claimed.
+
+
+## Next-run measurement policy (frozen before admission)
+
+Independent Go and native reviewers accept private immutable policy SHA256 `914c278dac18d72d5360fcb097e06b446052cbcd35b7ab0b67271c29ef87e11e`; the aligned implementation design is `1f63eee436840f94499e4411a746b24a83261f83cc08dbbe81465299a36ed197`. Source/tests/immutable harness review still precede any new workload. These are planned criteria, not measured passes.
+
+DGX Spark uses coherent CPU/GPU system memory; NVIDIA documents unsupported framebuffer-memory readings on this platform. Host, cgroup and allocator scopes remain separate, and unavailable dedicated-VRAM readings do not become zero or a pass. See [NVIDIA DGX Spark known issues](https://docs.nvidia.com/dgx/dgx-spark/known-issues.html). The following conservative thresholds are delivery policy, not vendor guarantees:
+
+- Across loaded-model paired work and recovery: minimum host MemAvailable >= max(16 GiB, 20% MemTotal); candidate cgroup memory peak <90% of its observed finite manifest-matching memory.max.
+- No growth in cgroup OOM/OOM-kill/high/max events, candidate swap, or host SwapUsed from the loaded baseline. Host memory PSI full total increase / measured elapsed <=1%.
+- Required readings must be present, with explicit loaded/recovery boundary baselines and maximum sample gap <=2s. Missing coverage leaves headroom unqualified.
+
+Actual ingress PCM samples / ingress sample rate define each captured duration. Runtime resampler totals, window overlap and final copied/padded samples are reconciled separately. Per-source inference service RTF is that source's serialized inference elapsed / captured duration, and paired worker-demand RTF is sum of serialized inference elapsed / max captured source duration; both must be <=1.0. This includes repeated lookahead and zero-new-audio padded inference. Queue-wait sums/maxima are diagnostics; they cannot stand in for elapsed service wall. Final wall/audio latency and optional audio/wall throughput are separately labeled reports, while final drain must remain <=5s.
+
+Actual queue transitions record each source's peak/capacity and enqueue/start/complete counts, simultaneous-pending duration/dispatches and per-source wait/dispatch counts during those intervals. Fairness is assessed only while both sources are pending. Absent overlap observations leave that contention measurement open. Final-tail tests must cover initial partial input, exact full-window EOF, tiny residual after a full window, and unequal source tails; retained lookahead cannot be counted as newly captured audio.
+
+Telemetry is opt-in, private, numeric and bounded: at most eight 8-KiB receipts per candidate, mode 0600 in an owner-controlled directory. No audio/text/credentials or public telemetry endpoint. Disabled behavior is unchanged; terminal best-effort writes cannot change protocol results or strand cleanup. The existing 447s orchestration/600s Pod bounds remain.
