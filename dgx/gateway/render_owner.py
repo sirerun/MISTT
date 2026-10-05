@@ -93,7 +93,9 @@ def read_private_config(path: str | Path) -> tuple[dict[str, Any], str]:
     config_path = _absolute_path(path)
     parent_fd = _open_private_parent(config_path)
     try:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        # O_NONBLOCK prevents an attacker-controlled FIFO from hanging the
+        # local validator before fstat can reject the non-regular input.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             descriptor = os.open(config_path.name, flags, dir_fd=parent_fd)
         except OSError:
@@ -299,7 +301,27 @@ def _validate_manifest(pod: Any, values: dict[str, Any]) -> None:
         "credentials": {"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": True},
     }
     mounts = container["volumeMounts"]
-    if not isinstance(mounts, list) or {item.get("name"): item for item in mounts if isinstance(item, dict)} != expected_mounts:
+    if not isinstance(mounts, list) or len(mounts) != len(expected_mounts):
+        _fail()
+    mount_map: dict[str, Any] = {}
+    for item in mounts:
+        if not isinstance(item, dict):
+            _fail()
+        name = item.get("name")
+        if not isinstance(name, str) or name in mount_map:
+            _fail()
+        expected = expected_mounts.get(name)
+        if expected is None or set(item) != set(expected):
+            _fail()
+        if name in ("gateway", "credentials") and item.get("readOnly") is not True:
+            _fail()
+        if name == "cache" and "readOnly" in item:
+            if item["readOnly"] is not False:
+                _fail()
+        if item != expected:
+            _fail()
+        mount_map[name] = item
+    if mount_map != expected_mounts:
         _fail()
     expected_volumes = {
         "gateway": values["MISTT_GATEWAY_SOURCE_VOLUME"],

@@ -83,6 +83,23 @@ class OwnerRenderTests(unittest.TestCase):
         with self.assertRaises(render_owner.OwnerRenderError):
             render_owner.render_manifest(mutated, CONFIG)
 
+    def test_rejects_duplicate_or_malformed_mount_rows_and_nonboolean_modes(self) -> None:
+        gateway_mount = '{"name": "gateway", "mountPath": "/opt/mistt", "readOnly": true},'
+        duplicate = self.template.replace(gateway_mount, gateway_mount + gateway_mount, 1)
+        malformed = self.template.replace(
+            gateway_mount,
+            '"not-a-mount", ' + gateway_mount,
+            1,
+        )
+        numeric_readonly = self.template.replace(
+            '"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": true',
+            '"name": "credentials", "mountPath": "/run/mistt-input", "readOnly": 1',
+            1,
+        )
+        for candidate in (duplicate, malformed, numeric_readonly):
+            with self.subTest(candidate=candidate[-100:]), self.assertRaises(render_owner.OwnerRenderError):
+                render_owner.render_manifest(candidate, CONFIG)
+
     def test_secure_render_creates_private_files_once_and_receipt_claims_no_submission(self) -> None:
         with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as root:
             directory = Path(root) / "owner"
@@ -119,6 +136,16 @@ class OwnerRenderTests(unittest.TestCase):
             link.symlink_to(source)
             with self.assertRaises(render_owner.OwnerRenderError):
                 render_owner.read_private_config(link)
+
+    def test_rejects_fifo_config_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as root:
+            directory = Path(root) / "owner"
+            directory.mkdir(mode=0o700)
+            os.chmod(directory, 0o700)
+            fifo = directory / "input.json"
+            os.mkfifo(fifo, 0o600)
+            with self.assertRaises(render_owner.OwnerRenderError):
+                render_owner.read_private_config(fifo)
 
 
 if __name__ == "__main__":
