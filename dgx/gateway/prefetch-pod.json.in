@@ -1,0 +1,33 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "${MISTT_PREFETCH_POD_NAME}",
+    "labels": {
+      "app": "mistt",
+      "purpose": "owner-model-cache-prefetch",
+      "gateway-source-sha": "${MISTT_GATEWAY_SOURCE_SHA}",
+      "model-revision": "60d858b518b4e19d404af3737f848fc185b30177"
+    }
+  },
+  "spec": {
+    "restartPolicy": "Never",
+    "containers": [
+      {
+        "name": "prefetch",
+        "image": "nvcr.io/nvidia/pytorch@sha256:bbc2b67e2533edd63ff1496bb1ed00a00338cdc1478af6c1a0bf9f4b369977e7",
+        "command": ["python3", "/opt/mistt/dgx/gateway/prefetch_model.py"],
+        "env": [{"name": "MISTT_CACHE_ROOT", "value": "/var/cache/mistt"}],
+        "resources": {"limits": {"cpu": "1", "memory": "4Gi"}},
+        "volumeMounts": [
+          {"name": "gateway", "mountPath": "/opt/mistt", "readOnly": true},
+          {"name": "cache", "mountPath": "/var/cache/mistt"}
+        ]
+      }
+    ],
+    "volumes": [
+      {"name": "gateway", "hostPath": {"path": "${MISTT_GATEWAY_SOURCE_VOLUME}"}},
+      {"name": "cache", "hostPath": {"path": "${MISTT_GATEWAY_CACHE_VOLUME}"}}
+    ]
+  }
+}
