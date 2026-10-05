@@ -185,7 +185,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     info = plistlib.loads((ROOT / "desktop/Resources/Info.plist").read_bytes())
     info.update(CFBundleVersion=build_number, CFBundleShortVersionString=version,
                 LSMinimumSystemVersion="14.2", SUFeedURL=feed, SUPublicEDKey=key,
-                SUEnableAutomaticChecks=True, SUAutomaticallyUpdate=True,
+                SUAutomaticallyUpdate=True,
                 SURequireSignedFeed=True, SUVerifyUpdateBeforeExtraction=True,
                 SUEnableInstallerLauncherService=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
@@ -236,7 +236,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     return zip_path
 
 
-def publish(directory: Path) -> None:
+def verify_artifacts(directory: Path) -> dict:
     directory = artifact_root(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
     validate_version(manifest["version"], manifest["build"])
@@ -260,6 +260,14 @@ def publish(directory: Path) -> None:
         run("codesign", "--verify", "--deep", "--strict", str(app))
         run("xcrun", "stapler", "validate", str(app))
         run("spctl", "--assess", "--type", "execute", str(app))
+    return manifest
+
+
+def publish(directory: Path) -> None:
+    directory = artifact_root(directory)
+    manifest = verify_artifacts(directory)
+    repo = manifest["repository"]
+    archive = directory / manifest["archive"]
     tap = required("MISTT_TAP_REPOSITORY")
     validate_repository(tap)
     tap_env = dict(os.environ, GH_TOKEN=required("MISTT_TAP_TOKEN"))
@@ -321,9 +329,14 @@ def main() -> None:
     make.add_argument("--output", type=Path, required=True)
     push = sub.add_parser("publish")
     push.add_argument("--directory", type=Path, required=True)
+    verify = sub.add_parser("verify")
+    verify.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "build":
         print(build(args.version, args.build, args.output))
+    elif args.command == "verify":
+        verify_artifacts(args.directory)
+        print("Release signatures, embedded metadata and Gatekeeper assessment verified; no publication performed.")
     else:
         publish(args.directory)
 
