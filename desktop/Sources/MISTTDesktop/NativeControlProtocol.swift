@@ -40,7 +40,7 @@ struct ControlResult: Codable, Equatable, Sendable {
 
 struct Heartbeat: Codable, Equatable, Sendable { let type: String; let counter: UInt64 }
 
-struct CaptureStarted: Codable, Encodable, Sendable {
+struct CaptureStarted: Codable, Sendable {
     let type = "capture_started"
     let requestId: UUID
     let sessionId: UUID
@@ -51,7 +51,7 @@ struct CaptureStarted: Codable, Encodable, Sendable {
     let callAudioReady = true
 }
 
-struct CaptureStopped: Codable, Encodable, Sendable {
+struct CaptureStopped: Codable, Sendable {
     let type = "capture_stopped"
     let requestId: UUID
     let sessionId: UUID
@@ -62,7 +62,7 @@ struct CaptureStopped: Codable, Encodable, Sendable {
     let aggregateDestroyed = true
 }
 
-struct CaptureFailed: Codable, Encodable, Sendable {
+struct CaptureFailed: Codable, Sendable {
     let type = "capture_failed"
     let requestId: UUID?
     let sessionId: UUID
@@ -71,7 +71,7 @@ struct CaptureFailed: Codable, Encodable, Sendable {
     let closureConfirmed: Bool
 }
 
-struct SourceEnd: Codable, Encodable, Sendable {
+struct SourceEnd: Codable, Sendable {
     let type = "source_end"
     let sessionId: UUID
     let source: String
@@ -79,7 +79,7 @@ struct SourceEnd: Codable, Encodable, Sendable {
     let totalSamples: UInt64
 }
 
-struct NativeSetMuted: Codable, Encodable, Sendable {
+struct NativeSetMuted: Codable, Sendable {
     let type = "native_set_muted"
     let requestId: UUID
     let commandSequence: UInt64
@@ -87,7 +87,7 @@ struct NativeSetMuted: Codable, Encodable, Sendable {
     let muted: Bool
 }
 
-struct NativeUpdateCommand: Codable, Encodable, Sendable {
+struct NativeUpdateCommand: Codable, Sendable {
     let type: String
     let requestId: UUID
     let commandSequence: UInt64

@@ -5,7 +5,7 @@ import NativeAudioQueue
 /// Drains callback-owned bounded SPSC queues away from Core Audio. Each source
 /// retains an independent converter and timestamp/sample sequence.
 final class NativePCMStreamPump: @unchecked Sendable {
-    private final class SourceStream {
+    fileprivate final class SourceStream {
         let source: PairedAudioFrame.Source
         let queue: OpaquePointer
         let writerSource: NativeIPCWriter.Source
@@ -101,29 +101,29 @@ final class NativePCMStreamPump: @unchecked Sendable {
                 }
             }
             guard available else { break }
-            guard block.frameCount > 0, block.frameCount <= UInt32(left.count), (1...2).contains(block.channels),
-                  block.sampleRate >= 8_000, block.sampleRate <= 384_000 else { throw PumpError.invalidBlock }
+            guard block.frame_count > 0, block.frame_count <= UInt32(left.count), (1...2).contains(block.channels),
+                  block.sample_rate >= 8_000, block.sample_rate <= 384_000 else { throw PumpError.invalidBlock }
             if stream.converter == nil {
                 guard block.host_start_ns >= epochNanoseconds else { throw PumpError.invalidTimestamp }
                 let delta = block.host_start_ns - epochNanoseconds
                 stream.ledger = PCMFrameLedger(baseOffsetNanoseconds: delta)
-                stream.sourceRate = Double(block.sampleRate)
+                stream.sourceRate = Double(block.sample_rate)
                 stream.channels = Int(block.channels)
-                stream.converter = try BoundedPCMStreamConverter(sourceRate: Double(block.sampleRate), channels: Int(block.channels))
+                stream.converter = try BoundedPCMStreamConverter(sourceRate: Double(block.sample_rate), channels: Int(block.channels))
             }
-            guard stream.sourceRate == Double(block.sampleRate), stream.channels == Int(block.channels) else {
+            guard stream.sourceRate == Double(block.sample_rate), stream.channels == Int(block.channels) else {
                 throw PumpError.formatChanged
             }
             if let expected = stream.expectedNextInputNs {
                 let delta = block.host_start_ns >= expected ? block.host_start_ns - expected : expected - block.host_start_ns
                 guard delta <= 2_000_000 else { throw PumpError.clockDiscontinuity }
             }
-            let inputNs = UInt64(block.frameCount).multipliedReportingOverflow(by: 1_000_000_000)
+            let inputNs = UInt64(block.frame_count).multipliedReportingOverflow(by: 1_000_000_000)
             guard !inputNs.overflow else { throw PumpError.invalidTimestamp }
-            let nextNs = block.host_start_ns.addingReportingOverflow(inputNs.partialValue / UInt64(block.sampleRate))
+            let nextNs = block.host_start_ns.addingReportingOverflow(inputNs.partialValue / UInt64(block.sample_rate))
             guard !nextNs.overflow else { throw PumpError.invalidTimestamp }
             stream.expectedNextInputNs = nextNs.partialValue
-            let n = Int(block.frameCount)
+            let n = Int(block.frame_count)
             var interleaved = [Float](repeating: 0, count: n * Int(block.channels))
             if block.channels == 1 {
                 for index in 0..<n { interleaved[index] = left[index] }

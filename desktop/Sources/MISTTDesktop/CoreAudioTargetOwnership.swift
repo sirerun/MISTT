@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Security
 
-struct ProcessIncarnation: Equatable {
+struct ProcessIncarnation: Equatable, Sendable {
     let pid: pid_t
     let parentPID: pid_t
     let uid: uid_t
@@ -13,13 +13,13 @@ struct ProcessIncarnation: Equatable {
     let executablePath: String
 }
 
-struct RunningOwnerApplication: Equatable {
+struct RunningOwnerApplication: Equatable, Sendable {
     let bundleIdentifier: String
     let pid: pid_t
     let bundlePath: String
 }
 
-struct LiveCodeIdentity: Equatable {
+struct LiveCodeIdentity: Equatable, Sendable {
     let signingIdentifier: String
     let teamIdentifier: String
     let bundleIdentifier: String?
@@ -27,12 +27,12 @@ struct LiveCodeIdentity: Equatable {
     let appleGenericTrustValidated: Bool
 }
 
-struct CodeSignatureExpectation: Equatable {
+struct CodeSignatureExpectation: Equatable, Sendable {
     let signingIdentifier: String
     let teamIdentifier: String
 }
 
-struct VerifiedHelperTarget: Equatable {
+struct VerifiedHelperTarget: Equatable, Sendable {
     let audioClient: AudioClient
     let ownerApplication: RunningOwnerApplication
     let ownerProcess: ProcessIncarnation
@@ -51,13 +51,13 @@ protocol CoreAudioOwnershipReading {
 }
 
 struct CoreAudioTargetOwnership {
-    struct HelperAllowlist: Equatable {
+    struct HelperAllowlist: Equatable, Sendable {
         let relativeExecutablePath: String
         let signingIdentifier: String
         let teamIdentifier: String
     }
 
-    struct Policy: Equatable {
+    struct Policy: Equatable, Sendable {
         let ownerBundleIdentifier: String
         let ownerTeamIdentifier: String
         let helpers: [HelperAllowlist]
