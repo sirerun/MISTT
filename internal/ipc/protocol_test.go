@@ -97,7 +97,7 @@ func TestFramedReaderDecodesControlAndMST1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control := []byte(`{"type":"heartbeat","counter":1}`)
+	control := []byte(`{"type":"heartbeat","counter":1}` + "\n")
 	var wire bytes.Buffer
 	write := func(kind byte, payload []byte) {
 		binary.Write(&wire, binary.BigEndian, uint32(len(payload)+1))
@@ -114,6 +114,17 @@ func TestFramedReaderDecodesControlAndMST1(t *testing.T) {
 	e, err = r.ReadEvent()
 	if err != nil || e.Frame == nil || e.Frame.Source != audio.CallAudio || e.Frame.Samples[1] != -4 {
 		t.Fatalf("frame event=%+v err=%v", e, err)
+	}
+}
+
+func TestFramedReaderRequiresControlLF(t *testing.T) {
+	control := []byte(`{"type":"heartbeat","counter":1}`)
+	var wire bytes.Buffer
+	binary.Write(&wire, binary.BigEndian, uint32(len(control)+1))
+	wire.WriteByte(1)
+	wire.Write(control)
+	if _, err := NewReader(&wire).ReadEvent(); err == nil {
+		t.Fatal("accepted control event without its required LF terminator")
 	}
 }
 
