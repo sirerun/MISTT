@@ -202,6 +202,42 @@ class ReleaseMetadataTest(unittest.TestCase):
                 tools.establish_distribution_tag("public-owner/mistt-dist", "v0.1.0", "b" * 40)
             mutate.assert_not_called()
 
+    def test_release_lookup_requires_explicit_404_for_absence(self):
+        for status_text in ("(HTTP 401)", "(HTTP 403)", "(HTTP 429)", "(HTTP 500)", "network timeout"):
+            with self.subTest(status=status_text), \
+                 patch.object(tools.subprocess, "run", return_value=subprocess.CompletedProcess(
+                     args=[], returncode=1, stdout="", stderr=status_text)):
+                with self.assertRaisesRegex(ValueError, "Cannot establish release absence"):
+                    tools.require_release_absent("public-owner/mistt-dist", "v0.1.0")
+        result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="gh: Not Found (HTTP 404)")
+        with patch.object(tools.subprocess, "run", return_value=result):
+            self.assertIsNone(tools.require_release_absent("public-owner/mistt-dist", "v0.1.0"))
+        existing = subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
+        with patch.object(tools.subprocess, "run", return_value=existing):
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                tools.require_release_absent("public-owner/mistt-dist", "v0.1.0")
+
+    def test_publish_release_lookup_failure_stops_before_tag_or_mutation(self):
+        manifest = {"source_sha": "a" * 40, "distribution_commit_sha": "b" * 40,
+                    "repository": "public-owner/mistt-dist", "version": "0.1.0",
+                    "build": "1", "archive": self.archive.name}
+        api_outputs = [json.dumps({"permissions": {"push": True}}), "[]"]
+        failed_lookup = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="(HTTP 403)")
+        with patch.object(tools, "artifact_root", return_value=self.root), \
+             patch.object(tools, "verify_artifacts", return_value=manifest), \
+             patch.object(tools, "require_release_source", return_value="a" * 40), \
+             patch.object(tools, "validate_distribution_target"), \
+             patch.object(tools, "required", side_effect=lambda key: {
+                 "MISTT_TAP_REPOSITORY": "public-owner/homebrew-tap", "MISTT_TAP_TOKEN": "test-token"
+             }[key]), \
+             patch.object(tools, "run", side_effect=api_outputs) as command, \
+             patch.object(tools.subprocess, "run", return_value=failed_lookup), \
+             patch.object(tools, "establish_distribution_tag") as tag:
+            with self.assertRaisesRegex(ValueError, "Cannot establish release absence"):
+                tools.publish(self.root)
+            tag.assert_not_called()
+            self.assertFalse(any("POST" in call.args for call in command.call_args_list))
+
     def test_new_tag_targets_only_preexisting_distribution_commit(self):
         result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="(HTTP 404)")
         with patch.object(tools.subprocess, "run", return_value=result), patch.object(tools, "run") as mutate:

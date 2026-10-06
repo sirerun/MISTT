@@ -153,6 +153,20 @@ def validate_embedded_feed(info: dict, expected_feed: str) -> None:
         raise ValueError("Embedded update feed does not match the selected distribution repository")
 
 
+def require_release_absent(repo: str, tag: str) -> None:
+    """Only an explicit GitHub 404 proves absence; all other lookup failures block."""
+    try:
+        result = subprocess.run(["gh", "api", f"repos/{repo}/releases/tags/{tag}"],
+                                text=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError("Cannot establish release absence") from None
+    if result.returncode == 0:
+        raise ValueError("Release already exists; refusing replacement")
+    if "(HTTP 404)" in result.stderr:
+        return
+    raise ValueError("Cannot establish release absence")
+
+
 def artifact_root(path: Path) -> Path:
     path = path.resolve()
     allowed = Path(required("RUNNER_TEMP")) if os.environ.get("GITHUB_ACTIONS") == "true" else Path("/Volumes/BuildOffload")
@@ -421,8 +435,7 @@ def publish(directory: Path) -> None:
             raise ValueError("Release build number must increase over the previous stable release")
     # Existing tags/releases are never clobbered. Draft assets exist before stable feed visibility.
     tag = f'v{manifest["version"]}'
-    if subprocess.run(["gh", "release", "view", tag, "--repo", repo], capture_output=True, timeout=30).returncode == 0:
-        raise ValueError("Release already exists; refusing replacement")
+    require_release_absent(repo, tag)
     cask_endpoint = f"repos/{tap}/contents/Casks/mistt.rb"
     lookup = subprocess.run(["gh", "api", cask_endpoint], env=tap_env, text=True, capture_output=True, timeout=30)
     if lookup.returncode and "(HTTP 404)" not in lookup.stderr:
