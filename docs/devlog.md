@@ -308,3 +308,5 @@ Independent Go and native reviewers accepted final bounded CPU8 qualification an
 Temporary native manifest independently accepted as paper only; executable runner/cleanup and actual desktop-config binding remain missing. Added T2.62–T2.64 implementation/verification/independent-review prerequisites and assigned bounded protected runner work without provider execution or audio capture.
 
 Read-only advisory triage found local gRPC transport denial-of-service exposure; unused authorization/xDS paths do not establish reachable auth bypass. Added T2.65–T2.70 scoped dependency remediation with full verification/review/merge/landed gates. Preserve current signed A/B and gateway proofs; final app artifacts need the patched transport dependency.
+
+Transport coding complete in draftPR17; verification/merge remains gated. Independent review narrowed current exposure to fragmented DATA frames; Rapid Reset was already fixed in the prior version. Added T3.28–T3.32 public-distribution source lifecycle so a release-only destination can preserve private source and explicit public tag provenance, with no external action until owner hosting choice.
