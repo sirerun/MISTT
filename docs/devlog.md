@@ -304,3 +304,5 @@ Exact clean d02 source passed Go normal/vet/race, desktop Swift25 and native-pre
 Actual corrected CPU8 GPU qualification completed with passing composite gates and owned cleanup; independent evidence interpretation remains pending. Distribution inspection found the embedded feed points at private source releases, so public release-only hosting versus repository visibility is an explicit owner decision before publication/update acceptance. Signed A/B remain preserved and unpublished.
 
 Independent Go and native reviewers accepted final bounded CPU8 qualification and reconciled client-only geometry labels against actual complete server telemetry. T5.24/T5.25 now close their exact synthetic bootstrap scope, with immutable receipt/result preserved.
+
+Temporary native manifest independently accepted as paper only; executable runner/cleanup and actual desktop-config binding remain missing. Added T2.62–T2.64 implementation/verification/independent-review prerequisites and assigned bounded protected runner work without provider execution or audio capture.
