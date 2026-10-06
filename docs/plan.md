@@ -51,7 +51,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E2 -- Working native dual-source macOS MVP  -> docs/plans/E2.md  (47/62)
 
-### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (14/28)
+### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (18/28)
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
