@@ -300,3 +300,7 @@ Signed/notarized A and B reuse clean d02 source; independent signature, staple, 
 ## 2026-10-06 UTC — full local validation and runtime-wrapper corrections
 
 Exact clean d02 source passed Go normal/vet/race, desktop Swift25 and native-preflight68 checks under fresh load/build admission. Independent review accepts the protected script/log evidence. Final-source preparation and CPU gates T5.21–T5.23 are reconciled. Two owned GPU attempts failed before measurements and cleaned up; preserve their failed receipts. T5.26–T5.28 now track narrow private wrapper input corrections, default-path verification and independent review before T5.24 can retry. No production, physical audio or automatic-update delivery acceptance is claimed.
+
+Actual corrected CPU8 GPU qualification completed with passing composite gates and owned cleanup; independent evidence interpretation remains pending. Distribution inspection found the embedded feed points at private source releases, so public release-only hosting versus repository visibility is an explicit owner decision before publication/update acceptance. Signed A/B remain preserved and unpublished.
+
+Independent Go and native reviewers accepted final bounded CPU8 qualification and reconciled client-only geometry labels against actual complete server telemetry. T5.24/T5.25 now close their exact synthetic bootstrap scope, with immutable receipt/result preserved.
