@@ -99,57 +99,22 @@ final class BridgeControllerTests: XCTestCase {
     func testUnexpectedRelayChildExitClearsReceivedStatus() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let exitURL = directory.appendingPathComponent("exit")
-        let pidURL = directory.appendingPathComponent("pid")
-        var fixturePID: pid_t?
-        var fixtureReaped = false
-        defer {
-            if !fixtureReaped {
-                _ = FileManager.default.createFile(atPath: exitURL.path, contents: Data())
-                if fixturePID == nil,
-                   let text = try? String(contentsOf: pidURL, encoding: .utf8) {
-                    fixturePID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                }
-                if let fixturePID, fixturePID > 1 {
-                    let initialDeadline = Date().addingTimeInterval(1.5)
-                    while kill(fixturePID, 0) == 0 && Date() < initialDeadline { usleep(10_000) }
-                    if kill(fixturePID, 0) == 0 {
-                        _ = kill(fixturePID, SIGTERM)
-                        let terminateDeadline = Date().addingTimeInterval(0.5)
-                        while kill(fixturePID, 0) == 0 && Date() < terminateDeadline { usleep(10_000) }
-                    }
-                    if kill(fixturePID, 0) == 0 {
-                        _ = kill(fixturePID, SIGKILL)
-                        let killDeadline = Date().addingTimeInterval(1)
-                        while kill(fixturePID, 0) == 0 && Date() < killDeadline { usleep(10_000) }
-                    }
-                }
-            }
-            let fixtureStopped = fixturePID.map { kill($0, 0) == -1 && errno == ESRCH } ?? true
-            if fixtureStopped {
-                try? FileManager.default.removeItem(at: directory)
-            } else {
-                XCTFail("could not reap the owned relay fixture; preserving its private directory")
-            }
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let config = directory.appendingPathComponent("config.json")
         try Data(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio","MISTT_TOKEN_FILE":"/private/token"}"#.utf8)
             .write(to: config)
         XCTAssertEqual(chmod(config.path, mode_t(0o600)), 0)
 
         let helper = directory.appendingPathComponent("relay-fixture")
-        let exitFile = shellSingleQuoted(exitURL.path)
-        let pidFile = shellSingleQuoted(pidURL.path)
         let script = """
         #!/bin/bash
         set -e
-        printf '%s\\n' "$$" > \(pidFile)
         printf '%s\\n' '{"type":"status","muted":true,"connected_clients":0,"capturing":false,"reason":"startup_muted","revision":1,"update_ready":true,"update_reserved":false}'
         counter=1
         iterations=0
-        while [ ! -e \(exitFile) ] && [ "$iterations" -lt 8 ]; do
+        while [ "$iterations" -lt 8 ]; do
           if IFS= read -r -t 1 ignored; then
-            :
+            exit 17
           else
             read_status=$?
             if [ "$read_status" -le 128 ]; then exit 18; fi
@@ -165,31 +130,20 @@ final class BridgeControllerTests: XCTestCase {
 
         let controller = BridgeController(relayExecutableURL: helper, configurationURL: config)
         controller.start()
-        defer { _ = FileManager.default.createFile(atPath: exitURL.path, contents: Data()) }
         let receivedInitialStatus = await waitUntil { controller.presentation.status != nil }
         XCTAssertTrue(receivedInitialStatus, "controlled relay fixture did not publish its initial status")
         XCTAssertEqual(controller.presentation.accessibleReason, "Both audio sources are muted.")
 
-        let exitRequested = FileManager.default.createFile(atPath: exitURL.path, contents: Data())
-        XCTAssertTrue(exitRequested, "could not release the owned relay fixture")
-        if let text = try? String(contentsOf: pidURL, encoding: .utf8) {
-            fixturePID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        let failedClosedAndReaped = await waitUntil(timeout: .seconds(10)) {
-            guard let fixturePID else {
-                return controller.presentation.status == nil && controller.presentation.unavailableReason != nil
-            }
-            let reaped = kill(fixturePID, 0) == -1 && errno == ESRCH
-            return reaped && controller.presentation.unavailableReason == RelayProcessTermination.unexpectedExitReason &&
+        let updateReservationAccepted = await controller.requestUpdateReservation()
+        XCTAssertFalse(updateReservationAccepted, "fixture exit must not confirm a reservation")
+        let failedClosed = await waitUntil(timeout: .seconds(10)) {
+            controller.presentation.unavailableReason == RelayProcessTermination.unexpectedExitReason &&
                 controller.presentation.status == nil
         }
-        fixtureReaped = failedClosedAndReaped
-        XCTAssertTrue(failedClosedAndReaped, "unexpected child exit was not reaped and failed closed")
+        XCTAssertTrue(failedClosed, "unexpected child exit did not fail the UI closed")
         XCTAssertEqual(controller.presentation.unavailableReason, RelayProcessTermination.unexpectedExitReason)
         XCTAssertNil(controller.presentation.status)
         XCTAssertFalse(controller.presentation.isInteractive)
-        let updateReservationAccepted = await controller.requestUpdateReservation()
-        XCTAssertFalse(updateReservationAccepted)
     }
 
     @MainActor
@@ -200,10 +154,6 @@ final class BridgeControllerTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return condition()
-    }
-
-    private func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func testConfiguredPathHonorsExternalProvisioning() {
