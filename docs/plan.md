@@ -2,7 +2,7 @@
 
 ## Current checkpoint — 2026-10-06
 
-T2.67 local Go tests, vet and the sole race lane passed on exact head `4febadd2c6cc54611c635ba1ea3dc160d2fc05ac`; T2.68 independent review accepted and PR #17 landed at `bc91a23776b2bbeac9d7cc69cd8bb937a111cd4f`. T2.70 remains open because the existing signed A/B artifacts retain the earlier source provenance. The temporary native runner T2.62–T2.64 is implemented, passes 29 offline tests and has independent static/lifecycle acceptance; default invocation is preparation-only. No provider execution, native app launch or audio capture occurred. These records do not satisfy physical MVP, replacement signed-artifact, installation or update acceptance. See [E2 plan](plans/E2.md) for exact evidence.
+T2.67 local Go tests, vet and the sole race lane passed on exact head `4febadd2c6cc54611c635ba1ea3dc160d2fc05ac`; T2.68 independent review accepted and PR #17 landed at `bc91a23776b2bbeac9d7cc69cd8bb937a111cd4f`. T2.70 remains open because the existing signed A/B artifacts retain the earlier source provenance. The temporary native runner T2.62–T2.64 is implemented, passes 29 offline tests and has independent static/lifecycle acceptance; default invocation is preparation-only. The temporary runner was not executed against a provider, did not launch the app, and did not capture audio. These records do not satisfy physical MVP, replacement signed-artifact, installation or update acceptance. See [E2 plan](plans/E2.md) for exact evidence.
 
 ## Current execution checkpoint — 2026-10-05
 
