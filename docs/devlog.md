@@ -306,3 +306,5 @@ Actual corrected CPU8 GPU qualification completed with passing composite gates a
 Independent Go and native reviewers accepted final bounded CPU8 qualification and reconciled client-only geometry labels against actual complete server telemetry. T5.24/T5.25 now close their exact synthetic bootstrap scope, with immutable receipt/result preserved.
 
 Temporary native manifest independently accepted as paper only; executable runner/cleanup and actual desktop-config binding remain missing. Added T2.62–T2.64 implementation/verification/independent-review prerequisites and assigned bounded protected runner work without provider execution or audio capture.
+
+Read-only advisory triage found local gRPC transport denial-of-service exposure; unused authorization/xDS paths do not establish reachable auth bypass. Added T2.65–T2.70 scoped dependency remediation with full verification/review/merge/landed gates. Preserve current signed A/B and gateway proofs; final app artifacts need the patched transport dependency.
