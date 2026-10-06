@@ -83,6 +83,76 @@ def validate_https(url: str) -> None:
         raise ValueError("Release/feed URL must be HTTPS without credentials or fragment")
 
 
+def canonical_feed_url(repo: str) -> str:
+    validate_repository(repo)
+    return f"https://github.com/{repo}/releases/latest/download/appcast.xml"
+
+
+def resolve_distribution_commit_sha(repo: str, source_sha: str, source_repo: str,
+                                   configured: str | None = None) -> str:
+    validate_repository(repo)
+    validate_repository(source_repo)
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError("Release source must be an exact SHA")
+    target = configured or (source_sha if repo.casefold() == source_repo.casefold() else "")
+    if not re.fullmatch(r"[0-9a-f]{40}", target):
+        raise ValueError("A separate public distribution repository requires MISTT_DISTRIBUTION_COMMIT_SHA")
+    if repo.casefold() != source_repo.casefold() and target == source_sha:
+        raise ValueError("A public distribution commit must be selected separately from private source provenance")
+    return target
+
+
+def source_repository() -> str:
+    remote = run("git", "remote", "get-url", "origin", cwd=ROOT)
+    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?", remote)
+    if not match:
+        raise ValueError("Cannot identify the source repository from origin")
+    repo = match.group(1)
+    validate_repository(repo)
+    return repo
+
+
+def validate_distribution_target(repo: str, target_sha: str) -> None:
+    """Read-only public/writable/reachable preflight before any publication mutation."""
+    owner, name = repo.split("/", 1)
+    repository = json.loads(run("gh", "api", f"repos/{owner}/{name}"))
+    if repository.get("visibility") != "public" or repository.get("permissions", {}).get("push") is not True:
+        raise ValueError("Distribution repository must be public and writable")
+    branch = repository.get("default_branch")
+    if not isinstance(branch, str) or not branch:
+        raise ValueError("Distribution repository has no valid default branch")
+    commit = json.loads(run("gh", "api", f"repos/{owner}/{name}/commits/{target_sha}"))
+    if commit.get("sha") != target_sha:
+        raise ValueError("Distribution commit does not exist at the selected SHA")
+    base = urllib.parse.quote(branch, safe="")
+    comparison = json.loads(run("gh", "api", f"repos/{owner}/{name}/compare/{base}...{target_sha}"))
+    merge_base = comparison.get("merge_base_commit", {})
+    if (comparison.get("status") not in {"behind", "identical"}
+            or comparison.get("ahead_by") != 0
+            or not isinstance(merge_base, dict) or merge_base.get("sha") != target_sha):
+        raise ValueError("Distribution commit must be reachable from the public default branch")
+
+
+def establish_distribution_tag(repo: str, tag: str, distribution_sha: str) -> None:
+    ref_endpoint = f"repos/{repo}/git/ref/tags/{tag}"
+    tag_lookup = subprocess.run(["gh", "api", ref_endpoint], text=True,
+                                capture_output=True, timeout=30)
+    if tag_lookup.returncode == 0:
+        ref = json.loads(tag_lookup.stdout)["object"]
+        if ref.get("type") != "commit" or ref.get("sha") != distribution_sha:
+            raise ValueError("Existing release tag identifies a different distribution commit")
+    elif "(HTTP 404)" in tag_lookup.stderr:
+        run("gh", "api", f"repos/{repo}/git/refs", "--method", "POST",
+            "-f", f"ref=refs/tags/{tag}", "-f", f"sha={distribution_sha}")
+    else:
+        raise ValueError("Cannot establish release tag ownership")
+
+
+def validate_embedded_feed(info: dict, expected_feed: str) -> None:
+    if info.get("SUFeedURL") != expected_feed:
+        raise ValueError("Embedded update feed does not match the selected distribution repository")
+
+
 def artifact_root(path: Path) -> Path:
     path = path.resolve()
     allowed = Path(required("RUNNER_TEMP")) if os.environ.get("GITHUB_ACTIONS") == "true" else Path("/Volumes/BuildOffload")
@@ -95,9 +165,12 @@ def artifact_root(path: Path) -> Path:
 
 
 def generate_metadata(archive: Path, signature: str, version: str, build: str,
-                      repo: str, output: Path) -> dict:
+                      repo: str, output: Path, *, source_sha: str,
+                      distribution_commit_sha: str) -> dict:
     validate_version(version, build)
     validate_repository(repo)
+    distribution_commit_sha = resolve_distribution_commit_sha(
+        repo, source_sha, source_repository(), distribution_commit_sha)
     try:
         decoded = base64.b64decode(signature, validate=True)
     except ValueError as exc:
@@ -139,7 +212,9 @@ end
     (output / "mistt.rb").write_text(cask)
     manifest = {"version": version, "build": build, "architecture": "arm64", "minimum_macos": "14.2",
                 "archive": filename, "sha256": sha, "length": archive.stat().st_size,
-                "archive_signature": signature, "download_url": url, "repository": repo}
+                "archive_signature": signature, "download_url": url, "repository": repo,
+                "feed_url": canonical_feed_url(repo), "source_sha": source_sha,
+                "distribution_commit_sha": distribution_commit_sha}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
@@ -177,8 +252,14 @@ def build(version: str, build_number: str, output: Path) -> Path:
     key = required("MISTT_SPARKLE_PUBLIC_KEY")
     if len(base64.b64decode(key, validate=True)) != 32:
         raise ValueError("Sparkle public key must be exactly 32 bytes")
-    feed = required("MISTT_FEED_URL")
-    validate_https(feed)
+    repo = required("MISTT_RELEASE_REPOSITORY")
+    validate_repository(repo)
+    distribution_sha = resolve_distribution_commit_sha(
+        repo, source_sha, source_repository(), os.environ.get("MISTT_DISTRIBUTION_COMMIT_SHA"))
+    feed = canonical_feed_url(repo)
+    configured_feed = os.environ.get("MISTT_FEED_URL")
+    if configured_feed and configured_feed != feed:
+        raise ValueError("MISTT_FEED_URL must match the selected public distribution repository")
     app = output / "MISTT.app"
     if app.exists():
         raise ValueError("Refusing to overwrite an existing application artifact")
@@ -251,7 +332,8 @@ def build(version: str, build_number: str, output: Path) -> Path:
     key_args = ("--ed-key-file", required("MISTT_SPARKLE_KEY_FILE"))
     signature = run(sign_tool, *key_args, "-p", str(zip_path))
     verify_embedded_key(key, signature, zip_path)
-    generate_metadata(zip_path, signature, version, build_number, required("MISTT_RELEASE_REPOSITORY"), output)
+    generate_metadata(zip_path, signature, version, build_number, repo, output,
+                      source_sha=source_sha, distribution_commit_sha=distribution_sha)
     run(sign_tool, *key_args, str(output / "appcast.xml"))
     run(sign_tool, *key_args, "--verify", str(output / "appcast.xml"))
     run(sign_tool, *key_args, "--verify", str(zip_path), signature)
@@ -273,6 +355,25 @@ def verify_artifacts(directory: Path) -> dict:
     archive = directory / manifest["archive"]
     if archive.name != f'MISTT-{manifest["version"]}-arm64.zip' or digest(archive) != manifest["sha256"]:
         raise ValueError("Release artifact was modified or renamed")
+    expected_feed = canonical_feed_url(repo)
+    if manifest.get("feed_url") != expected_feed:
+        raise ValueError("Release manifest feed URL does not match the selected distribution repository")
+    resolved_distribution = resolve_distribution_commit_sha(
+        repo, manifest.get("source_sha", ""), source_repository(),
+        manifest.get("distribution_commit_sha"))
+    if manifest.get("distribution_commit_sha") != resolved_distribution:
+        raise ValueError("Release manifest source/distribution binding is invalid")
+    expected_download = f"https://github.com/{repo}/releases/download/v{manifest['version']}/{manifest['archive']}"
+    if manifest.get("download_url") != expected_download:
+        raise ValueError("Release archive URL does not match the selected distribution repository")
+    appcast = ET.parse(directory / "appcast.xml")
+    enclosure = appcast.find("./channel/item/enclosure")
+    if enclosure is None or enclosure.attrib.get("url") != expected_download:
+        raise ValueError("Appcast archive URL does not match the selected distribution repository")
+    cask = (directory / "mistt.rb").read_text()
+    if (f'url "{expected_download}"' not in cask
+            or f'homepage "https://github.com/{repo}"' not in cask):
+        raise ValueError("Cask URLs do not match the selected distribution repository")
     sign_tool = required("MISTT_SPARKLE_SIGN_TOOL")
     key_args = ("--ed-key-file", required("MISTT_SPARKLE_KEY_FILE"))
     run(sign_tool, *key_args, "--verify", str(archive), manifest["archive_signature"])
@@ -284,6 +385,7 @@ def verify_artifacts(directory: Path) -> dict:
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         if (info.get("CFBundleIdentifier"), info.get("CFBundleShortVersionString"), info.get("CFBundleVersion")) != ("com.sirerun.mistt", manifest["version"], manifest["build"]):
             raise ValueError("Published metadata does not identify the assessed app")
+        validate_embedded_feed(info, expected_feed)
         verify_embedded_key(info.get("SUPublicEDKey", ""), manifest["archive_signature"], archive)
         run("codesign", "--verify", "--deep", "--strict", str(app))
         run("xcrun", "stapler", "validate", str(app))
@@ -297,6 +399,10 @@ def publish(directory: Path) -> None:
     if manifest.get("source_sha") != require_release_source():
         raise ValueError("Published artifact source differs from the reviewed landed SHA")
     repo = manifest["repository"]
+    distribution_sha = manifest.get("distribution_commit_sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", distribution_sha):
+        raise ValueError("Missing exact public distribution commit")
+    validate_distribution_target(repo, distribution_sha)
     archive = directory / manifest["archive"]
     tap = required("MISTT_TAP_REPOSITORY")
     validate_repository(tap)
@@ -324,17 +430,7 @@ def publish(directory: Path) -> None:
     source_sha = manifest.get("source_sha", "")
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise ValueError("Missing exact reviewed source revision")
-    ref_endpoint = f"repos/{repo}/git/ref/tags/{tag}"
-    tag_lookup = subprocess.run(["gh", "api", ref_endpoint], text=True, capture_output=True, timeout=30)
-    if tag_lookup.returncode == 0:
-        ref = json.loads(tag_lookup.stdout)["object"]
-        if ref.get("type") != "commit" or ref.get("sha") != source_sha:
-            raise ValueError("Existing release tag identifies a different source revision")
-    elif "(HTTP 404)" in tag_lookup.stderr:
-        run("gh", "api", f"repos/{repo}/git/refs", "--method", "POST",
-            "-f", f"ref=refs/tags/{tag}", "-f", f"sha={source_sha}")
-    else:
-        raise ValueError("Cannot establish release tag ownership")
+    establish_distribution_tag(repo, tag, distribution_sha)
     run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--draft", "--prerelease", "--title", f"MISTT {manifest['version']}",
         "--notes", "Signed Apple Silicon release. Starts muted; requires macOS 14.2+.", str(archive),
         str(directory / "appcast.xml"), str(directory / "manifest.json"), str(directory / "mistt.rb"))

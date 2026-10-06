@@ -27,6 +27,13 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.archive = self.root / "MISTT-0.1.0-arm64.zip"
         self.archive.write_bytes(b"synthetic metadata test only, not a release")
         self.signature = base64.b64encode(bytes(64)).decode()
+    def generate(self, *args, source_repo="sirerun/MISTT", distribution_sha=None):
+        repo = args[4]
+        source_sha = "a" * 40
+        target = distribution_sha or (source_sha if repo == source_repo else "b" * 40)
+        with patch.object(tools, "source_repository", return_value=source_repo):
+            return tools.generate_metadata(*args, source_sha=source_sha,
+                                           distribution_commit_sha=target)
 
     def test_bundle_contains_declared_microphone_icon(self):
         app = self.root / "MISTT.app"
@@ -87,15 +94,18 @@ class ReleaseMetadataTest(unittest.TestCase):
     def test_recovery_verification_rejects_modified_archive_before_commands(self):
         (self.root / "manifest.json").write_text(json.dumps({
             "version": "0.1.0", "build": "1", "repository": "sirerun/MISTT",
+            "feed_url": tools.canonical_feed_url("sirerun/MISTT"),
+            "source_sha": "a" * 40, "distribution_commit_sha": "a" * 40,
+            "download_url": f"https://github.com/sirerun/MISTT/releases/download/v0.1.0/{self.archive.name}",
             "archive": self.archive.name, "sha256": "0" * 64,
         }))
-        with patch.object(tools, "run") as command:
+        with patch.object(tools, "source_repository", return_value="sirerun/MISTT"), patch.object(tools, "run") as command:
             with self.assertRaisesRegex(ValueError, "modified or renamed"):
                 tools.verify_artifacts(self.root)
             command.assert_not_called()
 
     def test_enclosure_and_cask_bind_same_artifact(self):
-        manifest = tools.generate_metadata(self.archive, self.signature, "0.1.0", "1", "sirerun/MISTT", self.root)
+        manifest = self.generate(self.archive, self.signature, "0.1.0", "1", "sirerun/MISTT", self.root)
         enclosure = ET.parse(self.root / "appcast.xml").find("channel/item/enclosure")
         self.assertEqual(int(enclosure.attrib["length"]), self.archive.stat().st_size)
         self.assertEqual(enclosure.attrib["url"], manifest["download_url"])
@@ -106,20 +116,122 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertIn("auto_updates true", cask)
         self.assertIn('depends_on macos: "14.2"', cask)
         self.assertEqual(manifest["minimum_macos"], "14.2")
+        self.assertEqual(manifest["feed_url"], "https://github.com/sirerun/MISTT/releases/latest/download/appcast.xml")
+        self.assertEqual(manifest["source_sha"], "a" * 40)
+        self.assertEqual(manifest["distribution_commit_sha"], "a" * 40)
         self.assertNotIn("zap", cask)
+
+    def test_separate_public_distribution_keeps_source_provenance_distinct(self):
+        manifest = self.generate(self.archive, self.signature, "0.1.0", "1",
+                                 "public-owner/mistt-dist", self.root)
+        self.assertEqual(manifest["source_sha"], "a" * 40)
+        self.assertEqual(manifest["distribution_commit_sha"], "b" * 40)
+        self.assertIn("https://github.com/public-owner/mistt-dist/releases/download/", manifest["download_url"])
+        self.assertEqual(manifest["feed_url"], "https://github.com/public-owner/mistt-dist/releases/latest/download/appcast.xml")
+        self.assertEqual(ET.parse(self.root / "appcast.xml").find("channel/link").text,
+                         "https://github.com/public-owner/mistt-dist")
+        self.assertIn('homepage "https://github.com/public-owner/mistt-dist"',
+                      (self.root / "mistt.rb").read_text())
+
+    def test_manifest_feed_relabel_is_rejected_before_signature_commands(self):
+        manifest = self.generate(self.archive, self.signature, "0.1.0", "1",
+                                 "public-owner/mistt-dist", self.root)
+        manifest["feed_url"] = "https://github.com/private-owner/MISTT/releases/latest/download/appcast.xml"
+        (self.root / "manifest.json").write_text(json.dumps(manifest))
+        with patch.object(tools, "source_repository", return_value="sirerun/MISTT"), \
+             patch.object(tools, "run") as command:
+            with self.assertRaisesRegex(ValueError, "feed URL"):
+                tools.verify_artifacts(self.root)
+            command.assert_not_called()
+
+    def test_signed_bundle_feed_must_match_selected_public_repository(self):
+        with self.assertRaisesRegex(ValueError, "Embedded update feed"):
+            tools.validate_embedded_feed(
+                {"SUFeedURL": "https://github.com/private-owner/MISTT/releases/latest/download/appcast.xml"},
+                "https://github.com/public-owner/mistt-dist/releases/latest/download/appcast.xml")
+        tools.validate_embedded_feed(
+            {"SUFeedURL": "https://github.com/public-owner/mistt-dist/releases/latest/download/appcast.xml"},
+            "https://github.com/public-owner/mistt-dist/releases/latest/download/appcast.xml")
+
+    def test_distribution_sha_defaults_only_for_same_repository(self):
+        source = "a" * 40
+        self.assertEqual(tools.resolve_distribution_commit_sha("sirerun/MISTT", source,
+                                                                 "sirerun/MISTT"), source)
+        with self.assertRaisesRegex(ValueError, "requires MISTT_DISTRIBUTION_COMMIT_SHA"):
+            tools.resolve_distribution_commit_sha("public-owner/mistt-dist", source,
+                                                   "sirerun/MISTT")
+        with self.assertRaisesRegex(ValueError, "selected separately"):
+            tools.resolve_distribution_commit_sha("public-owner/mistt-dist", source,
+                                                   "sirerun/MISTT", source)
+
+    def test_public_target_preflight_requires_public_writable_existing_reachable_commit(self):
+        sha = "b" * 40
+        cases = [
+            ([json.dumps({"visibility": "private", "permissions": {"push": True}})], "public and writable"),
+            ([json.dumps({"visibility": "public", "permissions": {"push": False}})], "public and writable"),
+            ([json.dumps({"visibility": "public", "permissions": {"push": True}, "default_branch": "main"}),
+              json.dumps({"sha": "c" * 40})], "does not exist"),
+            ([json.dumps({"visibility": "public", "permissions": {"push": True}, "default_branch": "main"}),
+              json.dumps({"sha": sha}),
+              json.dumps({"status": "behind", "ahead_by": 1, "merge_base_commit": {"sha": "a" * 40}})],
+             "reachable from the public default branch"),
+        ]
+        for outputs, expected in cases:
+            with self.subTest(expected=expected), patch.object(tools, "run", side_effect=outputs) as command:
+                with self.assertRaisesRegex(ValueError, expected):
+                    tools.validate_distribution_target("public-owner/mistt-dist", sha)
+                self.assertTrue(all(call.args[0:2] == ("gh", "api") for call in command.call_args_list))
+
+    def test_public_target_ancestor_of_default_branch_is_reachable(self):
+        sha = "b" * 40
+        outputs = [json.dumps({"visibility": "public", "permissions": {"push": True},
+                               "default_branch": "main"}),
+                   json.dumps({"sha": sha}),
+                   json.dumps({"status": "behind", "ahead_by": 0,
+                               "merge_base_commit": {"sha": sha}})]
+        with patch.object(tools, "run", side_effect=outputs) as command:
+            tools.validate_distribution_target("public-owner/mistt-dist", sha)
+        self.assertEqual(command.call_count, 3)
+
+    def test_existing_wrong_distribution_tag_fails_without_mutation(self):
+        result = subprocess.CompletedProcess(args=[], returncode=0,
+                                             stdout=json.dumps({"object": {"type": "commit", "sha": "a" * 40}}),
+                                             stderr="")
+        with patch.object(tools.subprocess, "run", return_value=result), patch.object(tools, "run") as mutate:
+            with self.assertRaisesRegex(ValueError, "different distribution commit"):
+                tools.establish_distribution_tag("public-owner/mistt-dist", "v0.1.0", "b" * 40)
+            mutate.assert_not_called()
+
+    def test_new_tag_targets_only_preexisting_distribution_commit(self):
+        result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="(HTTP 404)")
+        with patch.object(tools.subprocess, "run", return_value=result), patch.object(tools, "run") as mutate:
+            tools.establish_distribution_tag("public-owner/mistt-dist", "v0.1.0", "b" * 40)
+            self.assertIn("sha=b" + "b" * 39, mutate.call_args.args)
+
+    def test_publish_stops_at_distribution_preflight_before_any_mutation(self):
+        manifest = {"source_sha": "a" * 40, "distribution_commit_sha": "b" * 40,
+                    "repository": "public-owner/mistt-dist", "version": "0.1.0"}
+        with patch.object(tools, "artifact_root", return_value=self.root), \
+             patch.object(tools, "verify_artifacts", return_value=manifest), \
+             patch.object(tools, "require_release_source", return_value="a" * 40), \
+             patch.object(tools, "validate_distribution_target", side_effect=ValueError("private target")), \
+             patch.object(tools, "run") as command:
+            with self.assertRaisesRegex(ValueError, "private target"):
+                tools.publish(self.root)
+            command.assert_not_called()
 
     def test_rejects_invalid_signature_or_archive_identity(self):
         for signature in ["invalid", base64.b64encode(bytes(32)).decode()]:
             with self.assertRaises(ValueError):
-                tools.generate_metadata(self.archive, signature, "0.1.0", "1", "sirerun/MISTT", self.root)
+                self.generate(self.archive, signature, "0.1.0", "1", "sirerun/MISTT", self.root)
         with self.assertRaises(ValueError):
-            tools.generate_metadata(self.archive, self.signature, "0.2.0", "1", "sirerun/MISTT", self.root)
+            self.generate(self.archive, self.signature, "0.2.0", "1", "sirerun/MISTT", self.root)
 
     def test_rejects_interpolated_shell_or_repository_values(self):
         for version, build, repo in [("0.1.0;evil", "1", "sirerun/MISTT"), ("0.1.0", "0", "sirerun/MISTT"),
                                     ("0.1.0", "1", "sirerun/MISTT?token=secret")]:
             with self.assertRaises(ValueError):
-                tools.generate_metadata(self.archive, self.signature, version, build, repo, self.root)
+                self.generate(self.archive, self.signature, version, build, repo, self.root)
 
     def test_feed_credentials_are_rejected(self):
         for url in ["http://example.test/feed.xml", "https://token@example.test/feed.xml", "https://example.test/feed.xml#frag"]:
