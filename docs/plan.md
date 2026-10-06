@@ -1,5 +1,9 @@
 # MISTT dual-source MVP, Homebrew distribution and automatic updates
 
+## Current checkpoint — 2026-10-06
+
+T2.67 local Go tests, vet and the sole race lane passed on exact head `4febadd2c6cc54611c635ba1ea3dc160d2fc05ac`; T2.68 independent review accepted and PR #17 landed at `bc91a23776b2bbeac9d7cc69cd8bb937a111cd4f`. T2.70 remains open because the existing signed A/B artifacts retain the earlier source provenance. The temporary native runner T2.62–T2.64 is implemented, passes 29 offline tests and has independent static/lifecycle acceptance; default invocation is preparation-only. No provider execution, native app launch or audio capture occurred. These records do not satisfy physical MVP, replacement signed-artifact, installation or update acceptance. See [E2 plan](plans/E2.md) for exact evidence.
+
 ## Current execution checkpoint — 2026-10-05
 
 Owner requested source merge and then all remaining delivery. PR #6 merged at `485474f465f519e0d4ad5fdb98d06cbe647c3af2`; independent review confirmed the landed tree exactly equals reviewed head `a13ed196e04eb552bdd5855f8d924583ad0df680`. GitHub rejected rebase for both original and linearized histories; the owner-authorized standard merge preserved the reviewed files and original history without changing repository settings. This closes source landing only, recorded separately in T2.61. T2.5–T2.8 retain their full physical MVP acceptance requirements.
