@@ -59,8 +59,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
 
     func start() {
         guard process == nil else { return }
-        processGeneration &+= 1
-        let token = processGeneration
+        let token = RelayProcessGeneration.begin(&processGeneration)
         revisionGate.reset()
         updateReservationConfirmed = false
         updateReservationRevision = nil
@@ -106,7 +105,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
             heartbeatWatchdog = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(500))
-                    guard let self, self.processGeneration == token else { return }
+                    guard let self, RelayProcessGeneration.isCurrent(token, current: self.processGeneration) else { return }
                     if self.lastHeartbeat.duration(to: .now) > .seconds(2) {
                         self.relayFailed("MISTT relay heartbeat expired.")
                         return
@@ -279,7 +278,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     }
 
     private func receive(_ result: Result<RelayMessage, RelayReadError>, generation: Int) {
-        guard generation == processGeneration else { return }
+        guard RelayProcessGeneration.isCurrent(generation, current: processGeneration) else { return }
         guard case .success(let message) = result else { relayFailed("MISTT relay sent malformed control data."); return }
         switch message {
         case .status(let status):
@@ -376,7 +375,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     }
 
     private func childTerminated(_ child: Process, generation: Int) {
-        guard generation == processGeneration else { return }
+        guard RelayProcessGeneration.invalidate(&processGeneration, terminating: generation) else { return }
         outputHandle?.readabilityHandler = nil
         writer?.close()
         outputHandle = nil; inputPipe = nil; writer = nil; lineReader = nil; process = nil
@@ -391,11 +390,11 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         if !gracefulShutdownCompleted {
             captureDriver.abortForRelayDeath()
             revisionGate.reset()
-            if let failedPresentation = RelayProcessTermination.presentationAfterExit(
-                presentation, gracefulShutdownCompleted: false
-            ) {
-                presentation = failedPresentation
-            }
+        }
+        if let failedPresentation = RelayProcessTermination.presentationAfterExit(
+            presentation, gracefulShutdownCompleted: gracefulShutdownCompleted
+        ) {
+            presentation = failedPresentation
         }
         finishShutdown(clean)
     }
@@ -403,7 +402,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     private func waitForChildExit(_ child: Process, generation: Int) {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard let self, generation == self.processGeneration, child.isRunning else { return }
+            guard let self, RelayProcessGeneration.isCurrent(generation, current: self.processGeneration), child.isRunning else { return }
             self.didForceTerminateRelay = true
             child.terminate()
             try? await Task.sleep(for: .seconds(1))

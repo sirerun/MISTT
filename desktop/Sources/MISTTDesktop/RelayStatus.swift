@@ -95,3 +95,18 @@ enum RelayProcessTermination {
                                  isStarting: false, controlPending: false)
     }
 }
+
+enum RelayProcessGeneration {
+    static func isCurrent(_ token: Int, current: Int) -> Bool { token == current }
+
+    static func begin(_ current: inout Int) -> Int {
+        current &+= 1
+        return current
+    }
+
+    static func invalidate(_ current: inout Int, terminating token: Int) -> Bool {
+        guard isCurrent(token, current: current) else { return false }
+        current &+= 1
+        return true
+    }
+}
