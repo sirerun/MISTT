@@ -387,6 +387,16 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         updateReservationConfirmed = false; updateReservationRevision = nil
         let clean = !didForceTerminateRelay && child.terminationReason == .exit && child.terminationStatus == 0 &&
                     captureDriver.isClosed && revisionGate.latest?.muted == true && revisionGate.latest?.capturing == false
+        let gracefulShutdownCompleted = shutdownCompletion != nil && clean
+        if !gracefulShutdownCompleted {
+            captureDriver.abortForRelayDeath()
+            revisionGate.reset()
+            if let failedPresentation = RelayProcessTermination.presentationAfterExit(
+                presentation, gracefulShutdownCompleted: false
+            ) {
+                presentation = failedPresentation
+            }
+        }
         finishShutdown(clean)
     }
 

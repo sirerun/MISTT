@@ -52,6 +52,93 @@ final class BridgeControllerTests: XCTestCase {
         XCTAssertFalse(RelayShutdownReadiness.isReady(status: stillCapturing, localCaptureClosed: true))
     }
 
+    func testStartupMutedStatusIsNormalAndInteractive() {
+        let status = RelayStatus(muted: true, capturing: false, connectedClients: 0,
+                                 reason: "startup_muted", revision: 1,
+                                 updateReady: true, updateReserved: false)
+        let presentation = RelayPresentation(status: status, unavailableReason: nil,
+                                             isStarting: false, controlPending: false)
+        XCTAssertEqual(presentation.accessibleReason, "Both audio sources are muted.")
+        XCTAssertTrue(presentation.isInteractive)
+    }
+
+    func testRelayTerminationFailsClosedButPreservesGracefulAndExplicitFailures() {
+        let running = RelayStatus(muted: true, capturing: false, connectedClients: 0,
+                                  reason: "startup_muted", revision: 1,
+                                  updateReady: true, updateReserved: false)
+        let current = RelayPresentation(status: running, unavailableReason: nil,
+                                        isStarting: false, controlPending: false)
+        let failed = RelayProcessTermination.presentationAfterExit(current, gracefulShutdownCompleted: false)
+        XCTAssertNil(failed?.status)
+        XCTAssertEqual(failed?.unavailableReason, RelayProcessTermination.unexpectedExitReason)
+        XCTAssertFalse(failed?.isInteractive ?? true)
+
+        XCTAssertNil(RelayProcessTermination.presentationAfterExit(current, gracefulShutdownCompleted: true))
+        let explicitFailure = RelayPresentation(status: nil,
+                                                unavailableReason: "MISTT relay heartbeat expired.",
+                                                isStarting: false, controlPending: false)
+        XCTAssertNil(RelayProcessTermination.presentationAfterExit(explicitFailure,
+                                                                    gracefulShutdownCompleted: false))
+    }
+
+    @MainActor
+    func testUnexpectedRelayChildExitClearsReceivedStatus() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config.json")
+        try Data(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio","MISTT_TOKEN_FILE":"/private/token"}"#.utf8)
+            .write(to: config)
+        XCTAssertEqual(chmod(config.path, mode_t(0o600)), 0)
+
+        let helper = directory.appendingPathComponent("relay-fixture")
+        let exitFile = shellSingleQuoted(directory.appendingPathComponent("exit").path)
+        let script = """
+        #!/bin/bash
+        printf '%s\\n' '{"type":"status","muted":true,"connected_clients":0,"capturing":false,"reason":"startup_muted","revision":1,"update_ready":true,"update_reserved":false}'
+        counter=1
+        while [ ! -e \(exitFile) ]; do
+          IFS= read -r -t 0.5 ignored || :
+          printf '{"type":"heartbeat","counter":%d}\\n' "$counter"
+          counter=$((counter + 1))
+        done
+        exit 17
+        """
+        try Data(script.utf8).write(to: helper)
+        XCTAssertEqual(chmod(helper.path, mode_t(0o700)), 0)
+
+        let controller = BridgeController(relayExecutableURL: helper, configurationURL: config)
+        controller.start()
+        let receivedInitialStatus = await waitUntil { controller.presentation.status != nil }
+        XCTAssertTrue(receivedInitialStatus, "controlled relay fixture did not publish its initial status")
+        XCTAssertEqual(controller.presentation.accessibleReason, "Both audio sources are muted.")
+
+        let exitURL = directory.appendingPathComponent("exit")
+        try Data().write(to: exitURL)
+        let failedClosed = await waitUntil {
+            controller.presentation.unavailableReason == RelayProcessTermination.unexpectedExitReason
+        }
+        XCTAssertTrue(failedClosed, "unexpected child exit did not fail the UI closed")
+        XCTAssertNil(controller.presentation.status)
+        XCTAssertFalse(controller.presentation.isInteractive)
+        let updateReservationAccepted = await controller.requestUpdateReservation()
+        XCTAssertFalse(updateReservationAccepted)
+    }
+
+    @MainActor
+    private func waitUntil(timeout: Duration = .seconds(3), condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    private func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     func testConfiguredPathHonorsExternalProvisioning() {
         let path = RelayConfiguration.configuredURL(environment: ["MISTT_CONFIG": "/tmp/private/mistt.json"])
         XCTAssertEqual(path.path, "/tmp/private/mistt.json")

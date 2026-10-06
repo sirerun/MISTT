@@ -63,6 +63,10 @@ struct RelayPresentation: Equatable {
         if let unavailableReason { return unavailableReason }
         guard let status else { return isStarting ? "Starting MISTT." : "Waiting for relay status." }
         switch status.reason {
+        case "startup_muted":
+            return status.muted && !status.capturing
+                ? "Both audio sources are muted."
+                : "MISTT reports a service or capture problem."
         case "starting": return "Connecting to the speech service. Capture is muted."
         case "no_clients": return "Ready. No transcript clients are connected, so both audio sources are off."
         case "permission_denied": return "A required audio permission was denied. Both sources are muted."
@@ -78,5 +82,16 @@ struct RelayPresentation: Equatable {
         if let unavailableReason { value += " Unavailable: \(unavailableReason)" }
         else if let accessibleReason { value += " \(accessibleReason)" }
         return value
+    }
+}
+
+enum RelayProcessTermination {
+    static let unexpectedExitReason = "MISTT relay exited unexpectedly."
+
+    static func presentationAfterExit(_ current: RelayPresentation,
+                                      gracefulShutdownCompleted: Bool) -> RelayPresentation? {
+        guard !gracefulShutdownCompleted, current.unavailableReason == nil else { return nil }
+        return RelayPresentation(status: nil, unavailableReason: unexpectedExitReason,
+                                 isStarting: false, controlPending: false)
     }
 }
