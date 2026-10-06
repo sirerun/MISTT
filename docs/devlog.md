@@ -296,3 +296,7 @@ At exact clean e157a71, admitted local validation passed Go normal/race/vet, des
 ## 2026-10-06 UTC — reviewed delivery candidates and CPU proof
 
 Signed/notarized A and B reuse clean d02 source; independent signature, staple, Gatekeeper and artifact checks pass. Signed A remains Muted; owner visually confirms floating bottom-right transparent draggable UI, and saved automatic update choices are enabled. Fresh CPU-only source/cache/credential proof succeeded after reviewed harness corrections; all eight current model shards were rehashed. Temporary workload and exact claims were cleaned up. [Evidence and limits](qualification/delivery-checkpoint-20261006.md) preserve failed attempts separately and leave final CPU8 runtime, physical audio and actual release/install/update gates open.
+
+## 2026-10-06 UTC — full local validation and runtime-wrapper corrections
+
+Exact clean d02 source passed Go normal/vet/race, desktop Swift25 and native-preflight68 checks under fresh load/build admission. Independent review accepts the protected script/log evidence. Final-source preparation and CPU gates T5.21–T5.23 are reconciled. Two owned GPU attempts failed before measurements and cleaned up; preserve their failed receipts. T5.26–T5.28 now track narrow private wrapper input corrections, default-path verification and independent review before T5.24 can retry. No production, physical audio or automatic-update delivery acceptance is claimed.

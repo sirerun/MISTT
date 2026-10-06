@@ -55,7 +55,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
 
-### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (16/26)
+### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (22/29)
 
 ## 5. Parallel work and waves
 
@@ -218,3 +218,5 @@ CPU source checkpoint, 2026-10-05: exact root29 byte staging passed in21.748s wi
 Source/mode checkpoint, 2026-10-05: independently accepted actual remote byte/mode proof and exact release reconciliation close T2.43–T2.48. The subsequent candidate started and passed TLS/auth checks but failed protocol candidate validation before inference; exact cleanup/release passed. T2.49–T2.51 gate an offline fix and independent re-review before renewed qualification. Production cache-integrity coding proceeds separately; all signed launch, physical runtime, merge/landing, installation and automatic-update gates remain open.
 
 Delivery evidence checkpoint (2026-10-06 UTC): [candidate evidence](qualification/delivery-checkpoint-20261006.md) records independently accepted fresh final-source CPU integrity/credential proof and signed/notarized A and B artifacts. Owner confirms signed A is bottom right, transparent and draggable; automatic update preferences are enabled. Physical capture, final CPU8 bootstrap/runtime, publication, installation and genuine automatic A-to-B delivery remain open. No delivery gate or dependency is waived by this checkpoint.
+
+Final-source gate reconciliation (2026-10-06 UTC): T5.21–T5.23 close independently reviewed protected preparation and actual CPU evidence scopes. T5.26–T5.28 make confirmed private runtime-wrapper correction, full-path offline verification and independent pre-POST review first-class obligations. Two cleaned-up GPU attempts failed before measurements; T5.24/T5.25 and all production/native/install/update acceptance remain open.
