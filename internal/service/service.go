@@ -24,6 +24,8 @@ import (
 
 var ErrNativeDisconnected = errors.New("native owner disconnected")
 
+const nativeHeartbeatInterval = 500 * time.Millisecond
+
 type subscriber struct {
 	id       uint64
 	language string
@@ -139,6 +141,12 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 	s.mu.Lock()
 	s.output.SendStatus(s.nativeStatusLocked())
 	s.mu.Unlock()
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		s.sendHeartbeats()
+	}()
+	defer func() { <-heartbeatDone }()
 	go s.readNative()
 	go s.processNativeCommands()
 	go s.supervise()
@@ -175,6 +183,36 @@ func (s *Service) Run(ctx context.Context, listener net.Listener) error {
 		return ErrNativeDisconnected
 	}
 }
+func (s *Service) sendHeartbeats() {
+	ticker := time.NewTicker(nativeHeartbeatInterval)
+	defer ticker.Stop()
+	var counter uint64
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			if s.shutdownRequested {
+				s.mu.Unlock()
+				return
+			}
+			if counter == math.MaxUint64 {
+				s.mu.Unlock()
+				s.failProcess(errors.New("native heartbeat counter exhausted"))
+				return
+			}
+			counter++
+			err := s.output.SendControl(ipc.NativeMessage{Type: "heartbeat", Counter: counter})
+			s.mu.Unlock()
+			if err != nil {
+				s.failProcess(fmt.Errorf("native heartbeat output: %w", err))
+				return
+			}
+		}
+	}
+}
+
 func (s *Service) Shutdown() { s.requestShutdown() }
 func (s *Service) requestShutdown() {
 	s.mu.Lock()
@@ -214,6 +252,7 @@ func (s *Service) failProcess(err error) {
 	s.active = nil
 	s.capturing = false
 	s.closureConfirmed = false
+	s.shutdownRequested = true
 	s.muted = true
 	s.reason = "native_failure"
 	s.publishLocked()
