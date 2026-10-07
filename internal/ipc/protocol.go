@@ -79,6 +79,8 @@ func (m NativeMessage) MarshalJSON() ([]byte, error) {
 			executables = []string{}
 		}
 		value = map[string]any{"type": m.Type, "request_id": m.RequestID, "session_id": m.SessionID, "sources": m.Sources, "microphone": map[string]any{"device": m.Device}, "call_audio": map[string]any{"bundle_id": m.BundleID, "include_helpers": helpers, "include_helper_executables": executables}}
+	case "heartbeat":
+		value = map[string]any{"type": m.Type, "counter": m.Counter}
 	case "capture_stop":
 		value = map[string]any{"type": m.Type, "request_id": m.RequestID, "session_id": m.SessionID, "reason": m.Reason}
 	case "native_set_muted":
