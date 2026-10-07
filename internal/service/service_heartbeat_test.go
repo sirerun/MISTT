@@ -14,6 +14,8 @@ import (
 	"github.com/sirerun/MISTT/internal/ipc"
 )
 
+const maxHeartbeatGap = 1500 * time.Millisecond
+
 type nativeMessageAt struct {
 	message ipc.NativeMessage
 	fields  map[string]json.RawMessage
@@ -135,9 +137,12 @@ func TestRunEmitsAdvancingHeartbeatsWhileMutedAndIdle(t *testing.T) {
 	var previous uint64
 	var last time.Time
 	for i := 0; i < 6; i++ {
-		got := waitForHeartbeat(t, h, 4*time.Second)
+		got := waitForHeartbeat(t, h, maxHeartbeatGap)
 		if len(got.fields) != 2 {
 			t.Fatalf("heartbeat JSON has %d fields, want exactly type and counter", len(got.fields))
+		}
+		if i > 0 && got.at.Sub(last) >= maxHeartbeatGap {
+			t.Fatalf("inter-heartbeat gap = %v, want less than %v to stay within the native watchdog", got.at.Sub(last), maxHeartbeatGap)
 		}
 		if got.message.Counter != previous+1 {
 			t.Fatalf("heartbeat counter = %d after %d, want exact next counter", got.message.Counter, previous)
