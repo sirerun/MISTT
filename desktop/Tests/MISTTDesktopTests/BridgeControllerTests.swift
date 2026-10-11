@@ -41,8 +41,10 @@ final class BridgeControllerTests: XCTestCase {
         """#
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        let controller = BridgeController(relayExecutableURL: executable,
-                                          configurationURL: directory.appendingPathComponent("absent.json"))
+        let configuration = directory.appendingPathComponent("config.json")
+        try Data(#"{"MISTT_DGX_ENDPOINT":"wss://example.test/audio","MISTT_TOKEN_FILE":"/private/token"}"#.utf8).write(to: configuration)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configuration.path)
+        let controller = BridgeController(relayExecutableURL: executable, configurationURL: configuration)
         controller.start()
         var deadline = ContinuousClock.now.advanced(by: .seconds(3))
         while controller.presentation.status == nil && ContinuousClock.now < deadline {
