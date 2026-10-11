@@ -4,6 +4,73 @@ import Darwin
 @testable import MISTTDesktop
 
 final class BridgeControllerTests: XCTestCase {
+    @MainActor
+    func testEqualRevisionAcknowledgmentAllowsConsecutiveMuteCommands() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("relay")
+        let script = #"""
+        #!/usr/bin/python3
+        import sys, json, struct, select, time
+        status = dict(type="status", muted=True, capturing=False, connected_clients=0,
+                      reason="startup_muted", revision=1, update_ready=True, update_reserved=False)
+        def send(value):
+            print(json.dumps(value), flush=True)
+        send(status)
+        deadline = time.monotonic() + 8
+        counter = 0
+        while time.monotonic() < deadline:
+            if not select.select([sys.stdin.buffer], [], [], .2)[0]:
+                counter += 1
+                send(dict(type="heartbeat", counter=counter))
+                continue
+            prefix = sys.stdin.buffer.read(4)
+            if len(prefix) != 4: break
+            body = sys.stdin.buffer.read(struct.unpack(">I", prefix)[0])
+            command = json.loads(body[1:])
+            if command["type"] == "native_set_muted":
+                status.update(muted=command["muted"], reason="muted" if command["muted"] else "armed",
+                              revision=status["revision"]+1, update_ready=command["muted"])
+            elif command["type"] == "native_prepare_update":
+                status.update(muted=True, update_ready=True, update_reserved=True, revision=status["revision"]+1)
+            send(status)
+            snapshot = {key:value for key,value in status.items() if key != "type"}
+            send(dict(type="control_result", request_id=command["request_id"], status=snapshot, error=None))
+            if command["type"] == "native_prepare_update": break
+        """#
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let controller = BridgeController(relayExecutableURL: executable,
+                                          configurationURL: directory.appendingPathComponent("absent.json"))
+        controller.start()
+        var deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while controller.presentation.status == nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(controller.presentation.isInteractive)
+        controller.toggleMuted()
+        deadline = .now.advanced(by: .seconds(3))
+        while (controller.presentation.status?.muted != false || controller.presentation.controlPending) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(controller.presentation.status?.muted, false)
+        XCTAssertTrue(controller.presentation.isInteractive)
+        controller.toggleMuted()
+        deadline = .now.advanced(by: .seconds(3))
+        while (controller.presentation.status?.muted != true || controller.presentation.controlPending) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(controller.presentation.status?.muted, true)
+        XCTAssertTrue(controller.presentation.isInteractive)
+        _ = await controller.requestUpdateReservation(timeout: .seconds(2))
+        deadline = .now.advanced(by: .seconds(3))
+        while !controller.relayHasExited && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(controller.relayHasExited)
+    }
+
     private final class MessageBox: @unchecked Sendable {
         private let lock = NSLock()
         private var values = [RelayMessage]()
