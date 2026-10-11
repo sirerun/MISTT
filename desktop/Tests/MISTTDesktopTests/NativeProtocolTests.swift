@@ -4,6 +4,31 @@ import NativeAudioQueue
 @testable import MISTTDesktop
 
 final class NativeProtocolTests: XCTestCase {
+    func testNativeMuteControlMatchesGoLengthKindAndLineTerminator() throws {
+        let message = NativeSetMuted(requestId: UUID(), commandSequence: 1,
+                                     expectedStatusRevision: 1, muted: false)
+        let packet = try NativeControlFrame.encode(message)
+        let length = packet.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        XCTAssertEqual(Int(length), packet.count - 4)
+        XCTAssertEqual(packet[4], 1)
+        XCTAssertEqual(packet.last, 0x0A)
+        XCTAssertEqual(packet.dropFirst(5).filter { $0 == 0x0A }.count, 1)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(packet.dropFirst(5))) as? [String: Any])
+        XCTAssertEqual(json["type"] as? String, "native_set_muted")
+        XCTAssertEqual(json["muted"] as? Bool, false)
+        XCTAssertEqual(json["command_sequence"] as? Int, 1)
+        XCTAssertEqual(json["expected_status_revision"] as? Int, 1)
+    }
+
+    func testControlBodyLimitIncludesLineTerminator() throws {
+        struct Payload: Encodable { let value: String }
+        let overhead = try JSONEncoder().encode(Payload(value: "")).count
+        let accepted = Payload(value: String(repeating: "a", count: 65_535 - overhead))
+        XCTAssertEqual(try NativeControlFrame.encode(accepted).count, 65_541)
+        let rejected = Payload(value: String(repeating: "a", count: 65_536 - overhead))
+        XCTAssertThrowsError(try NativeControlFrame.encode(rejected))
+    }
+
     func testAudioFrameUses52ByteHeaderAndBigEndianLengthPrefix() throws {
         let id = UUID(uuidString: "00112233-4455-6677-8899-AABBCCDDEEFF")!
         let frame = PairedAudioFrame(sessionID: id, source: .callAudio, sourceSequence: 0x0102030405060708,
