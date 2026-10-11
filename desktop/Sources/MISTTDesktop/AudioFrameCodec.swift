@@ -54,8 +54,9 @@ enum NativeControlFrame {
     static func encode<T: Encodable>(_ message: T) throws -> Data {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
-        let json = try encoder.encode(message)
-        guard json.count <= 65_536 else { throw RelayReadError.lineTooLarge }
+        var json = try encoder.encode(message)
+        guard json.count < 65_536 else { throw RelayReadError.lineTooLarge }
+        json.append(0x0A)
         var frame = Data()
         frame.appendInteger(UInt32(json.count + 1))
         frame.append(1)
