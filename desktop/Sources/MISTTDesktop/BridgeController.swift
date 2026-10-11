@@ -289,9 +289,9 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         case .controlResult(let response):
             guard response.type == "control_result", let id = pendingCommandID, response.requestId == id else { return }
             pendingCommandID = nil; pendingCommandTimeout?.cancel(); pendingCommandTimeout = nil
-            if let status = response.status, revisionGate.accept(status) {
-                presentation = RelayPresentation(status: status, unavailableReason: nil, isStarting: false, controlPending: false)
-            }
+            if let status = response.status { _ = revisionGate.accept(status) }
+            presentation = RelayPresentation(status: revisionGate.latest, unavailableReason: nil,
+                                             isStarting: false, controlPending: false)
             let succeeded = response.error == nil && response.status != nil
             if let operation = updateCommandType, updateContinuation != nil {
                 let status = response.status
