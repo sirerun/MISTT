@@ -49,26 +49,26 @@ final class BridgeControllerTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertTrue(controller.presentation.isInteractive)
-        controller.toggleMuted()
+        controller.toggleMute()
         deadline = .now.advanced(by: .seconds(3))
         while (controller.presentation.status?.muted != false || controller.presentation.controlPending) && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(controller.presentation.status?.muted, false)
         XCTAssertTrue(controller.presentation.isInteractive)
-        controller.toggleMuted()
+        controller.toggleMute()
         deadline = .now.advanced(by: .seconds(3))
         while (controller.presentation.status?.muted != true || controller.presentation.controlPending) && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(controller.presentation.status?.muted, true)
         XCTAssertTrue(controller.presentation.isInteractive)
-        _ = await controller.requestUpdateReservation(timeout: .seconds(2))
+        _ = await controller.requestUpdateReservation()
         deadline = .now.advanced(by: .seconds(3))
-        while !controller.relayHasExited && ContinuousClock.now < deadline {
+        while controller.presentation.status != nil && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertTrue(controller.relayHasExited)
+        XCTAssertNil(controller.presentation.status)
     }
 
     private final class MessageBox: @unchecked Sendable {
