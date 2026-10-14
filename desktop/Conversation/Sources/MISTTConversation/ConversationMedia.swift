@@ -14,6 +14,7 @@ public enum MediaEvent: Sendable {
     case audio(sessionID: String, sequence: UInt64, startSample: UInt64, pcm16: Data)
     case speechStarted(sample: UInt64)
     case speechStopped(sample: UInt64)
+    case recognitionCheckpoint(sample: UInt64)
     case wake(startSample: UInt64, endSample: UInt64)
     case urgentStop
     case playback(PlaybackReceipt)
@@ -43,8 +44,13 @@ public enum MediaError: Error {
     private var running = false
     private var armed = false
     private var sessionID: String?
+    private var mutedSessionID: String?
+    private var tapInstalled = false
+    private var detectorEpoch = UUID()
+    private var activationEpoch = UUID()
     private var sequence: UInt64 = 0
     private var captureSample: UInt64 = 0
+    private var lastCheckpoint: UInt64 = 0
     private var localSample: UInt64 = 0
     private var recognitionBase: UInt64 = 0
     private var lastKeywordEnd: UInt64 = 0
@@ -64,15 +70,20 @@ public enum MediaError: Error {
     public init() {}
 
     public func arm() async throws {
-        try await startEngine()
+        let operation = UUID(); activationEpoch = operation
+        try await startEngine(operation: operation)
+        try checkActivation(operation)
         _ = flush(generation: generation)
-        sessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
+        sessionID = nil; mutedSessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("armed"))
     }
 
     public func start(sessionID: String) async throws {
+        if self.sessionID == sessionID { return }
         guard UUID(uuidString: sessionID) != nil else { throw MediaError.unavailable("session ID must be a UUID") }
-        try await startEngine()
+        let operation = UUID(); activationEpoch = operation
+        try await startEngine(operation: operation)
+        try checkActivation(operation)
         if self.sessionID != sessionID {
             _ = flush(generation: generation)
             playbackEpoch = UUID(); generation = 0; invalidThrough = 0; lastFlush = nil
@@ -81,7 +92,7 @@ public enum MediaError: Error {
             pendingWakeEnd = nil; ring.removeAll()
             throw MediaError.unavailable("wake admission audio exceeded two seconds; please repeat the command")
         }
-        self.sessionID = sessionID; armed = false; sequence = 0; captureSample = 0; detector.reset()
+        self.sessionID = sessionID; mutedSessionID = nil; armed = false; sequence = 0; captureSample = 0; lastCheckpoint = 0; detector.reset()
         onEvent?(.state("active"))
         if let end = pendingWakeEnd {
             for (start, bytes) in ring {
@@ -95,25 +106,69 @@ public enum MediaError: Error {
         pendingWakeEnd = nil; ring.removeAll(keepingCapacity: true)
     }
 
-    /// Mute closes the microphone and keyword recognizer as well as admission.
-    public func mute() { stop(); onEvent?(.state("muted")) }
-    public func stop() {
+    /// Input mute suppresses capture/detection while already admitted output
+    /// continues on the same duplex engine. The host retains its admission.
+    public func mute() {
+        activationEpoch = UUID()
+        if let sessionID { mutedSessionID = sessionID }
+        sessionID = nil; armed = false; captureEpoch = UUID(); detectorEpoch = UUID()
         rotation?.cancel(); rotation = nil
         recognition?.cancel(); recognition = nil; request?.endAudio(); request = nil
-        if running { engine.inputNode.removeTap(onBus: 0); engine.stop() }
+        if running {
+            engine.inputNode.isVoiceProcessingInputMuted = true
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        }
+        ring.removeAll(); pendingWakeEnd = nil; detector.reset()
+        onEvent?(.state("muted"))
+    }
+
+    /// A fresh recognition stream must be admitted under the retained host
+    /// binding before calling this. Old recognition intervals cannot be replayed.
+    public func unmute(sessionID: String) async throws {
+        guard mutedSessionID == sessionID else { throw MediaError.unavailable("muted session binding is no longer valid") }
+        let operation = UUID(); activationEpoch = operation
+        try await startEngine(operation: operation)
+        try checkActivation(operation)
+        self.sessionID = sessionID; mutedSessionID = nil; armed = false
+        sequence = 0; captureSample = 0; lastCheckpoint = 0; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
+        onEvent?(.state("active"))
+    }
+
+    public func stop() {
+        activationEpoch = UUID()
+        detectorEpoch = UUID(); mutedSessionID = nil
+        rotation?.cancel(); rotation = nil
+        recognition?.cancel(); recognition = nil; request?.endAudio(); request = nil
+        if running {
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+            engine.stop()
+        }
         running = false; armed = false; sessionID = nil; captureEpoch = UUID(); playbackEpoch = UUID(); lease = nil
         _ = flush(generation: generation)
         ring.removeAll(); pendingWakeEnd = nil; detector.reset()
         onEvent?(.state("stopped"))
     }
 
-    private func startEngine() async throws {
-        if running { return }
+    private func checkActivation(_ operation: UUID) throws {
+        try Task.checkCancellation()
+        guard activationEpoch == operation else { throw CancellationError() }
+    }
+
+    private func startEngine(operation: UUID) async throws {
+        try checkActivation(operation)
+        if running {
+            guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+                  SFSpeechRecognizer.authorizationStatus() == .authorized else { throw MediaError.unavailable("capture permission lost") }
+            if !tapInstalled { try installCapture(); startRotation() }
+            return
+        }
         let mic = await AVCaptureDevice.requestAccess(for: .audio)
+        try checkActivation(operation)
         guard mic else { throw MediaError.unavailable("microphone permission denied") }
         let auth = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
+        try checkActivation(operation)
         guard auth == .authorized, let recognizer, recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
             throw MediaError.unavailable("local English speech recognition unavailable; install the on-device English assets")
         }
@@ -121,10 +176,19 @@ public enum MediaError: Error {
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(true)
         if player.engine == nil { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat) }
+        localSample = 0; lastKeywordEnd = 0
+        try installCapture()
+        do { try checkActivation(operation); try engine.start(); try checkActivation(operation); lease = newLease; running = true }
+        catch { engine.stop(); input.removeTap(onBus: 0); tapInstalled = false; recognition?.cancel(); request = nil; throw error }
+        startRotation()
+    }
+
+    private func installCapture() throws {
+        let input = engine.inputNode
+        input.isVoiceProcessingInputMuted = false
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, let converter = AVAudioConverter(from: format, to: captureFormat) else { throw MediaError.unavailable("microphone converter unavailable") }
         self.converter = converter
-        localSample = 0; lastKeywordEnd = 0
         startRecognition()
         captureGate.reset()
         captureEpoch = UUID()
@@ -133,7 +197,14 @@ public enum MediaError: Error {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard gate.enter() else { return }
             // Copy before leaving the real-time callback; AVAudioEngine reuses buffers.
-            guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else { gate.leave(); return }
+            guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
+                gate.leave()
+                Task { @MainActor [weak self] in
+                    guard let self, self.captureEpoch == epoch else { return }
+                    self.onEvent?(.failure("capture allocation failed; new session required")); self.stop()
+                }
+                return
+            }
             copy.frameLength = buffer.frameLength
             let src = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
             let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
@@ -145,7 +216,10 @@ public enum MediaError: Error {
                 self.consume(copy)
             }
         }
-        do { try engine.start(); lease = newLease; running = true } catch { input.removeTap(onBus: 0); recognition?.cancel(); request = nil; throw error }
+        tapInstalled = true
+    }
+
+    private func startRotation() {
         rotation = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 50_000_000_000) } catch { return }
@@ -155,6 +229,8 @@ public enum MediaError: Error {
     }
 
     private func startRecognition() {
+        detectorEpoch = UUID()
+        let epoch = detectorEpoch
         recognition?.cancel(); request?.endAudio()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
@@ -164,9 +240,12 @@ public enum MediaError: Error {
         let base = recognitionBase
         recognition = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in
-                guard let self, self.recognitionBase == base else { return }
+                guard let self, self.detectorEpoch == epoch, self.recognitionBase == base else { return }
                 if let result { self.keywords(result.bestTranscription, base: base) }
-                if let error, self.running { self.onEvent?(.failure("local detector: \(error.localizedDescription)")) }
+                if let error, self.running {
+                    self.onEvent?(.failure("local detector: \(error.localizedDescription)"))
+                    self.stop()
+                }
             }
         }
     }
@@ -196,14 +275,14 @@ public enum MediaError: Error {
         guard running, let converter else { return }
         request?.append(buffer)
         let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16000 / buffer.format.sampleRate)) + 32
-        guard let output = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { return }
+        guard let output = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { onEvent?(.failure("capture conversion allocation failed")); stop(); return }
         var supplied = false; var error: NSError?
         converter.convert(to: output, error: &error) { _, status in
             if supplied { status.pointee = .noDataNow; return nil }
             supplied = true; status.pointee = .haveData; return buffer
         }
         if let error { onEvent?(.failure("capture conversion: \(error.localizedDescription)")); stop(); return }
-        guard let samples = output.int16ChannelData?[0] else { return }
+        guard let samples = output.int16ChannelData?[0] else { onEvent?(.failure("capture PCM format unavailable")); stop(); return }
         let bytes = Data(bytes: samples, count: Int(output.frameLength) * 2)
         var offset = 0
         while offset < bytes.count {
@@ -211,7 +290,7 @@ public enum MediaError: Error {
             if sessionID != nil { deliver(block) }
             else {
                 ring.append((localSample, block))
-                while let first = ring.first, localSample > first.0 + 32000 { ring.removeFirst() }
+                while let first = ring.first, localSample + UInt64(block.count / 2) > first.0 + 32000 { ring.removeFirst() }
             }
             localSample += UInt64(block.count / 2); offset += block.count
         }
@@ -226,17 +305,21 @@ public enum MediaError: Error {
             if speaking {
                 if generation > invalidThrough, pausedToken == nil { _ = try? pause(generation: generation, token: "native-\(sequence)") }
                 onEvent?(.speechStarted(sample: first))
-            } else { onEvent?(.speechStopped(sample: captureSample)) }
+            } else {
+                lastCheckpoint = captureSample
+                onEvent?(.speechStopped(sample: captureSample))
+            }
+        } else if detector.canCheckpoint && captureSample - lastCheckpoint >= 80000 {
+            // Observed only AFTER this frame's activity decision. A pending loud
+            // onset cannot be finalized by an idle checkpoint before speech start.
+            lastCheckpoint = captureSample
+            onEvent?(.recognitionCheckpoint(sample: captureSample))
         }
     }
 
     public func enqueue(generation: UInt64, pcm16: Data, sampleRate: Int) throws {
         guard running, sampleRate == 24000, !pcm16.isEmpty, pcm16.count % 2 == 0 else { throw MediaError.invalidAudio }
-        guard generation > invalidThrough else { throw MediaError.staleGeneration }
-        if self.generation != generation {
-            guard queued == completed else { throw MediaError.staleGeneration }
-            player.stop(); self.generation = generation; queued = 0; completed = 0; pausedToken = nil
-        }
+        try admitGeneration(generation)
         let frames = pcm16.count / 2
         guard UInt64(frames) + queued - cursor() <= 48000 else { throw MediaError.queueFull }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: playbackFormat, frameCapacity: AVAudioFrameCount(frames)), let out = buffer.floatChannelData?[0] else { throw MediaError.invalidAudio }
@@ -265,6 +348,7 @@ public enum MediaError: Error {
     /// Completes only after dataPlayedBack confirms the last scheduled sample.
     /// Pause/resume and flush remain available while this operation is suspended.
     public func drain(generation: UInt64) async throws -> PlaybackReceipt {
+        try admitGeneration(generation)
         let epoch = playbackEpoch
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while true {
@@ -294,25 +378,35 @@ public enum MediaError: Error {
     }
 
     public func pause(generation: UInt64, token: String) throws -> PlaybackReceipt {
-        guard generation == self.generation, generation > invalidThrough, !token.isEmpty else { throw MediaError.staleGeneration }
-        player.pause(); pausedToken = token
+        guard !token.isEmpty else { throw MediaError.invalidResume }
+        try admitGeneration(generation)
+        if running { player.pause() }; pausedToken = token
         let value = receipt(state: "paused"); onEvent?(.playback(value)); return value
     }
     public func resume(generation: UInt64, token: String) throws -> PlaybackReceipt {
         guard generation == self.generation, generation > invalidThrough, token == pausedToken else { throw MediaError.invalidResume }
-        pausedToken = nil; player.play()
+        pausedToken = nil; if running && queued > completed { player.play() }
         let value = receipt(state: "playing"); onEvent?(.playback(value)); return value
     }
     public func flush(generation: UInt64) -> PlaybackReceipt {
         if let lastFlush, generation == lastFlush.generation { return lastFlush }
         if generation < self.generation { return PlaybackReceipt(generation: generation, renderedSamples: 0, sampleRate: 24000, token: "", state: "stale") }
-        let rendered = cursor(); player.stop(); invalidThrough = max(invalidThrough, generation)
+        let rendered = generation == self.generation ? cursor() : 0; if player.engine != nil { player.stop() }; invalidThrough = max(invalidThrough, generation)
         queued = 0; completed = 0; pausedToken = nil
         let value = PlaybackReceipt(generation: generation, renderedSamples: rendered, sampleRate: 24000, token: "", state: "flushed")
         lastFlush = value
         onEvent?(.playback(value)); return value
     }
+    private func admitGeneration(_ value: UInt64) throws {
+        guard value > invalidThrough, value >= generation else { throw MediaError.staleGeneration }
+        if value != generation {
+            guard queued == completed else { throw MediaError.staleGeneration }
+            if player.engine != nil { player.stop() }; generation = value; queued = 0; completed = 0
+            renderOrigin = 0; renderedBase = 0; pausedToken = nil
+        }
+    }
     private func cursor() -> UInt64 {
+        guard player.engine != nil else { return completed }
         guard let time = player.lastRenderTime, let played = player.playerTime(forNodeTime: time), played.sampleTime >= 0 else { return completed }
         return min(queued, max(completed, renderedBase + UInt64(max(0, played.sampleTime - renderOrigin))))
     }
@@ -326,6 +420,7 @@ struct ActivityDetector {
     private var speaking = false
     private var quietSamples = 0
     private var loudSamples = 0
+    var canCheckpoint: Bool { !speaking && loudSamples == 0 }
     mutating func reset() { speaking = false; quietSamples = 0; loudSamples = 0 }
     mutating func consume(_ pcm: Data) -> Bool? {
         let count = pcm.count / 2

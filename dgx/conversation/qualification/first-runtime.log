@@ -1,0 +1,100 @@
+882a447fdec8 {"fixture": 0, "reference": "Please do not delete the draft. Wait until I confirm.", "samples": 62720, "anna_seconds": 0.6402708319947124, "pcm_sha256": "ccce9f77b175fcd10023119c5dbcde2e1124370d7822be5a39e21aaa2c2a2a46"}
+882a447fdec8 {"fixture": 1, "reference": "Yes, but stop the upload and keep the original file.", "samples": 53760, "anna_seconds": 0.5880768889910541, "pcm_sha256": "2a6ac5e7853d8ab64d729afc4be336ee81125ec644ec23fcb619c78a69e35981"}
+882a447fdec8 {"fixture": 2, "reference": "Hello Zati. What should I work on next?", "samples": 51200, "anna_seconds": 0.5757728709722869, "pcm_sha256": "ee686876fff3d868160b8c73dfe63f3c330e14dc1ffa8936e15b6d5f51e36490"}
+882a447fdec8 {"stt_model_load_seconds": 0.48932624905137345}
+882a447fdec8 Traceback (most recent call last):
+882a447fdec8   File "/work/probe.py", line 109, in <module>
+882a447fdec8     asyncio.run(main())
+882a447fdec8   File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+882a447fdec8     return runner.run(main)
+882a447fdec8            ^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+882a447fdec8     return self._loop.run_until_complete(task)
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+882a447fdec8     return future.result()
+882a447fdec8            ^^^^^^^^^^^^^^^
+882a447fdec8   File "/work/probe.py", line 77, in main
+882a447fdec8     response = await client.post("/v1/recognize", content=pcm)
+882a447fdec8                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1859, in post
+882a447fdec8     return await self.request(
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1540, in request
+882a447fdec8     return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1629, in send
+882a447fdec8     response = await self._send_handling_auth(
+882a447fdec8                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1657, in _send_handling_auth
+882a447fdec8     response = await self._send_handling_redirects(
+882a447fdec8                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+882a447fdec8     response = await self._send_single_request(request)
+882a447fdec8                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_client.py", line 1730, in _send_single_request
+882a447fdec8     response = await transport.handle_async_request(request)
+882a447fdec8                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/local/lib/python3.12/dist-packages/httpx/_transports/asgi.py", line 170, in handle_async_request
+882a447fdec8     await self.app(scope, receive, send)
+882a447fdec8   File "/deps/fastapi/applications.py", line 1163, in __call__
+882a447fdec8     await super().__call__(scope, receive, send)
+882a447fdec8   File "/deps/starlette/applications.py", line 107, in __call__
+882a447fdec8     await self.middleware_stack(scope, receive, send)
+882a447fdec8   File "/deps/starlette/middleware/errors.py", line 186, in __call__
+882a447fdec8     raise exc
+882a447fdec8   File "/deps/starlette/middleware/errors.py", line 164, in __call__
+882a447fdec8     await self.app(scope, receive, _send)
+882a447fdec8   File "/deps/starlette/middleware/exceptions.py", line 63, in __call__
+882a447fdec8     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+882a447fdec8   File "/deps/starlette/_exception_handler.py", line 53, in wrapped_app
+882a447fdec8     raise exc
+882a447fdec8   File "/deps/starlette/_exception_handler.py", line 42, in wrapped_app
+882a447fdec8     await app(scope, receive, sender)
+882a447fdec8   File "/deps/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+882a447fdec8     await self.app(scope, receive, send)
+882a447fdec8   File "/deps/starlette/routing.py", line 716, in __call__
+882a447fdec8     await self.middleware_stack(scope, receive, send)
+882a447fdec8   File "/deps/fastapi/routing.py", line 2734, in app
+882a447fdec8     await route.handle(scope, receive, send)
+882a447fdec8   File "/deps/fastapi/routing.py", line 1281, in handle
+882a447fdec8     await super().handle(scope, receive, send)
+882a447fdec8   File "/deps/starlette/routing.py", line 290, in handle
+882a447fdec8     await self.app(scope, receive, send)
+882a447fdec8   File "/deps/fastapi/routing.py", line 158, in app
+882a447fdec8     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+882a447fdec8   File "/deps/starlette/_exception_handler.py", line 53, in wrapped_app
+882a447fdec8     raise exc
+882a447fdec8   File "/deps/starlette/_exception_handler.py", line 42, in wrapped_app
+882a447fdec8     await app(scope, receive, sender)
+882a447fdec8   File "/deps/fastapi/routing.py", line 144, in app
+882a447fdec8     response = await f(request)
+882a447fdec8                ^^^^^^^^^^^^^^^^
+882a447fdec8   File "/deps/fastapi/routing.py", line 706, in app
+882a447fdec8     raw_response = await run_endpoint_function(
+882a447fdec8                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/deps/fastapi/routing.py", line 352, in run_endpoint_function
+882a447fdec8     return await dependant.call(**values)
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/work/server.py", line 124, in recognize
+882a447fdec8     return await asyncio.shield(work)
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+882a447fdec8     return await loop.run_in_executor(None, func_call)
+882a447fdec8            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+882a447fdec8     result = self.fn(*self.args, **self.kwargs)
+882a447fdec8              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/work/server.py", line 82, in decode
+882a447fdec8     tokens = app.state.model.generate(features, max_new_tokens=448, stopping_criteria=stopping)
+882a447fdec8              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+882a447fdec8   File "/deps/transformers/models/whisper/generation_whisper.py", line 755, in generate
+882a447fdec8     self._set_max_new_tokens_and_length(
+882a447fdec8   File "/deps/transformers/models/whisper/generation_whisper.py", line 1833, in _set_max_new_tokens_and_length
+882a447fdec8     raise ValueError(
+882a447fdec8 ValueError: The length of `decoder_input_ids`, including special start tokens, prompt tokens, and previous tokens, is 2,  and `max_new_tokens` is 448. Thus, the combined length of `decoder_input_ids` and `max_new_tokens` is: 450. This exceeds the `max_target_positions` of the Whisper model: 448. You should either reduce the length of your prompt, or reduce the value of `max_new_tokens`, so that their combined length is less than 448.
+882a447fdec8 Traceback (most recent call last):
+882a447fdec8   File "<string>", line 8, in <module>
+882a447fdec8   File "/usr/lib/python3.12/subprocess.py", line 571, in run
+882a447fdec8     raise CalledProcessError(retcode, process.args,
+882a447fdec8 subprocess.CalledProcessError: Command '['/usr/bin/python3', '/work/probe.py']' returned non-zero exit status 1.

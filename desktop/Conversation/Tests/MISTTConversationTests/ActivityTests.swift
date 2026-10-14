@@ -5,7 +5,7 @@ final class ActivityTests: XCTestCase {
         var detector = ActivityDetector()
         let loud = Data(repeating: 32, count: 320) // little-endian 0x2020
         let quiet = Data(repeating: 0, count: 320)
-        XCTAssertNil(detector.consume(loud)); XCTAssertNil(detector.consume(loud))
+        XCTAssertNil(detector.consume(loud)); XCTAssertFalse(detector.canCheckpoint); XCTAssertNil(detector.consume(loud))
         XCTAssertEqual(detector.consume(loud), true)
         for _ in 0..<29 { XCTAssertNil(detector.consume(quiet)) }
         XCTAssertEqual(detector.consume(quiet), false)
@@ -23,5 +23,26 @@ final class CaptureLeaseTests: XCTestCase {
         first = nil
         let next = try CaptureLease.acquire()
         try withExtendedLifetime(next) { XCTAssertThrowsError(try CaptureLease.acquire()) }
+    }
+}
+
+final class GeneratingPlaybackTests: XCTestCase {
+    func testPauseBeforeFirstAudioPreservesGenerationAndToken() throws {
+        try MainActor.assumeIsolated {
+            let media = ConversationMedia()
+            let paused = try media.pause(generation: 1, token: "7")
+            XCTAssertEqual(paused.generation, 1)
+            XCTAssertEqual(paused.renderedSamples, 0)
+            XCTAssertEqual(paused.token, "7")
+            // Input mute must not invalidate the pending output generation/token.
+            media.mute()
+            XCTAssertThrowsError(try media.resume(generation: 1, token: "wrong"))
+            let resumed = try media.resume(generation: 1, token: "7")
+            XCTAssertEqual(resumed.renderedSamples, 0)
+            let flushed = media.flush(generation: 1)
+            XCTAssertEqual(flushed.renderedSamples, 0)
+            XCTAssertThrowsError(try media.pause(generation: 1, token: "8"))
+            XCTAssertEqual(try media.pause(generation: 2, token: "9").renderedSamples, 0)
+        }
     }
 }

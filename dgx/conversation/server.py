@@ -5,15 +5,48 @@ The completed generate call, not a transcript timestamp, establishes coverage.
 """
 import asyncio
 import hmac
+import hashlib
+import json
+import threading
+import time
+from pathlib import Path
 import os
 from contextlib import asynccontextmanager
 
 import numpy as np
 import torch
 from fastapi import FastAPI, HTTPException, Request
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, StoppingCriteria, StoppingCriteriaList
 
 MAX_BYTES = 120 * 16000 * 2
+DEFAULT_PINS_SHA256 = "637178cddb125d01abd1f90d01b3bfdd47bbe8c7ca2da5176e4334b587a32998"
+
+
+def verify_model(directory):
+    root = Path(directory)
+    raw = (root / "pins.json").read_bytes()
+    expected = os.environ.get("MISTT_CONVERSATION_PINS_SHA256", DEFAULT_PINS_SHA256)
+    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != expected:
+        raise RuntimeError("model pin manifest mismatch")
+    pins = json.loads(raw)
+    for asset in pins["files"]:
+        if Path(asset["path"]).name != asset["path"]:
+            raise RuntimeError("invalid pinned model asset path")
+        path = root / asset["path"]
+        if path.stat().st_size != asset["bytes"]:
+            raise RuntimeError("model asset size mismatch")
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != asset["sha256"]:
+                raise RuntimeError("model asset hash mismatch")
+
+
+class StopRequested(StoppingCriteria):
+    def __init__(self, stop, deadline):
+        self.stop, self.deadline = stop, deadline
+
+    def __call__(self, input_ids, scores, **kwargs):
+        return self.stop.is_set() or time.monotonic() >= self.deadline
+
 
 
 @asynccontextmanager
@@ -22,9 +55,14 @@ async def lifespan(app):
     model_dir = os.environ.get("MISTT_CONVERSATION_MODEL", "")
     if len(token) < 32 or not os.path.isdir(model_dir):
         raise RuntimeError("explicit restricted token and prepared local model directory required")
+    verify_model(model_dir)
     device = os.environ.get("MISTT_CONVERSATION_DEVICE", "cpu")
-    processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True)
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(model_dir, local_files_only=True).to(device).eval()
+    threads = int(os.environ.get("MISTT_CONVERSATION_THREADS", "2"))
+    if not 1 <= threads <= 8:
+        raise RuntimeError("recognition CPU threads must be 1..8")
+    torch.set_num_threads(threads)
+    processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False)
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(model_dir, local_files_only=True, use_safetensors=True, trust_remote_code=False).to(device).eval()
     app.state.token, app.state.processor, app.state.model = token, processor, model
     app.state.device, app.state.lock = device, asyncio.Lock()
     yield
@@ -33,17 +71,24 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
-def decode(app, data):
+def decode(app, data, stop=None):
+    stop = stop or threading.Event()
+    deadline = time.monotonic() + 15
+    stopping = StoppingCriteriaList([StopRequested(stop, deadline)])
     waveform = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
     # Whisper's 30 s receptive field is respected. Every supplied sample is
-    # decoded once; the gateway bounds checkpoints to 30 s by default.
+    # decoded once; the gateway bounds each unfinished interval to 120 s.
     texts = []
     for offset in range(0, waveform.size, 30 * 16000):
         inputs = app.state.processor(waveform[offset:offset + 30 * 16000], sampling_rate=16000, return_tensors="pt")
         features = inputs.input_features.to(app.state.device)
         with torch.inference_mode():
-            tokens = app.state.model.generate(features, max_new_tokens=448)
-        # A length-limited result cannot certify completeness of the interval.
+            result = app.state.model.generate(features, max_new_tokens=440, stopping_criteria=stopping, return_dict_in_generate=True, force_unique_generate_call=True)
+            tokens = result.sequences
+        if stop.is_set() or time.monotonic() >= deadline:
+            raise RuntimeError("recognition cancelled before complete finalization")
+        # Original generation sequences retain EOS; the default Whisper return
+        # strips it. A length-limited result cannot certify completeness.
         eos = app.state.model.generation_config.eos_token_id
         eos_ids = set(eos if isinstance(eos, list) else [eos])
         if int(tokens[0, -1]) not in eos_ids:
@@ -70,12 +115,32 @@ async def recognize(request: Request):
     async with app.state.lock:
         # Client cancellation does not stop a running torch call. Retain exclusive
         # ownership until the real worker finishes, even after HTTP disconnect.
-        work = asyncio.create_task(asyncio.to_thread(decode, app, bytes(data)))
+        stop = threading.Event()
+        work = asyncio.create_task(asyncio.to_thread(decode, app, bytes(data), stop))
+
+        async def watch_disconnect():
+            while not work.done():
+                if await request.is_disconnected():
+                    stop.set()
+                    return
+                await asyncio.sleep(.02)
+
+        watcher = asyncio.create_task(watch_disconnect())
         try:
             return await asyncio.shield(work)
         except asyncio.CancelledError:
-            await work
+            stop.set()
+            try:
+                await work
+            except Exception:
+                pass
             raise
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
 
 
 @app.get("/healthz")
