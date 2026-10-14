@@ -67,6 +67,7 @@ jobs:
           go vet ./...
       - name: Native production and capture-free prototype checks
         run: |
+          swift test --scratch-path "$RUNNER_TEMP/mistt-conversation" --jobs 2
           swift test --package-path desktop --scratch-path "$RUNNER_TEMP/mistt-desktop" --jobs 2
           swift test --package-path desktop/Tools/NativeCapturePreflight --scratch-path "$RUNNER_TEMP/mistt-preflight" --jobs 2
       - name: Python gateway and release metadata checks
@@ -77,7 +78,7 @@ jobs:
           python -m unittest discover -s release -p 'test_*.py' -v
       - name: Check formatting and diff
         run: |
-          test -z "$(gofmt -l cmd internal gen)"
+          test -z "$(gofmt -l cmd internal gen conversation)"
           git diff --check
 
   release:

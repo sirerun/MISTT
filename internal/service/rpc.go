@@ -22,6 +22,9 @@ func (s *Service) StreamTranscription(stream misttv1.Mistt_StreamTranscriptionSe
 	if subscribe == nil || strings.TrimSpace(subscribe.Language) == "" {
 		return status.Error(codes.InvalidArgument, "first message must subscribe with a language")
 	}
+	if subscribe.CaptureMode != misttv1.CaptureMode_CAPTURE_MODE_LEGACY_PAIRED && subscribe.CaptureMode != misttv1.CaptureMode_CAPTURE_MODE_PAIRED {
+		return status.Error(codes.FailedPrecondition, "paired relay does not admit microphone or armed mode; use native Conversation")
+	}
 	sub, err := s.addSubscriber(stream.Context(), subscribe.Language)
 	if err != nil {
 		return err

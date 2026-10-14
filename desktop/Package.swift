@@ -8,6 +8,7 @@ let package = Package(
         .executable(name: "MISTTDesktop", targets: ["MISTTDesktop"]),
     ],
     dependencies: [
+        .package(name: "MISTTConversation", path: ".."),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
     ],
     targets: [
@@ -15,7 +16,7 @@ let package = Package(
         .target(name: "NativePairAtomics", publicHeadersPath: "include"),
         .executableTarget(
             name: "MISTTDesktop",
-            dependencies: ["NativeAudioQueue", "NativePairAtomics", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: [.product(name: "MISTTConversation", package: "MISTTConversation"), "NativeAudioQueue", "NativePairAtomics", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/MISTTDesktop"
         ),
         .testTarget(

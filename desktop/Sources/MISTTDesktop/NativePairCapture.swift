@@ -1,4 +1,5 @@
 import AVFoundation
+import MISTTConversation
 import CoreAudio
 import Darwin
 import Foundation
@@ -66,6 +67,7 @@ private struct StopOutcome {
 @available(macOS 14.2, *)
 final class NativePairCapture: @unchecked Sendable {
     private let lock = NSLock()
+    private var captureLease: CaptureLease?
     private let ownerGeneration: UInt64
     private let stopQueue = DispatchQueue(label: "com.sirerun.mistt.preflight.stop", qos: .userInitiated)
     private let atomicState = MISTTCreateCaptureState()!
@@ -142,6 +144,7 @@ final class NativePairCapture: @unchecked Sendable {
 
     func isStartGenerationCurrent(_ expectedGeneration: UInt64) -> Bool {
         do {
+            captureLease = try CaptureLease.acquire()
             try ensureStartCurrent(expectedGeneration)
             return true
         } catch {
@@ -854,6 +857,7 @@ final class NativePairCapture: @unchecked Sendable {
                 outcome.errors.append("Process tap retained because selected-app callbacks are not confirmed stopped")
             }
         }
+        if outcome.succeeded { captureLease = nil }
         return outcome
     }
 }

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v7.35.1
-// source: mistt/v1/mistt.proto
+// source: proto/mistt/v1/mistt.proto
 
 package misttv1
 
@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Mistt_StreamTranscription_FullMethodName = "/mistt.v1.Mistt/StreamTranscription"
+	Mistt_Conversation_FullMethodName        = "/mistt.v1.Mistt/Conversation"
 	Mistt_WatchStatus_FullMethodName         = "/mistt.v1.Mistt/WatchStatus"
 	Mistt_SetMuted_FullMethodName            = "/mistt.v1.Mistt/SetMuted"
 )
@@ -31,6 +32,8 @@ type MisttClient interface {
 	// StreamTranscription subscribes to the single paired session managed by the
 	// native owner. It does not open devices or create an ASR session per client.
 	StreamTranscription(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientMessage, StreamResponse], error)
+	// Conversation admits microphone PCM from the single native AEC owner.
+	Conversation(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConversationRequest, StreamResponse], error)
 	WatchStatus(ctx context.Context, in *WatchStatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Status], error)
 	SetMuted(ctx context.Context, in *SetMutedRequest, opts ...grpc.CallOption) (*Status, error)
 }
@@ -56,9 +59,22 @@ func (c *misttClient) StreamTranscription(ctx context.Context, opts ...grpc.Call
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Mistt_StreamTranscriptionClient = grpc.BidiStreamingClient[ClientMessage, StreamResponse]
 
+func (c *misttClient) Conversation(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConversationRequest, StreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Mistt_ServiceDesc.Streams[1], Mistt_Conversation_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ConversationRequest, StreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Mistt_ConversationClient = grpc.BidiStreamingClient[ConversationRequest, StreamResponse]
+
 func (c *misttClient) WatchStatus(ctx context.Context, in *WatchStatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Status], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Mistt_ServiceDesc.Streams[1], Mistt_WatchStatus_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &Mistt_ServiceDesc.Streams[2], Mistt_WatchStatus_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +108,8 @@ type MisttServer interface {
 	// StreamTranscription subscribes to the single paired session managed by the
 	// native owner. It does not open devices or create an ASR session per client.
 	StreamTranscription(grpc.BidiStreamingServer[ClientMessage, StreamResponse]) error
+	// Conversation admits microphone PCM from the single native AEC owner.
+	Conversation(grpc.BidiStreamingServer[ConversationRequest, StreamResponse]) error
 	WatchStatus(*WatchStatusRequest, grpc.ServerStreamingServer[Status]) error
 	SetMuted(context.Context, *SetMutedRequest) (*Status, error)
 	mustEmbedUnimplementedMisttServer()
@@ -106,6 +124,9 @@ type UnimplementedMisttServer struct{}
 
 func (UnimplementedMisttServer) StreamTranscription(grpc.BidiStreamingServer[ClientMessage, StreamResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamTranscription not implemented")
+}
+func (UnimplementedMisttServer) Conversation(grpc.BidiStreamingServer[ConversationRequest, StreamResponse]) error {
+	return status.Error(codes.Unimplemented, "method Conversation not implemented")
 }
 func (UnimplementedMisttServer) WatchStatus(*WatchStatusRequest, grpc.ServerStreamingServer[Status]) error {
 	return status.Error(codes.Unimplemented, "method WatchStatus not implemented")
@@ -140,6 +161,13 @@ func _Mistt_StreamTranscription_Handler(srv interface{}, stream grpc.ServerStrea
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Mistt_StreamTranscriptionServer = grpc.BidiStreamingServer[ClientMessage, StreamResponse]
+
+func _Mistt_Conversation_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MisttServer).Conversation(&grpc.GenericServerStream[ConversationRequest, StreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Mistt_ConversationServer = grpc.BidiStreamingServer[ConversationRequest, StreamResponse]
 
 func _Mistt_WatchStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchStatusRequest)
@@ -190,10 +218,16 @@ var Mistt_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 		{
+			StreamName:    "Conversation",
+			Handler:       _Mistt_Conversation_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
 			StreamName:    "WatchStatus",
 			Handler:       _Mistt_WatchStatus_Handler,
 			ServerStreams: true,
 		},
 	},
-	Metadata: "mistt/v1/mistt.proto",
+	Metadata: "proto/mistt/v1/mistt.proto",
 }

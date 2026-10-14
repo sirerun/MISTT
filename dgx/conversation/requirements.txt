@@ -1,0 +1,6 @@
+# torch comes from the pinned Spark runtime image (no runtime model downloads).
+numpy==2.2.6
+fastapi==0.116.1
+uvicorn==0.35.0
+transformers==4.56.2
+safetensors==0.6.2
