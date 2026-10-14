@@ -1,0 +1,73 @@
+{
+  "queueDemand": false,
+  "workerRetired": false,
+  "queueCheckedAt": "0001-01-01T00:00:00Z",
+  "ready": false,
+  "inFlight": 0,
+  "onDemand": false,
+  "name": "mistt-whisper-anna-cpu-20261013-02",
+  "status": "failed",
+  "priority": 1000,
+  "startedAt": "0001-01-01T00:00:00Z",
+  "finishedAt": "2026-10-13T22:08:50.964921016-07:00",
+  "restarts": 0,
+  "startAttempts": 4,
+  "reason": "persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1",
+  "requested": {
+    "cpuMillis": 4000,
+    "memoryMB": 4096
+  },
+  "containers": [
+    {
+      "name": "probe",
+      "image": "nvcr.io/nvidia/pytorch:26.02-py3"
+    }
+  ],
+  "events": [
+    {
+      "time": "2026-10-13T22:08:00.902869442-07:00",
+      "type": "scheduled",
+      "message": "scheduled by reconciler"
+    },
+    {
+      "time": "2026-10-13T22:08:00.940463181-07:00",
+      "type": "pending",
+      "message": "create failed: persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1"
+    },
+    {
+      "time": "2026-10-13T22:08:10.905278017-07:00",
+      "type": "scheduled",
+      "message": "scheduled by reconciler"
+    },
+    {
+      "time": "2026-10-13T22:08:10.948275226-07:00",
+      "type": "pending",
+      "message": "create failed: persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1"
+    },
+    {
+      "time": "2026-10-13T22:08:25.882316499-07:00",
+      "type": "scheduled",
+      "message": "scheduled by reconciler"
+    },
+    {
+      "time": "2026-10-13T22:08:25.92307781-07:00",
+      "type": "pending",
+      "message": "create failed: persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1"
+    },
+    {
+      "time": "2026-10-13T22:08:50.908796572-07:00",
+      "type": "scheduled",
+      "message": "scheduled by reconciler"
+    },
+    {
+      "time": "2026-10-13T22:08:50.964921016-07:00",
+      "type": "failed",
+      "message": "start failed after backoffLimit: persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1"
+    },
+    {
+      "time": "2026-10-13T22:08:50.971720996-07:00",
+      "type": "PodFailed",
+      "message": "start failed after backoffLimit: persistent volume \"mistt-zamu-whisper-20261013-01\" must exist before pod creation: exit status 1"
+    }
+  ]
+}

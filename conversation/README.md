@@ -47,8 +47,10 @@ Receipts report samples, not fabricated word alignment.
 Use `conversation.NewClient(ClientConfig{Address, Token, TLS})`, `Open(ctx, UUID)`,
 then send ordered `SendPCM`, `Activity` and `Checkpoint` messages. Frames contain
 1–1600 samples. Activity capture samples may not exceed already-sent audio.
-Send a checkpoint after stopped speech and periodically (for example every five
-seconds) during sustained silence. Do not split an unfinished utterance merely to
+Send a checkpoint after stopped speech and on native `recognitionCheckpoint`
+observations. The native detector emits these every five seconds of confirmed
+quiet audio, after VAD processing. Never infer a checkpoint from the audio callback
+alone: that callback precedes the speech-onset observation. Do not split an unfinished utterance merely to
 obtain a result. The uncheckpointed interval is capped at 120 seconds; exhaustion
 is an explicit incomplete-utterance failure.
 
@@ -68,7 +70,12 @@ only after sending a checkpoint; unfinalized trailing audio is a gap.
 ## Local deployment
 
 `dgx/conversation/server.py` is a persistent local Whisper adapter. Prepare a
-specific model revision **before** starting it, recording the local artifact hash.
+specific model revision **before** starting it. `model-pins.json` locks the English
+Whisper base model to revision `911407f4214e0e1d82085af863093ec0b66f9cd6`
+and SHA-256/size for every required file. Run `prepare_model.py --pins
+dgx/conversation/model-pins.json --output /new/dedicated/model-directory`. The
+output must be new; existing model caches are never modified. Startup rechecks
+every file and the manifest hash before loading safetensors.
 It loads only the explicitly supplied local directory, with downloads disabled:
 
 ```sh
@@ -105,11 +112,19 @@ require runtime measurements; deterministic tests do not establish these results
 `swift build --product mistt-media -j 2` builds the same native library behind a
 bounded JSONL stdin/stdout protocol for the Zamu demo. Each command has a unique
 `id` and `command`; active playback commands additionally carry `session_id`.
-Commands are `arm`, `start`, `mute`, `stop`, `audio`, `pause`, `resume`, `flush`,
+Commands are `arm`, `start`, `mute`, `unmute`, `stop`, `audio`, `pause`, `resume`, `flush`,
 `receipt`, and `drain`. Audio uses base64 `pcm16`, `sample_rate:24000` and generation;
 pause/resume use the same generation and token. Replies carry `id`, `ok`, and an
 optional sample receipt. Events are `audio`, `speech_started`, `speech_stopped`,
-`wake`, `urgent_stop`, `playback`, `failure`, and `state`. `drain` waits for native
+`recognition_checkpoint` (with `capture_sample`), `wake`, `urgent_stop`,
+`playback`, `failure`, and `state`. `drain` waits for native
 played-back completion while local interruption and control commands continue.
 The companion embeds the required macOS permission descriptions. Production
 bundling/signing follows the host's normal distribution pipeline.
+
+Input mute removes the capture tap, cancels local recognition, clears volatile
+input and mutes voice-processing input, while speaker output continues. Unmute
+requires the same retained host session binding and a **fresh** MISTT recognition
+stream; capture sequence/sample reset to zero, while playback generation is kept.
+The host maps fresh admission to its capture-reset event, not a new host message.
+This prevents delayed pre-mute recognition from contaminating the next utterance.

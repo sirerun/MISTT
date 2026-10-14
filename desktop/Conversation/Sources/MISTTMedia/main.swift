@@ -21,6 +21,7 @@ import MISTTConversation
         case let .audio(sessionID, sequence, sample, bytes): emit(["type": "audio", "session_id": sessionID, "sequence": sequence, "start_sample": sample, "pcm16": bytes.base64EncodedString()])
         case let .speechStarted(sample): emit(["type": "speech_started", "capture_sample": sample])
         case let .speechStopped(sample): emit(["type": "speech_stopped", "capture_sample": sample])
+        case let .recognitionCheckpoint(sample): emit(["type": "recognition_checkpoint", "capture_sample": sample])
         case let .wake(start, end): emit(["type": "wake", "start_sample": start, "end_sample": end])
         case .urgentStop: emit(["type": "urgent_stop"])
         case let .playback(value): emit(["type": "playback", "receipt": receipt(value)])
@@ -43,7 +44,10 @@ import MISTTConversation
             case "start":
                 guard let sessionID else { throw MediaError.unavailable("session_id required") }
                 try await media.start(sessionID: sessionID); binding = sessionID
-            case "mute": media.mute(); binding = nil
+            case "mute": media.mute()
+            case "unmute":
+                guard let sessionID, binding == sessionID else { throw MediaError.unavailable("muted binding required") }
+                try await media.unmute(sessionID: sessionID)
             case "stop": media.stop(); binding = nil
             case "audio":
                 guard let encoded = value["pcm16"] as? String, let pcm = Data(base64Encoded: encoded), let rate = value["sample_rate"] as? Int else { throw MediaError.invalidAudio }

@@ -1,0 +1,187 @@
+{
+  "pod": "mistt-whisper-anna-cpu-20261013-05",
+  "allocation": {
+    "cpu": 4,
+    "memory_gib": 4,
+    "gpu": 0
+  },
+  "model_manifest_sha256": "637178cddb125d01abd1f90d01b3bfdd47bbe8c7ca2da5176e4334b587a32998",
+  "resolved_cached_image_id": "c0e6c0b168faa1be027564e9a004e842c342e22ea51903d5fc7b9008850398d0",
+  "measurements": [
+    {
+      "prepared": "README.md",
+      "sha256": "767c687e78cb62c9607ce6ff077ab3368dae8072cee8cab6aeaa1246fc6a021c",
+      "bytes": 14846
+    },
+    {
+      "prepared": "added_tokens.json",
+      "sha256": "560be47bea388757f8d4cc185c5d82067426cbb6361e38016dd90ddc01ab203a",
+      "bytes": 34604
+    },
+    {
+      "prepared": "config.json",
+      "sha256": "160c1df40a60d4ef5a6014d536fd845c33aabfd1f318458ac7f87cfe91ebbe76",
+      "bytes": 1937
+    },
+    {
+      "prepared": "generation_config.json",
+      "sha256": "c5750f05d94777579e00ce26ef65e5d87c108439f90e3ac519df2587b9d5d41f",
+      "bytes": 1531
+    },
+    {
+      "prepared": "merges.txt",
+      "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+      "bytes": 456318
+    },
+    {
+      "prepared": "model.safetensors",
+      "sha256": "d4dd5542fd6a1d35639e21384238f3bfe6c557c849d392b5905d33ee29e71db5",
+      "bytes": 290401888
+    },
+    {
+      "prepared": "normalizer.json",
+      "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+      "bytes": 52666
+    },
+    {
+      "prepared": "preprocessor_config.json",
+      "sha256": "9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666",
+      "bytes": 184990
+    },
+    {
+      "prepared": "special_tokens_map.json",
+      "sha256": "014f8f802366ed818919550be0ad9e35907327cb9e142e8aaa102420f460bda8",
+      "bytes": 1830
+    },
+    {
+      "prepared": "tokenizer.json",
+      "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+      "bytes": 2405679
+    },
+    {
+      "prepared": "tokenizer_config.json",
+      "sha256": "14f84bdf4b9ecdbd4738ddc81c17a1baedfc02bb93c6e049c951e15a1b40b70d",
+      "bytes": 805
+    },
+    {
+      "prepared": "vocab.json",
+      "sha256": "3ba3c3109ff33976c4bd966589c11ee14fcaa1f4c9e5e154c2ed7f99d80709e7",
+      "bytes": 798156
+    },
+    {
+      "package": "torch",
+      "version": "2.11.0a0+eb65b36914.nv26.2"
+    },
+    {
+      "package": "transformers",
+      "version": "4.56.2"
+    },
+    {
+      "package": "pocket-tts",
+      "version": "3.3.0"
+    },
+    {
+      "package": "fastapi",
+      "version": "0.116.1"
+    },
+    {
+      "package": "httpx",
+      "version": "0.28.1"
+    },
+    {
+      "package": "numpy",
+      "version": "2.2.6"
+    },
+    {
+      "anna_load_seconds": 0.25811218202579767
+    },
+    {
+      "fixture": 0,
+      "reference": "Please do not delete the draft. Wait until I confirm.",
+      "samples": 62720,
+      "anna_seconds": 0.7064675879664719,
+      "pcm_sha256": "8ee8b9f08ea497e182e3fe6b91ba928a81ac4b357745f8ad5d88fe9bda84dddd"
+    },
+    {
+      "fixture": 1,
+      "reference": "Yes, but stop the upload and keep the original file.",
+      "samples": 53760,
+      "anna_seconds": 0.5656557680340484,
+      "pcm_sha256": "476eb29eb0162168a76f1feb9e818a4599274ce6ce42e20a0503a586546c0e83"
+    },
+    {
+      "fixture": 2,
+      "reference": "Hello Zati. What should I work on next?",
+      "samples": 51200,
+      "anna_seconds": 0.6018407230149023,
+      "pcm_sha256": "cde93266fd227883df8e6ac75f7b94dc9e4b69a917cefa0a5e4e38d0dd898a8e"
+    },
+    {
+      "stt_model_load_seconds": 0.5217855449882336
+    },
+    {
+      "fixture": 0,
+      "repeat": 0,
+      "recognition_seconds": 0.6493069449788891,
+      "text": "Please do not delete the draft. Wait until I confirm.",
+      "finalized_samples": 62720
+    },
+    {
+      "fixture": 1,
+      "repeat": 0,
+      "recognition_seconds": 0.5416213129647076,
+      "text": "Yes, but stop the upload and keep the original file.",
+      "finalized_samples": 53760
+    },
+    {
+      "fixture": 2,
+      "repeat": 0,
+      "recognition_seconds": 0.5265072830370627,
+      "text": "Hello Zati, what should I work on next?",
+      "finalized_samples": 51200
+    },
+    {
+      "fixture": 0,
+      "repeat": 1,
+      "recognition_seconds": 0.5219086310244165,
+      "text": "Please do not delete the draft. Wait until I confirm.",
+      "finalized_samples": 62720
+    },
+    {
+      "fixture": 1,
+      "repeat": 1,
+      "recognition_seconds": 0.532786198949907,
+      "text": "Yes, but stop the upload and keep the original file.",
+      "finalized_samples": 53760
+    },
+    {
+      "fixture": 2,
+      "repeat": 1,
+      "recognition_seconds": 0.5097929710173048,
+      "text": "Hello Zati, what should I work on next?",
+      "finalized_samples": 51200
+    },
+    {
+      "concurrent_stt_seconds": 1.0649026929750107,
+      "concurrent_total_seconds": 1.0649041489814408,
+      "concurrent_result": {
+        "text": "Please do not delete the draft. Wait until I confirm.",
+        "finalized_samples": 62720
+      }
+    },
+    {
+      "cancel_cleanup_seconds": 0.4342136599589139,
+      "worker_released": true
+    },
+    {
+      "recovered_after_cancel": true,
+      "external_application_sockets_allowed": false
+    }
+  ],
+  "limitations": [
+    "Three synthetic Anna fixtures; no human accent or noisy-room qualification.",
+    "No microphone, loudspeaker AEC, wake-word, two-hour endurance, or complete end-to-end latency measurement.",
+    "Application socket guard and offline model loading; no claim of kernel-enforced network isolation.",
+    "Prepared model stored in scoped ephemeral probe volume; persistent deployment needs separately provisioned dedicated storage."
+  ]
+}

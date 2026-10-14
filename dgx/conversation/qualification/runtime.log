@@ -1,0 +1,47 @@
+0422d26907dc {"prepared": "README.md", "sha256": "767c687e78cb62c9607ce6ff077ab3368dae8072cee8cab6aeaa1246fc6a021c", "bytes": 14846}
+0422d26907dc {"prepared": "added_tokens.json", "sha256": "560be47bea388757f8d4cc185c5d82067426cbb6361e38016dd90ddc01ab203a", "bytes": 34604}
+0422d26907dc {"prepared": "config.json", "sha256": "160c1df40a60d4ef5a6014d536fd845c33aabfd1f318458ac7f87cfe91ebbe76", "bytes": 1937}
+0422d26907dc {"prepared": "generation_config.json", "sha256": "c5750f05d94777579e00ce26ef65e5d87c108439f90e3ac519df2587b9d5d41f", "bytes": 1531}
+0422d26907dc {"prepared": "merges.txt", "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5", "bytes": 456318}
+0422d26907dc {"prepared": "model.safetensors", "sha256": "d4dd5542fd6a1d35639e21384238f3bfe6c557c849d392b5905d33ee29e71db5", "bytes": 290401888}
+0422d26907dc {"prepared": "normalizer.json", "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd", "bytes": 52666}
+0422d26907dc {"prepared": "preprocessor_config.json", "sha256": "9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666", "bytes": 184990}
+0422d26907dc {"prepared": "special_tokens_map.json", "sha256": "014f8f802366ed818919550be0ad9e35907327cb9e142e8aaa102420f460bda8", "bytes": 1830}
+0422d26907dc {"prepared": "tokenizer.json", "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0", "bytes": 2405679}
+0422d26907dc {"prepared": "tokenizer_config.json", "sha256": "14f84bdf4b9ecdbd4738ddc81c17a1baedfc02bb93c6e049c951e15a1b40b70d", "bytes": 805}
+0422d26907dc {"prepared": "vocab.json", "sha256": "3ba3c3109ff33976c4bd966589c11ee14fcaa1f4c9e5e154c2ed7f99d80709e7", "bytes": 798156}
+0422d26907dc WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+0422d26907dc {
+0422d26907dc   "anna.safetensors": "5ea82f78db006c9fd34e32ddd5aae82674b5b32646097977436458d00af80dfa",
+0422d26907dc   "model.safetensors": "473f47d99560bd50eb8b4509d3cacfe7f316ab20bdca86505403a2e6a936a6e9",
+0422d26907dc   "tokenizer.model": "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6",
+0422d26907dc   "config.yaml": "193c319c5148f03fc8310423dbaa9022de557dce97ed89b06d668f1af911c859"
+0422d26907dc }
+0422d26907dc ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+0422d26907dc diffusers 0.39.0 requires safetensors>=0.8.0, but you have safetensors 0.6.2 which is incompatible.
+0422d26907dc gradio 5.50.0 requires pydantic<=2.12.3,>=2.0, but you have pydantic 2.14.1 which is incompatible.
+0422d26907dc datasets 3.5.0 requires fsspec[http]<=2024.12.0,>=2023.1.0, but you have fsspec 2026.9.0 which is incompatible.
+0422d26907dc vibevoice 0.1.0 requires transformers==4.51.3, but you have transformers 4.56.2 which is incompatible.
+0422d26907dc nvidia-dali-cuda130 1.53.0 requires packaging<=25.0, but you have packaging 26.3 which is incompatible.
+0422d26907dc spin 0.17 requires click!=8.3.0,<8.4,>=8, but you have click 8.5.0 which is incompatible.
+0422d26907dc WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+0422d26907dc {"package": "torch", "version": "2.11.0a0+eb65b36914.nv26.2"}
+0422d26907dc {"package": "transformers", "version": "4.56.2"}
+0422d26907dc {"package": "pocket-tts", "version": "3.3.0"}
+0422d26907dc {"package": "fastapi", "version": "0.116.1"}
+0422d26907dc {"package": "httpx", "version": "0.28.1"}
+0422d26907dc {"package": "numpy", "version": "2.2.6"}
+0422d26907dc {"anna_load_seconds": 0.25811218202579767}
+0422d26907dc {"fixture": 0, "reference": "Please do not delete the draft. Wait until I confirm.", "samples": 62720, "anna_seconds": 0.7064675879664719, "pcm_sha256": "8ee8b9f08ea497e182e3fe6b91ba928a81ac4b357745f8ad5d88fe9bda84dddd"}
+0422d26907dc {"fixture": 1, "reference": "Yes, but stop the upload and keep the original file.", "samples": 53760, "anna_seconds": 0.5656557680340484, "pcm_sha256": "476eb29eb0162168a76f1feb9e818a4599274ce6ce42e20a0503a586546c0e83"}
+0422d26907dc {"fixture": 2, "reference": "Hello Zati. What should I work on next?", "samples": 51200, "anna_seconds": 0.6018407230149023, "pcm_sha256": "cde93266fd227883df8e6ac75f7b94dc9e4b69a917cefa0a5e4e38d0dd898a8e"}
+0422d26907dc {"stt_model_load_seconds": 0.5217855449882336}
+0422d26907dc {"fixture": 0, "repeat": 0, "recognition_seconds": 0.6493069449788891, "text": "Please do not delete the draft. Wait until I confirm.", "finalized_samples": 62720}
+0422d26907dc {"fixture": 1, "repeat": 0, "recognition_seconds": 0.5416213129647076, "text": "Yes, but stop the upload and keep the original file.", "finalized_samples": 53760}
+0422d26907dc {"fixture": 2, "repeat": 0, "recognition_seconds": 0.5265072830370627, "text": "Hello Zati, what should I work on next?", "finalized_samples": 51200}
+0422d26907dc {"fixture": 0, "repeat": 1, "recognition_seconds": 0.5219086310244165, "text": "Please do not delete the draft. Wait until I confirm.", "finalized_samples": 62720}
+0422d26907dc {"fixture": 1, "repeat": 1, "recognition_seconds": 0.532786198949907, "text": "Yes, but stop the upload and keep the original file.", "finalized_samples": 53760}
+0422d26907dc {"fixture": 2, "repeat": 1, "recognition_seconds": 0.5097929710173048, "text": "Hello Zati, what should I work on next?", "finalized_samples": 51200}
+0422d26907dc {"concurrent_stt_seconds": 1.0649026929750107, "concurrent_total_seconds": 1.0649041489814408, "concurrent_result": {"text": "Please do not delete the draft. Wait until I confirm.", "finalized_samples": 62720}}
+0422d26907dc {"cancel_cleanup_seconds": 0.4342136599589139, "worker_released": true}
+0422d26907dc {"recovered_after_cancel": true, "external_application_sockets_allowed": false}
