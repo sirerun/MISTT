@@ -1,0 +1,13 @@
+# Build context: dgx/conversation. BASE_IMAGE must be a reviewed ARM64 image
+# containing Python 3.12 and CPU-capable PyTorch, pinned by registry digest.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+RUN python -c 'import os,platform,re,sys,torch; assert re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}",sys.argv[1]); assert platform.machine() in ("aarch64","arm64"); assert sys.version_info[:2] == (3,12)' "${BASE_IMAGE}"
+WORKDIR /app
+COPY requirements.lock /app/requirements.lock
+RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.lock
+COPY server.py serve.py healthcheck.py /app/
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MISTT_CONVERSATION_DEVICE=cpu MISTT_CONVERSATION_THREADS=2 PYTHONDONTWRITEBYTECODE=1
+EXPOSE 8793
+ENTRYPOINT ["python", "/app/serve.py"]

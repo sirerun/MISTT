@@ -144,5 +144,7 @@ async def recognize(request: Request):
 
 
 @app.get("/healthz")
-async def health():
+async def health(request: Request):
+    if not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + app.state.token):
+        raise HTTPException(401, "credential required")
     return {"ready": hasattr(app.state, "model"), "protocol": "mistt.conversation.v1"}

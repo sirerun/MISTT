@@ -69,7 +69,9 @@ only after sending a checkpoint; unfinalized trailing audio is a gap.
 
 ## Local deployment
 
-`dgx/conversation/server.py` is a persistent local Whisper adapter. Prepare a
+`dgx/conversation/server.py` is a persistent local Whisper adapter. Production
+image, Spark renderer, token-file launcher and rollback instructions are in
+[`dgx/conversation/README.md`](../dgx/conversation/README.md). Prepare a
 specific model revision **before** starting it. `model-pins.json` locks the English
 Whisper base model to revision `911407f4214e0e1d82085af863093ec0b66f9cd6`
 and SHA-256/size for every required file. Run `prepare_model.py --pins
