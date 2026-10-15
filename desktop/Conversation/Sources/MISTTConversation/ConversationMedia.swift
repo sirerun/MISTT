@@ -138,7 +138,7 @@ public enum MediaError: Error {
             engine.inputNode.isVoiceProcessingInputMuted = true
             if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         }
-        ring.removeAll(); pendingWakeEnd = nil; detector.reset()
+        ring.removeAll(); pendingWakeEnd = nil; repeatCommandRequired = false; detector.reset()
         onEvent?(.state("muted"))
     }
 
@@ -166,7 +166,7 @@ public enum MediaError: Error {
         }
         running = false; armed = false; sessionID = nil; captureEpoch = UUID(); playbackEpoch = UUID(); lease = nil
         _ = flush(generation: generation)
-        ring.removeAll(); pendingWakeEnd = nil; detector.reset()
+        ring.removeAll(); pendingWakeEnd = nil; repeatCommandRequired = false; detector.reset()
         onEvent?(.state("stopped"))
     }
 
@@ -293,7 +293,7 @@ public enum MediaError: Error {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
-        request.contextualStrings = ["Hey Zati", "wait", "stop"]
+        request.contextualStrings = ["Hey Zati", "Zati", "wait", "stop"]
         detectorTranscript = ""
         self.request = request; recognitionBase = localSample
         let base = recognitionBase
