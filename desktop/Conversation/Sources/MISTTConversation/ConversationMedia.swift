@@ -234,8 +234,10 @@ public enum MediaError: Error {
         let input = engine.inputNode
         if input.isVoiceProcessingEnabled { input.isVoiceProcessingInputMuted = false }
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, let converter = AVAudioConverter(from: format, to: captureFormat) else { throw MediaError.unavailable("microphone converter unavailable") }
-        self.converter = converter
+        guard format.sampleRate > 0 else { throw MediaError.unavailable("microphone converter unavailable") }
+        let microphoneChannels = format.channelCount == 1 ? 1 : try CaptureChannelMap.defaultMicrophoneChannels()
+        self.converter = try CaptureChannelMap.converter(from: format, to: captureFormat,
+            microphoneChannels: microphoneChannels, voiceProcessing: input.isVoiceProcessingEnabled)
         startRecognition()
         captureGate.reset()
         captureEpoch = UUID()
@@ -346,7 +348,6 @@ public enum MediaError: Error {
 
     private func consume(_ buffer: AVAudioPCMBuffer, rawPeak: Float) {
         guard running, let converter else { return }
-        request?.append(buffer)
         let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16000 / buffer.format.sampleRate)) + 32
         guard let output = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { onEvent?(.failure("capture conversion allocation failed")); stop(); return }
         var supplied = false; var error: NSError?
@@ -356,6 +357,9 @@ public enum MediaError: Error {
         }
         if let error { onEvent?(.failure("capture conversion: \(error.localizedDescription)")); stop(); return }
         guard let samples = output.int16ChannelData?[0] else { onEvent?(.failure("capture PCM format unavailable")); stop(); return }
+        // The local detector and remote STT receive the same mono microphone
+        // stream, never the multichannel speaker-reference aggregate.
+        if output.frameLength > 0 { request?.append(output) }
         let bytes = Data(bytes: samples, count: Int(output.frameLength) * 2)
         if armed && localSample >= lastDetectorReport + 8000 {
             lastDetectorReport = localSample
