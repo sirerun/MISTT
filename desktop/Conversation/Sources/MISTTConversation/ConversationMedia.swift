@@ -176,6 +176,18 @@ public enum MediaError: Error {
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(true)
         if player.engine == nil { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat) }
+        // VoiceProcessingIO requires matching client-side input/output rates.
+        // Its input may adopt the microphone's 48 kHz rate while the mixer
+        // retains its initial 44.1 kHz output. Connect the output explicitly;
+        // the mixer still resamples Anna's 24 kHz player stream.
+        let captureRate = input.outputFormat(forBus: 0).sampleRate
+        let outputChannels = engine.outputNode.inputFormat(forBus: 0).channelCount
+        guard captureRate > 0, outputChannels > 0,
+              let duplexFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                  sampleRate: captureRate, channels: outputChannels, interleaved: false) else {
+            throw MediaError.unavailable("microphone and speaker formats are unavailable")
+        }
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: duplexFormat)
         localSample = 0; lastKeywordEnd = 0
         try installCapture()
         do { try checkActivation(operation); try engine.start(); try checkActivation(operation); lease = newLease; running = true }
