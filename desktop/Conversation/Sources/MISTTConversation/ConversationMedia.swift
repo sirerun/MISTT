@@ -31,6 +31,11 @@ public enum MediaError: Error {
 /// supplied only to an on-device recognizer, never to the host/network callback.
 @MainActor public final class ConversationMedia {
     public var onEvent: ((MediaEvent) -> Void)?
+    #if DEBUG
+    private let diagnosticPlainInput = ProcessInfo.processInfo.environment["ZATI_VOICE_DIAGNOSTIC_PLAIN_INPUT"] == "1"
+    #else
+    private let diagnosticPlainInput = false
+    #endif
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -80,12 +85,13 @@ public enum MediaError: Error {
         // No assistant playback is admitted while armed. Use the unprocessed
         // uplink for the local wake detector; restore echo cancellation before
         // any conversation capture or playback is admitted on this same engine.
-        engine.inputNode.isVoiceProcessingBypassed = true
+        if engine.inputNode.isVoiceProcessingEnabled { engine.inputNode.isVoiceProcessingBypassed = true }
         sessionID = nil; mutedSessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("armed"))
     }
 
     public func start(sessionID: String) async throws {
+        guard !diagnosticPlainInput else { throw MediaError.unavailable("Input-only diagnostics cannot start a conversation") }
         if self.sessionID == sessionID { return }
         guard UUID(uuidString: sessionID) != nil else { throw MediaError.unavailable("session ID must be a UUID") }
         let operation = UUID(); activationEpoch = operation
@@ -183,7 +189,7 @@ public enum MediaError: Error {
         }
         let newLease = try CaptureLease.acquire()
         let input = engine.inputNode
-        try input.setVoiceProcessingEnabled(true)
+        try input.setVoiceProcessingEnabled(!diagnosticPlainInput)
         if player.engine == nil { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat) }
         // VoiceProcessingIO requires matching client-side input/output rates.
         // Its input may adopt the microphone's 48 kHz rate while the mixer
@@ -206,7 +212,7 @@ public enum MediaError: Error {
 
     private func installCapture() throws {
         let input = engine.inputNode
-        input.isVoiceProcessingInputMuted = false
+        if input.isVoiceProcessingEnabled { input.isVoiceProcessingInputMuted = false }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, let converter = AVAudioConverter(from: format, to: captureFormat) else { throw MediaError.unavailable("microphone converter unavailable") }
         self.converter = converter
@@ -226,6 +232,13 @@ public enum MediaError: Error {
                 }
                 return
             }
+            var rawPeak: Float = 0
+            if let channels = buffer.floatChannelData {
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    for frame in 0..<Int(buffer.frameLength) { rawPeak = max(rawPeak, abs(channels[channel][frame])) }
+                }
+            }
+            let inputPeak = rawPeak
             copy.frameLength = buffer.frameLength
             let src = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
             let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
@@ -234,7 +247,7 @@ public enum MediaError: Error {
                 defer { gate.leave() }
                 guard let self, self.captureEpoch == epoch else { return }
                 if gate.overflowed() { self.onEvent?(.failure("capture queue overflow; new session required")); self.stop(); return }
-                self.consume(copy)
+                self.consume(copy, rawPeak: inputPeak)
             }
         }
         tapInstalled = true
@@ -283,6 +296,7 @@ public enum MediaError: Error {
     private func keywords(_ transcription: SFTranscription, base: UInt64) {
         let segments = transcription.segments
         detectorTranscript = String(transcription.formattedString.suffix(160))
+        if diagnosticPlainInput { return }
         if armed {
             for match in WakePhraseMatcher.matches(segments.map(\.substring)) {
                 let firstSegment = segments[match.lowerBound]
@@ -310,7 +324,7 @@ public enum MediaError: Error {
         }
     }
 
-    private func consume(_ buffer: AVAudioPCMBuffer) {
+    private func consume(_ buffer: AVAudioPCMBuffer, rawPeak: Float) {
         guard running, let converter else { return }
         request?.append(buffer)
         let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16000 / buffer.format.sampleRate)) + 32
@@ -327,6 +341,11 @@ public enum MediaError: Error {
             lastDetectorReport = localSample
             var peak: Double = 0
             for index in 0..<Int(output.frameLength) { peak = max(peak, abs(Double(samples[index])) / 32768) }
+            #if DEBUG
+            if diagnosticPlainInput {
+                print("VOICE_INPUT_DIAGNOSTIC rate=\(buffer.format.sampleRate) channels=\(buffer.format.channelCount) raw_peak=\(rawPeak) pcm_peak=\(peak) samples=\(localSample)")
+            }
+            #endif
             onEvent?(.detectorStatus(samples: localSample, level: peak, transcript: detectorTranscript))
         }
         var offset = 0
