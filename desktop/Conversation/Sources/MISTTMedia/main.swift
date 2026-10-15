@@ -29,6 +29,7 @@ import MISTTConversation
         case let .speechStarted(sample): emit(["type": "speech_started", "capture_sample": sample])
         case let .speechStopped(sample): emit(["type": "speech_stopped", "capture_sample": sample])
         case let .recognitionCheckpoint(sample): emit(["type": "recognition_checkpoint", "capture_sample": sample])
+        case let .detectorStatus(samples, level, transcript): emit(["type": "detector_status", "samples": samples, "level": level, "transcript": transcript])
         case let .wake(start, end): emit(["type": "wake", "start_sample": start, "end_sample": end])
         case .urgentStop: emit(["type": "urgent_stop"])
         case let .playback(value): emit(["type": "playback", "receipt": receipt(value)])

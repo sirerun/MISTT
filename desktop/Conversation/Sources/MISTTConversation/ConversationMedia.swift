@@ -15,6 +15,7 @@ public enum MediaEvent: Sendable {
     case speechStarted(sample: UInt64)
     case speechStopped(sample: UInt64)
     case recognitionCheckpoint(sample: UInt64)
+    case detectorStatus(samples: UInt64, level: Double, transcript: String)
     case wake(startSample: UInt64, endSample: UInt64)
     case urgentStop
     case playback(PlaybackReceipt)
@@ -52,6 +53,8 @@ public enum MediaError: Error {
     private var captureSample: UInt64 = 0
     private var lastCheckpoint: UInt64 = 0
     private var localSample: UInt64 = 0
+    private var lastDetectorReport: UInt64 = 0
+    private var detectorTranscript = ""
     private var recognitionBase: UInt64 = 0
     private var lastKeywordEnd: UInt64 = 0
     private var pendingWakeEnd: UInt64?
@@ -248,12 +251,21 @@ public enum MediaError: Error {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         request.contextualStrings = ["Hey Zati", "wait", "stop"]
+        detectorTranscript = ""
         self.request = request; recognitionBase = localSample
         let base = recognitionBase
         recognition = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor [weak self] in
                 guard let self, self.detectorEpoch == epoch, self.recognitionBase == base else { return }
-                if let result { self.keywords(result.bestTranscription, base: base) }
+                if let result {
+                    self.keywords(result.bestTranscription, base: base)
+                    if result.isFinal && self.running {
+                        // An on-device task stops accepting speech after finalization.
+                        // Re-arm immediately instead of waiting for the 50 s rotation.
+                        self.startRecognition()
+                        return
+                    }
+                }
                 if let error, self.running {
                     self.onEvent?(.failure("local detector: \(error.localizedDescription)"))
                     self.stop()
@@ -264,18 +276,27 @@ public enum MediaError: Error {
 
     private func keywords(_ transcription: SFTranscription, base: UInt64) {
         let segments = transcription.segments
-        for (index, segment) in segments.enumerated() {
-            let word = segment.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
-            let end = base + UInt64(max(0, segment.timestamp + segment.duration) * 16000)
-            guard end > lastKeywordEnd else { continue }
-            if armed && index > 0 && word == "zati" && segments[index - 1].substring.lowercased() == "hey" {
+        detectorTranscript = String(transcription.formattedString.suffix(160))
+        if armed {
+            for match in WakePhraseMatcher.matches(segments.map(\.substring)) {
+                let firstSegment = segments[match.lowerBound]
+                let lastSegment = segments[match.upperBound]
+                let end = base + UInt64(max(0, lastSegment.timestamp + lastSegment.duration) * 16000)
+                guard end > lastKeywordEnd else { continue }
                 guard end <= localSample, let first = ring.first, end >= first.0 else {
                     onEvent?(.failure("wake boundary unavailable; start explicitly and repeat the command")); return
                 }
                 lastKeywordEnd = end; pendingWakeEnd = end; armed = false
-                let start = base + UInt64(max(0, segments[index - 1].timestamp) * 16000)
+                let start = base + UInt64(max(0, firstSegment.timestamp) * 16000)
                 onEvent?(.wake(startSample: start, endSample: end))
-            } else if sessionID != nil && (word == "stop" || word == "wait") {
+                break
+            }
+        }
+        for segment in segments {
+            let word = segment.substring.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            let end = base + UInt64(max(0, segment.timestamp + segment.duration) * 16000)
+            guard end > lastKeywordEnd else { continue }
+            if sessionID != nil && (word == "stop" || word == "wait") {
                 lastKeywordEnd = end
                 _ = flush(generation: generation)
                 onEvent?(.urgentStop)
@@ -296,6 +317,12 @@ public enum MediaError: Error {
         if let error { onEvent?(.failure("capture conversion: \(error.localizedDescription)")); stop(); return }
         guard let samples = output.int16ChannelData?[0] else { onEvent?(.failure("capture PCM format unavailable")); stop(); return }
         let bytes = Data(bytes: samples, count: Int(output.frameLength) * 2)
+        if armed && localSample >= lastDetectorReport + 8000 {
+            lastDetectorReport = localSample
+            var peak: Double = 0
+            for index in 0..<Int(output.frameLength) { peak = max(peak, abs(Double(samples[index])) / 32768) }
+            onEvent?(.detectorStatus(samples: localSample, level: peak, transcript: detectorTranscript))
+        }
         var offset = 0
         while offset < bytes.count {
             let block = Data(bytes[offset..<min(offset + 3200, bytes.count)])
