@@ -191,7 +191,7 @@ public enum MediaError: Error {
             throw MediaError.unavailable("microphone and speaker formats are unavailable")
         }
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: duplexFormat)
-        localSample = 0; lastKeywordEnd = 0
+        localSample = 0; lastKeywordEnd = 0; lastDetectorReport = 0; detectorTranscript = ""
         try installCapture()
         do { try checkActivation(operation); try engine.start(); try checkActivation(operation); lease = newLease; running = true }
         catch { engine.stop(); input.removeTap(onBus: 0); tapInstalled = false; recognition?.cancel(); request = nil; throw error }
