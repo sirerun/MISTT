@@ -63,6 +63,10 @@ async def lifespan(app):
     torch.set_num_threads(threads)
     processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False)
     model = AutoModelForSpeechSeq2Seq.from_pretrained(model_dir, local_files_only=True, use_safetensors=True, trust_remote_code=False).to(device).eval()
+    vocabulary = os.environ.get("MISTT_CONVERSATION_VOCABULARY", "").strip()
+    if len(vocabulary) > 1024:
+        raise RuntimeError("recognition vocabulary exceeds 1024 characters")
+    app.state.prompt_ids = processor.get_prompt_ids(vocabulary, return_tensors="pt").to(device) if vocabulary else None
     app.state.token, app.state.processor, app.state.model = token, processor, model
     app.state.device, app.state.lock = device, asyncio.Lock()
     yield
@@ -83,7 +87,7 @@ def decode(app, data, stop=None):
         inputs = app.state.processor(waveform[offset:offset + 30 * 16000], sampling_rate=16000, return_tensors="pt")
         features = inputs.input_features.to(app.state.device)
         with torch.inference_mode():
-            result = app.state.model.generate(features, max_new_tokens=440, stopping_criteria=stopping, return_dict_in_generate=True, force_unique_generate_call=True)
+            result = app.state.model.generate(features, prompt_ids=app.state.prompt_ids, max_new_tokens=440, stopping_criteria=stopping, return_dict_in_generate=True, force_unique_generate_call=True)
             tokens = result.sequences
         if stop.is_set() or time.monotonic() >= deadline:
             raise RuntimeError("recognition cancelled before complete finalization")
