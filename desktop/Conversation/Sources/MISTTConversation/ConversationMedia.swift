@@ -77,6 +77,10 @@ public enum MediaError: Error {
         try await startEngine(operation: operation)
         try checkActivation(operation)
         _ = flush(generation: generation)
+        // No assistant playback is admitted while armed. Use the unprocessed
+        // uplink for the local wake detector; restore echo cancellation before
+        // any conversation capture or playback is admitted on this same engine.
+        engine.inputNode.isVoiceProcessingBypassed = true
         sessionID = nil; mutedSessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("armed"))
     }
@@ -95,6 +99,7 @@ public enum MediaError: Error {
             pendingWakeEnd = nil; ring.removeAll()
             throw MediaError.unavailable("wake admission audio exceeded two seconds; please repeat the command")
         }
+        engine.inputNode.isVoiceProcessingBypassed = false
         self.sessionID = sessionID; mutedSessionID = nil; armed = false; sequence = 0; captureSample = 0; lastCheckpoint = 0; detector.reset()
         onEvent?(.state("active"))
         if let end = pendingWakeEnd {
@@ -132,6 +137,7 @@ public enum MediaError: Error {
         let operation = UUID(); activationEpoch = operation
         try await startEngine(operation: operation)
         try checkActivation(operation)
+        engine.inputNode.isVoiceProcessingBypassed = false
         self.sessionID = sessionID; mutedSessionID = nil; armed = false
         sequence = 0; captureSample = 0; lastCheckpoint = 0; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("active"))
