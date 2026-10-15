@@ -326,7 +326,7 @@ public enum MediaError: Error {
                 let end = base + UInt64(max(0, lastSegment.timestamp + lastSegment.duration) * 16000)
                 guard end > lastKeywordEnd else { continue }
                 guard end <= localSample, let first = ring.first, end >= first.0 else {
-                    onEvent?(.failure("wake boundary unavailable; start explicitly and repeat the command")); return
+                    onEvent?(.failure("wake boundary unavailable (end=\(end), captured=\(localSample), oldest=\(ring.first?.0 ?? 0)); start explicitly and repeat the command")); return
                 }
                 lastKeywordEnd = end; pendingWakeEnd = end; armed = false
                 let start = base + UInt64(max(0, firstSegment.timestamp) * 16000)
