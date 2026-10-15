@@ -38,6 +38,7 @@ public enum MediaError: Error {
     #endif
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
+    private let captureSink = AVAudioMixerNode()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognition: SFSpeechRecognitionTask?
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -191,6 +192,16 @@ public enum MediaError: Error {
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(!diagnosticPlainInput)
         if player.engine == nil { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat) }
+        if input.isVoiceProcessingEnabled && captureSink.engine == nil {
+            // Keep the microphone on an actively rendered branch of the duplex
+            // graph. A tap on a disconnected VPIO input can return silence.
+            // The tap remains upstream of this mute: microphone audio never
+            // reaches the output or becomes its own echo reference.
+            engine.attach(captureSink)
+            engine.connect(input, to: captureSink, format: input.outputFormat(forBus: 0))
+            captureSink.outputVolume = 0
+            engine.connect(captureSink, to: engine.mainMixerNode, format: input.outputFormat(forBus: 0))
+        }
         // VoiceProcessingIO requires matching client-side input/output rates.
         // Its input may adopt the microphone's 48 kHz rate while the mixer
         // retains its initial 44.1 kHz output. Connect the output explicitly;
