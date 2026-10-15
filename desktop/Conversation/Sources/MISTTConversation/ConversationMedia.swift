@@ -18,6 +18,7 @@ public enum MediaEvent: Sendable {
     case recognitionCheckpoint(sample: UInt64)
     case detectorStatus(samples: UInt64, level: Double, transcript: String)
     case wake(startSample: UInt64, endSample: UInt64)
+    case wakeRequiresRepeat
     case urgentStop
     case playback(PlaybackReceipt)
     case failure(String)
@@ -67,6 +68,7 @@ public enum MediaError: Error {
     private var recognitionBase: UInt64 = 0
     private var lastKeywordEnd: UInt64 = 0
     private var pendingWakeEnd: UInt64?
+    public private(set) var repeatCommandRequired = false
     private var ring: [(UInt64, Data)] = []
     private var detector = ActivityDetector()
     private var generation: UInt64 = 0
@@ -90,7 +92,7 @@ public enum MediaError: Error {
         // uplink for the local wake detector; restore echo cancellation before
         // any conversation capture or playback is admitted on this same engine.
         if engine.inputNode.isVoiceProcessingEnabled { engine.inputNode.isVoiceProcessingBypassed = diagnosticMode == 0 || diagnosticMode == 3 }
-        sessionID = nil; mutedSessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
+        sessionID = nil; mutedSessionID = nil; armed = true; repeatCommandRequired = false; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("armed"))
     }
 
@@ -107,7 +109,7 @@ public enum MediaError: Error {
         }
         if let end = pendingWakeEnd, let first = ring.first, end < first.0 {
             pendingWakeEnd = nil; ring.removeAll()
-            throw MediaError.unavailable("wake admission audio exceeded two seconds; please repeat the command")
+            repeatCommandRequired = true
         }
         engine.inputNode.isVoiceProcessingBypassed = false
         self.sessionID = sessionID; mutedSessionID = nil; armed = false; sequence = 0; captureSample = 0; lastCheckpoint = 0; detector.reset()
@@ -325,10 +327,14 @@ public enum MediaError: Error {
                 let lastSegment = segments[match.upperBound]
                 let end = base + UInt64(max(0, lastSegment.timestamp + lastSegment.duration) * 16000)
                 guard end > lastKeywordEnd else { continue }
-                guard end <= localSample, let first = ring.first, end >= first.0 else {
-                    onEvent?(.failure("wake boundary unavailable (end=\(end), captured=\(localSample), oldest=\(ring.first?.0 ?? 0)); start explicitly and repeat the command")); return
+                lastKeywordEnd = end; armed = false
+                guard WakeHandoff.canReplay(end: end, captured: localSample, oldest: ring.first?.0) else {
+                    // Recognition can arrive after the local-only ring expires.
+                    // Admit fresh capture, never submit a truncated command.
+                    pendingWakeEnd = nil; ring.removeAll(); repeatCommandRequired = true
+                    onEvent?(.wakeRequiresRepeat); return
                 }
-                lastKeywordEnd = end; pendingWakeEnd = end; armed = false
+                repeatCommandRequired = false; pendingWakeEnd = end
                 let start = base + UInt64(max(0, firstSegment.timestamp) * 16000)
                 onEvent?(.wake(startSample: start, endSample: end))
                 break
