@@ -1,6 +1,7 @@
 import AVFoundation
 import Speech
 import Foundation
+import Darwin
 
 public struct PlaybackReceipt: Sendable {
     public let generation: UInt64
@@ -32,10 +33,12 @@ public enum MediaError: Error {
 @MainActor public final class ConversationMedia {
     public var onEvent: ((MediaEvent) -> Void)?
     #if DEBUG
-    private let diagnosticPlainInput = ProcessInfo.processInfo.environment["ZATI_VOICE_DIAGNOSTIC_PLAIN_INPUT"] == "1"
+    private let diagnosticMode = Int(ProcessInfo.processInfo.environment["ZATI_VOICE_DIAGNOSTIC_PLAIN_INPUT"] ?? "0") ?? 0
     #else
-    private let diagnosticPlainInput = false
+    private let diagnosticMode = 0
     #endif
+    private var diagnosticPlainInput: Bool { diagnosticMode == 1 }
+    private var diagnosticInput: Bool { diagnosticMode > 0 }
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let captureSink = AVAudioMixerNode()
@@ -86,13 +89,13 @@ public enum MediaError: Error {
         // No assistant playback is admitted while armed. Use the unprocessed
         // uplink for the local wake detector; restore echo cancellation before
         // any conversation capture or playback is admitted on this same engine.
-        if engine.inputNode.isVoiceProcessingEnabled { engine.inputNode.isVoiceProcessingBypassed = true }
+        if engine.inputNode.isVoiceProcessingEnabled { engine.inputNode.isVoiceProcessingBypassed = diagnosticMode == 0 || diagnosticMode == 3 }
         sessionID = nil; mutedSessionID = nil; armed = true; detector.reset(); ring.removeAll(); pendingWakeEnd = nil
         onEvent?(.state("armed"))
     }
 
     public func start(sessionID: String) async throws {
-        guard !diagnosticPlainInput else { throw MediaError.unavailable("Input-only diagnostics cannot start a conversation") }
+        guard !diagnosticInput else { throw MediaError.unavailable("Input-only diagnostics cannot start a conversation") }
         if self.sessionID == sessionID { return }
         guard UUID(uuidString: sessionID) != nil else { throw MediaError.unavailable("session ID must be a UUID") }
         let operation = UUID(); activationEpoch = operation
@@ -192,7 +195,7 @@ public enum MediaError: Error {
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(!diagnosticPlainInput)
         if player.engine == nil { engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat) }
-        if input.isVoiceProcessingEnabled && captureSink.engine == nil {
+        if diagnosticMode == 6 && input.isVoiceProcessingEnabled && captureSink.engine == nil {
             // Keep the microphone on an actively rendered branch of the duplex
             // graph. A tap on a disconnected VPIO input can return silence.
             // The tap remains upstream of this mute: microphone audio never
@@ -207,13 +210,19 @@ public enum MediaError: Error {
         // retains its initial 44.1 kHz output. Connect the output explicitly;
         // the mixer still resamples Anna's 24 kHz player stream.
         let captureRate = input.outputFormat(forBus: 0).sampleRate
-        let outputChannels = engine.outputNode.inputFormat(forBus: 0).channelCount
+        let outputChannels: AVAudioChannelCount = diagnosticMode == 5 ? 1 : engine.outputNode.inputFormat(forBus: 0).channelCount
         guard captureRate > 0, outputChannels > 0,
               let duplexFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                   sampleRate: captureRate, channels: outputChannels, interleaved: false) else {
             throw MediaError.unavailable("microphone and speaker formats are unavailable")
         }
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: duplexFormat)
+        if diagnosticMode == 4, let unit = input.audioUnit {
+            var enabled: UInt32 = 1
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &enabled, 4)
+            print("VOICE_INPUT_DIAGNOSTIC explicit_enable_status=\(status)")
+            fflush(stdout)
+        }
         localSample = 0; lastKeywordEnd = 0; lastDetectorReport = 0; detectorTranscript = ""
         try installCapture()
         do { try checkActivation(operation); try engine.start(); try checkActivation(operation); lease = newLease; running = true }
@@ -307,7 +316,7 @@ public enum MediaError: Error {
     private func keywords(_ transcription: SFTranscription, base: UInt64) {
         let segments = transcription.segments
         detectorTranscript = String(transcription.formattedString.suffix(160))
-        if diagnosticPlainInput { return }
+        if diagnosticInput { return }
         if armed {
             for match in WakePhraseMatcher.matches(segments.map(\.substring)) {
                 let firstSegment = segments[match.lowerBound]
@@ -353,8 +362,9 @@ public enum MediaError: Error {
             var peak: Double = 0
             for index in 0..<Int(output.frameLength) { peak = max(peak, abs(Double(samples[index])) / 32768) }
             #if DEBUG
-            if diagnosticPlainInput {
-                print("VOICE_INPUT_DIAGNOSTIC rate=\(buffer.format.sampleRate) channels=\(buffer.format.channelCount) raw_peak=\(rawPeak) pcm_peak=\(peak) samples=\(localSample)")
+            if diagnosticInput {
+                print("VOICE_INPUT_DIAGNOSTIC mode=\(diagnosticMode) enabled=\(engine.inputNode.isVoiceProcessingEnabled) muted=\(engine.inputNode.isVoiceProcessingEnabled ? engine.inputNode.isVoiceProcessingInputMuted : false) bypass=\(engine.inputNode.isVoiceProcessingEnabled ? engine.inputNode.isVoiceProcessingBypassed : false) rate=\(buffer.format.sampleRate) channels=\(buffer.format.channelCount) raw_peak=\(rawPeak) pcm_peak=\(peak) samples=\(localSample)")
+                fflush(stdout)
             }
             #endif
             onEvent?(.detectorStatus(samples: localSample, level: peak, transcript: detectorTranscript))
