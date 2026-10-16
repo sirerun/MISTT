@@ -5,12 +5,19 @@ import MISTTConversation
 @MainActor final class MediaProcess {
     private let media = ConversationMedia()
     private var binding: String?
+    private lazy var output: BoundedMediaOutput = {
+        do {
+            return try BoundedMediaOutput(fileHandle: .standardOutput) { [weak self] in
+                Task { @MainActor [weak self] in self?.media.stop(); exit(74) }
+            }
+        } catch { media.stop(); exit(74) }
+    }()
     init() { media.onEvent = { [weak self] in self?.event($0) } }
     func emit(_ value: [String: Any]) {
         do {
             var bytes = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
             bytes.append(10)
-            try FileHandle.standardOutput.write(contentsOf: bytes)
+            output.enqueue(bytes)
         } catch { media.stop(); exit(74) }
     }
     func receipt(_ value: PlaybackReceipt) -> [String: Any] {

@@ -178,6 +178,8 @@ final class NativePairCapture: @unchecked Sendable {
             onStop(result)
             throw CaptureStartError.cancelled
         }
+        do { captureLease = try CaptureLease.acquire() }
+        catch { lock.unlock(); throw error }
         isStarting = true
         startCancelled = false
         startupCompletion = DispatchSemaphore(value: 0)
@@ -202,7 +204,6 @@ final class NativePairCapture: @unchecked Sendable {
         lock.unlock()
 
         do {
-            captureLease = try CaptureLease.acquire()
             try ensureStartCurrent(expectedGeneration)
             let validatedTargets = try validateTargets()
             guard validatedTargets == targets else { throw CaptureStartError.targetChanged }

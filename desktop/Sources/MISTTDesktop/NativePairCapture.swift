@@ -144,7 +144,6 @@ final class NativePairCapture: @unchecked Sendable {
 
     func isStartGenerationCurrent(_ expectedGeneration: UInt64) -> Bool {
         do {
-            captureLease = try CaptureLease.acquire()
             try ensureStartCurrent(expectedGeneration)
             return true
         } catch {
@@ -212,6 +211,8 @@ final class NativePairCapture: @unchecked Sendable {
             onStop(result)
             throw CaptureStartError.cancelled
         }
+        do { captureLease = try CaptureLease.acquire() }
+        catch { lock.unlock(); throw error }
         isStarting = true
         startCancelled = false
         startupCompletion = DispatchSemaphore(value: 0)
