@@ -13,7 +13,7 @@ from pathlib import Path
 import os
 from contextlib import asynccontextmanager
 
-from speech_gate import has_speech
+from speech_gate import has_speech, MIN_ACTIVE_SAMPLES
 
 import numpy as np
 import torch
@@ -96,7 +96,14 @@ def decode(app, data, stop=None):
         if stop.is_set() or time.monotonic() >= deadline:
             raise RuntimeError("recognition cancelled before complete finalization")
         chunk = data[offset:offset + 30 * 16000 * 2]
-        if not has_speech(chunk):
+        # Gate with neighboring context so a short word crossing a 30 s
+        # decoder boundary keeps its full voiced duration. The qualifying run
+        # must intersect this chunk; neighboring speech alone cannot admit it.
+        context_start = max(0, offset - MIN_ACTIVE_SAMPLES * 2)
+        context_end = min(len(data), offset + len(chunk) + MIN_ACTIVE_SAMPLES * 2)
+        if not has_speech(data[context_start:context_end],
+                          region_start=(offset - context_start) // 2,
+                          region_end=(offset + len(chunk) - context_start) // 2):
             continue
         waveform = np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768
         inputs = app.state.processor(waveform, sampling_rate=16000, return_tensors="pt")
@@ -113,6 +120,8 @@ def decode(app, data, stop=None):
         if int(tokens[0, -1]) not in eos_ids:
             raise RuntimeError("recognition token limit reached before finalization")
         texts.append(app.state.processor.batch_decode(tokens, skip_special_tokens=True)[0].strip())
+    if stop.is_set() or time.monotonic() >= deadline:
+        raise RuntimeError("recognition cancelled before complete finalization")
     return {"text": " ".join(filter(None, texts)), "finalized_samples": len(data) // 2}
 
 

@@ -10,7 +10,7 @@ import time
 from types import SimpleNamespace
 import unittest
 
-from speech_gate import has_speech
+from speech_gate import has_speech, MIN_ACTIVE_SAMPLES
 
 
 def pcm(samples):
@@ -89,11 +89,13 @@ class DecoderGateTests(unittest.TestCase):
             model=SimpleNamespace(generate=generate, generation_config=SimpleNamespace(eos_token_id=2)),
             device="cpu", prompt_ids=None, decode_token_budget=32))
         names = {"threading": threading, "time": time, "has_speech": has_speech,
+                 "MIN_ACTIVE_SAMPLES": MIN_ACTIVE_SAMPLES,
                  "StoppingCriteriaList": lambda value: value,
                  "StopRequested": lambda *args: None,
                  "np": SimpleNamespace(frombuffer=lambda *args, **kwargs: Array(), float32="float32"),
                  "torch": SimpleNamespace(inference_mode=nullcontext)}
         exec(compile(ast.Module(body=[decode], type_ignores=[]), "server.py:decode", "exec"), names)
+        self.names = names
         self.decode = names["decode"]
 
     def test_quiet_checkpoint_is_fully_finalized_without_model(self):
@@ -106,6 +108,40 @@ class DecoderGateTests(unittest.TestCase):
         self.assertEqual(self.decode(self.app, data),
                          {"text": "a short word", "finalized_samples": len(data) // 2})
         self.assertEqual(self.calls, ["processor", "generate"])
+
+    def test_short_word_crossing_decoder_boundary_admits_both_chunks(self):
+        data = bytes((30 * 16000 - 800) * 2) + voiced(100) + bytes(3200)
+        self.assertEqual(self.decode(self.app, data),
+                         {"text": "a short word a short word", "finalized_samples": len(data) // 2})
+        self.assertEqual(self.calls, ["processor", "generate", "processor", "generate"])
+
+    def test_nearby_speech_outside_chunk_does_not_admit_quiet_chunk(self):
+        # The complete word ends 20 ms before the boundary. Context must not
+        # cause the entirely quiet second chunk to invoke the model.
+        data = bytes((30 * 16000 - 1920) * 2) + voiced(100) + bytes(640 + 3200)
+        self.decode(self.app, data)
+        self.assertEqual(self.calls, ["processor", "generate"])
+
+    def test_cancellation_during_quiet_scan_prevents_finalization(self):
+        stop = threading.Event()
+        def quiet_scan(*args, **kwargs):
+            stop.set()
+            return False
+        self.names["has_speech"] = quiet_scan
+        with self.assertRaises(RuntimeError):
+            self.decode(self.app, bytes(32000), stop)
+        self.assertEqual(self.calls, [])
+
+    def test_deadline_during_quiet_scan_prevents_finalization(self):
+        now = [0]
+        self.names["time"] = SimpleNamespace(monotonic=lambda: now[0])
+        def quiet_scan(*args, **kwargs):
+            now[0] = 16
+            return False
+        self.names["has_speech"] = quiet_scan
+        with self.assertRaises(RuntimeError):
+            self.decode(self.app, bytes(32000))
+        self.assertEqual(self.calls, [])
 
     def test_isolated_click_never_generates(self):
         data = bytes(32000) + pcm([24000] * 320) + bytes(32000)
