@@ -1,9 +1,26 @@
 import Foundation
 import XCTest
+import MISTTConversation
 @testable import MISTTDesktop
 
 @available(macOS 14.2, *)
 final class NativePairCaptureOwnershipTests: XCTestCase {
+    func testRepeatedGenerationValidationRetainsSingleLease() throws {
+        enum Probe: Error { case finished }
+        let capture = NativePairCapture(generation: 42)
+        var validated = false
+        XCTAssertThrowsError(try capture.start(targets: [], validateTargets: {
+            validated = true
+            XCTAssertTrue(capture.isStartGenerationCurrent(42))
+            XCTAssertTrue(capture.isStartGenerationCurrent(42))
+            XCTAssertThrowsError(try CaptureLease.acquire())
+            throw Probe.finished
+        }, generation: 42, onStop: { _ in }))
+        XCTAssertTrue(validated)
+        let released = try CaptureLease.acquire()
+        withExtendedLifetime(released) {}
+    }
+
     func testTeardownCompletionRunsWhenCaptureHasNoResources() {
         let finished = DispatchSemaphore(value: 0)
         let capture = NativePairCapture(generation: 1)
