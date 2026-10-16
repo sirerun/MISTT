@@ -255,6 +255,17 @@ def copy_app_resources(app: Path) -> None:
     shutil.copy2(ROOT / "LICENSE", app / "Contents/Resources/MISTT-LICENSE.txt")
 
 
+def sign_app_executables(app: Path, signing_keychain: str, identity: str, entitlements: str) -> None:
+    for name in ["mistt", "MISTTDesktop", "mistt-media"]:
+        executable = app / "Contents/MacOS" / name
+        run("lipo", "-verify_arch", "arm64", str(executable))
+        # The companion is a separate hardened-runtime capture process. Parent
+        # application entitlements do not grant its executable microphone access.
+        capture = ("--entitlements", entitlements) if name == "mistt-media" else ()
+        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp",
+            *capture, "--sign", identity, str(executable))
+
+
 def build(version: str, build_number: str, output: Path) -> Path:
     validate_version(version, build_number)
     source_sha = require_release_source()
@@ -330,10 +341,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
     if autoupdate.exists():
         run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(autoupdate))
     run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(framework))
-    for executable in [app / "Contents/MacOS/mistt", app / "Contents/MacOS/MISTTDesktop",
-                       app / "Contents/MacOS/mistt-media"]:
-        run("lipo", "-verify_arch", "arm64", str(executable))
-        run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(executable))
+    sign_app_executables(app, signing_keychain, identity, entitlements)
     run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--entitlements", entitlements,
         "--sign", identity, str(app))
     run("codesign", "--verify", "--deep", "--strict", str(app))
