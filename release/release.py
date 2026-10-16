@@ -289,6 +289,11 @@ def build(version: str, build_number: str, output: Path) -> Path:
         "--configuration", "release", "--arch", "arm64", "--jobs", "2", "--product", "MISTTDesktop", env=env)
     bins = Path(run_build("swift", "build", "--package-path", str(ROOT / "desktop"), "--scratch-path", str(scratch),
                     "--configuration", "release", "--arch", "arm64", "--show-bin-path", env=env))
+    media_scratch = cache / "swiftpm-media"
+    run_build("swift", "build", "--package-path", str(ROOT), "--scratch-path", str(media_scratch),
+        "--configuration", "release", "--arch", "arm64", "--jobs", "2", "--product", "mistt-media", env=env)
+    media_bins = Path(run_build("swift", "build", "--package-path", str(ROOT), "--scratch-path", str(media_scratch),
+        "--configuration", "release", "--arch", "arm64", "--show-bin-path", env=env))
     frameworks = list((scratch / "artifacts").rglob("Sparkle.framework"))
     frameworks = [p for p in frameworks if "macos" in str(p.parent).lower()]
     if len(frameworks) != 1:
@@ -297,6 +302,7 @@ def build(version: str, build_number: str, output: Path) -> Path:
         (app / "Contents" / folder).mkdir(parents=True, exist_ok=True)
     shutil.copy2(bins / "MISTTDesktop", app / "Contents/MacOS/MISTTDesktop")
     shutil.copy2(relay, app / "Contents/MacOS/mistt")
+    shutil.copy2(media_bins / "mistt-media", app / "Contents/MacOS/mistt-media")
     copy_app_resources(app)
     framework = app / "Contents/Frameworks/Sparkle.framework"
     shutil.copytree(frameworks[0], framework, symlinks=True)
@@ -324,7 +330,8 @@ def build(version: str, build_number: str, output: Path) -> Path:
     if autoupdate.exists():
         run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(autoupdate))
     run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(framework))
-    for executable in [app / "Contents/MacOS/mistt", app / "Contents/MacOS/MISTTDesktop"]:
+    for executable in [app / "Contents/MacOS/mistt", app / "Contents/MacOS/MISTTDesktop",
+                       app / "Contents/MacOS/mistt-media"]:
         run("lipo", "-verify_arch", "arm64", str(executable))
         run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--sign", identity, str(executable))
     run("codesign", "--keychain", signing_keychain, "--force", "--options", "runtime", "--timestamp", "--entitlements", entitlements,
