@@ -14,6 +14,7 @@ public final class BoundedMediaOutput: @unchecked Sendable {
     private var bytes = 0
     private var draining = false
     private var failed = false
+    private var finishing = false
 
     public init(fileHandle: FileHandle, capacity: Int = 1_048_576,
                 timeout: TimeInterval = 1, onFailure: @escaping @Sendable () -> Void) throws {
@@ -32,14 +33,27 @@ public final class BoundedMediaOutput: @unchecked Sendable {
 
     public func enqueue(_ data: Data) {
         lock.lock()
-        guard !failed else { lock.unlock(); return }
+        guard !failed, !finishing else { lock.unlock(); return }
         guard data.count <= capacity - bytes else {
             failed = true; records.removeAll(); lock.unlock(); onFailure(); return
         }
         records.append(data); bytes += data.count
         let start = !draining; draining = true
-        lock.unlock()
         if start { queue.async { self.drain() } }
+        lock.unlock()
+    }
+
+    /// Seal admission and finish only after accepted records have drained. A
+    /// stalled writer follows the same deadline/failure path as ordinary output.
+    public func finish(_ completion: @escaping @Sendable () -> Void) {
+        lock.lock()
+        guard !failed, !finishing else { lock.unlock(); return }
+        finishing = true
+        queue.async {
+            self.lock.lock(); let succeeded = !self.failed; self.lock.unlock()
+            if succeeded { completion() }
+        }
+        lock.unlock()
     }
 
     private func fail() {

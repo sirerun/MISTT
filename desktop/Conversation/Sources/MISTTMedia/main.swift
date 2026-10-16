@@ -72,7 +72,7 @@ import MISTTConversation
             emit(reply)
         } catch { emit(["type": "reply", "id": id, "ok": false, "error": String(describing: error)]) }
     }
-    func finish() { media.stop(); exit(0) }
+    func finish() { media.stop(); output.finish { exit(0) } }
 }
 
 let process = MainActor.assumeIsolated { MediaProcess() }

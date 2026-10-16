@@ -38,4 +38,26 @@ final class OutputTests: XCTestCase {
         XCTAssertEqual(String(data: received, encoding: .utf8), "first\nsecond\n")
         withExtendedLifetime(writer) {}
     }
+
+    func testFinishDrainsAcceptedRecordsBeforeCompletion() throws {
+        let pipe = Pipe()
+        let finished = expectation(description: "accepted output drained")
+        let writer = try BoundedMediaOutput(fileHandle: pipe.fileHandleForWriting) { XCTFail("output failed") }
+        writer.enqueue(Data("reply\nstopped\n".utf8))
+        writer.finish { finished.fulfill() }
+        writer.enqueue(Data("too late\n".utf8))
+        wait(for: [finished], timeout: 1)
+        XCTAssertEqual(String(data: pipe.fileHandleForReading.availableData, encoding: .utf8), "reply\nstopped\n")
+    }
+
+    func testFinishCannotReportSuccessWhenOutputStalls() throws {
+        let pipe = Pipe()
+        let failed = expectation(description: "stalled finish fails")
+        let writer = try BoundedMediaOutput(fileHandle: pipe.fileHandleForWriting,
+                                           timeout: 0.05) { failed.fulfill() }
+        writer.enqueue(Data(repeating: 42, count: 512_000))
+        writer.finish { XCTFail("stalled output must not report drained") }
+        wait(for: [failed], timeout: 1)
+        withExtendedLifetime(writer) {}
+    }
 }
