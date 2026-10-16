@@ -13,6 +13,8 @@ from pathlib import Path
 import os
 from contextlib import asynccontextmanager
 
+from speech_gate import has_speech
+
 import numpy as np
 import torch
 from fastapi import FastAPI, HTTPException, Request
@@ -83,12 +85,21 @@ def decode(app, data, stop=None):
     stop = stop or threading.Event()
     deadline = time.monotonic() + 15
     stopping = StoppingCriteriaList([StopRequested(stop, deadline)])
-    waveform = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768
+    if len(data) % 2:
+        raise ValueError("complete PCM16 samples required")
     # Whisper's 30 s receptive field is respected. Every supplied sample is
-    # decoded once; the gateway bounds each unfinished interval to 120 s.
+    # admitted for decoding or certified below the acoustic floor once; the
+    # gateway bounds each unfinished interval to 120 s. Quiet chunks must never
+    # enter generate, where vocabulary hints can otherwise hallucinate speech.
     texts = []
-    for offset in range(0, waveform.size, 30 * 16000):
-        inputs = app.state.processor(waveform[offset:offset + 30 * 16000], sampling_rate=16000, return_tensors="pt")
+    for offset in range(0, len(data), 30 * 16000 * 2):
+        if stop.is_set() or time.monotonic() >= deadline:
+            raise RuntimeError("recognition cancelled before complete finalization")
+        chunk = data[offset:offset + 30 * 16000 * 2]
+        if not has_speech(chunk):
+            continue
+        waveform = np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768
+        inputs = app.state.processor(waveform, sampling_rate=16000, return_tensors="pt")
         features = inputs.input_features.to(app.state.device)
         with torch.inference_mode():
             result = app.state.model.generate(features, prompt_ids=app.state.prompt_ids, max_new_tokens=app.state.decode_token_budget, stopping_criteria=stopping, return_dict_in_generate=True, force_unique_generate_call=True)
@@ -102,7 +113,7 @@ def decode(app, data, stop=None):
         if int(tokens[0, -1]) not in eos_ids:
             raise RuntimeError("recognition token limit reached before finalization")
         texts.append(app.state.processor.batch_decode(tokens, skip_special_tokens=True)[0].strip())
-    return {"text": " ".join(filter(None, texts)), "finalized_samples": int(waveform.size)}
+    return {"text": " ".join(filter(None, texts)), "finalized_samples": len(data) // 2}
 
 
 @app.post("/v1/recognize")

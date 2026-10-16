@@ -37,6 +37,15 @@ class PackagingTests(unittest.TestCase):
             with self.subTest(extra=extra):
                 self.assertNotEqual(self.render(*extra).returncode, 0)
 
+    def test_container_packages_local_speech_gate(self):
+        root = Path(__file__).parent
+        copy_lines = [line.split() for line in (root / "Containerfile").read_text().splitlines()
+                      if line.startswith("COPY ")]
+        copied = {source for line in copy_lines for source in line[1:-1]}
+        self.assertIn("speech_gate.py", copied)
+        for source in copied:
+            self.assertTrue((root / source).is_file(), source)
+
     def test_token_rejects_exposure_symlink_and_oversize(self):
         with tempfile.TemporaryDirectory() as directory:
             token = Path(directory) / "token"

@@ -74,6 +74,25 @@ Recognition has a 15-second deadline, checks cancellation between decoding steps
 and retains its exclusive worker until cancellation finishes. Shutdown gives an
 in-flight worker 20 seconds; each process contains exactly one uvicorn worker.
 
+## Quiet input admission
+
+Before each bounded Whisper decode, a standard-library PCM16LE gate measures
+20 ms frames at 16 kHz. It requires normalized RMS of at least 0.002 for at
+least 80 ms of contiguous active frames. Quiet frames reset that duration;
+isolated clicks and separated transients cannot accumulate into speech.
+Below-floor chunks never enter the processor or model. An empty recognition
+still returns `finalized_samples` for the full supplied interval so the Mac
+can advance its checkpoint without resubmitting quiet audio.
+
+This is an acoustic floor, not a speech classifier. Sustained loud noise can
+pass; very soft speech below the floor can be suppressed. The defaults preserve
+a short 200 ms voiced signal in deterministic tests, but microphone/background
+noise and real short-word recognition still require acoustic qualification.
+Vocabulary remains a bounded recognition hint; no transcript replacements are
+applied. The gate does not persist audio or log transcripts or energy readings.
+The service image includes `speech_gate.py` beside `server.py`; source-mounted
+updates must copy both files before restarting the service.
+
 ## Mac gateway
 
 Run `cmd/mistt-conversation` on the Mac, listening on `127.0.0.1:8792`. Point its
@@ -108,7 +127,9 @@ new pod. Do not overwrite models/tokens or delete unrelated storage. Rotate a
 credential by preparing a new narrow directory and restarting the service; it is
 loaded once at startup. Stop the Mac gateway when retiring local admission.
 
-Run `python -m unittest discover -s dgx/conversation -p test_packaging.py -v`
+Run `python -m unittest discover -s dgx/conversation -p 'test_*.py' -v`
 from the repository root. The tests verify rendering, resources, mount isolation,
-immutable image admission and token file restrictions. They do not build or deploy
+immutable image admission, token file restrictions, acoustic gate boundaries and
+model-call suppression for quiet checkpoints. Decoder wiring tests use boundary
+doubles and do not import ML runtimes or download a model. They do not build or deploy
 an image. See `qualification/README.md` for actual speech measurements and limits.
