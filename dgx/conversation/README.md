@@ -80,7 +80,13 @@ Before each bounded Whisper decode, a standard-library PCM16LE gate measures
 20 ms frames at 16 kHz. It requires normalized RMS of at least 0.002 for at
 least 80 ms of contiguous active frames. Quiet frames reset that duration;
 isolated clicks and separated transients cannot accumulate into speech.
-Below-floor chunks never enter the processor or model. An empty recognition
+Gate-only context extends 80 ms across each 30-second decoder boundary, and
+requires a qualifying voiced run to intersect the chunk being decoded. Short
+words crossing a boundary therefore admit both pieces without using unrelated
+neighboring speech to admit a quiet chunk. Actual model input stays within the
+original nonoverlapping chunk. Below-floor chunks never enter the processor or
+model. Cancellation/deadline is rechecked after scanning, before finalization.
+An empty recognition
 still returns `finalized_samples` for the full supplied interval so the Mac
 can advance its checkpoint without resubmitting quiet audio.
 
