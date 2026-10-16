@@ -18,6 +18,17 @@ spec.loader.exec_module(tools)
 
 
 class ReleaseMetadataTest(unittest.TestCase):
+    def test_hardened_media_companion_receives_capture_entitlements(self):
+        with patch.object(tools, "run") as execute:
+            tools.sign_app_executables(Path("/candidate/MISTT.app"), "selected.keychain", "identity", "audio.plist")
+        calls = [c.args for c in execute.call_args_list if c.args[0] == "codesign"]
+        self.assertEqual(len(calls), 3)
+        media = next(c for c in calls if c[-1].endswith("/mistt-media"))
+        self.assertEqual(media[media.index("--entitlements") + 1], "audio.plist")
+        self.assertEqual(media[media.index("--options") + 1], "runtime")
+        relay = next(c for c in calls if c[-1].endswith("/mistt"))
+        self.assertNotIn("--entitlements", relay)
+
     def setUp(self):
         parent = os.environ.get("RUNNER_TEMP") if os.environ.get("GITHUB_ACTIONS") == "true" else (
             "/Volumes/BuildOffload/tmp" if sys.platform == "darwin" else None)
