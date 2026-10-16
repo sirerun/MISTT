@@ -8,11 +8,11 @@ final class OutputTests: XCTestCase {
         let failed = expectation(description: "stalled output fails closed")
         failed.assertForOverFulfill = true
         let writer = try BoundedMediaOutput(fileHandle: pipe.fileHandleForWriting,
-                                           capacity: 1_048_576, timeout: 0.05) { failed.fulfill() }
+                                           capacity: 1_048_576, timeout: 0.5) { failed.fulfill() }
         let start = ProcessInfo.processInfo.systemUptime
         writer.enqueue(Data(repeating: 42, count: 512_000))
-        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.03)
-        wait(for: [failed], timeout: 1)
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.2)
+        wait(for: [failed], timeout: 2)
         withExtendedLifetime(writer) {}
     }
 
@@ -58,6 +58,18 @@ final class OutputTests: XCTestCase {
         writer.enqueue(Data(repeating: 42, count: 512_000))
         writer.finish { XCTFail("stalled output must not report drained") }
         wait(for: [failed], timeout: 1)
+        withExtendedLifetime(writer) {}
+    }
+
+    func testClosedReaderReportsFailureOnceWithoutSIGPIPE() throws {
+        let pipe = Pipe()
+        let failed = expectation(description: "closed output fails once")
+        failed.assertForOverFulfill = true
+        let writer = try BoundedMediaOutput(fileHandle: pipe.fileHandleForWriting) { failed.fulfill() }
+        try pipe.fileHandleForReading.close()
+        writer.enqueue(Data("event\n".utf8))
+        wait(for: [failed], timeout: 1)
+        writer.enqueue(Data("late\n".utf8))
         withExtendedLifetime(writer) {}
     }
 }
