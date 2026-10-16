@@ -7,7 +7,7 @@ RUN python -c 'import os,platform,re,sys,torch; assert re.fullmatch(r"[^\s]+@sha
 WORKDIR /app
 COPY requirements.lock /app/requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.lock
-COPY server.py serve.py healthcheck.py /app/
+COPY server.py speech_gate.py serve.py healthcheck.py /app/
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MISTT_CONVERSATION_DEVICE=cpu MISTT_CONVERSATION_THREADS=2 PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8793
 ENTRYPOINT ["python", "/app/serve.py"]
