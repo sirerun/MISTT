@@ -1,5 +1,19 @@
 # MISTT dual-source MVP, Homebrew distribution and automatic updates
 
+## Current checkpoint — 2026-10-16
+
+MISTT 0.1.4/build 5 is publicly released and installed through the corrected Homebrew tap. PR #28 landed `711e8c03046145ca45a1adfe44b19db483748d37`; packaging PR #29 landed `ca522186e5f47a1321ec752325ad811c3270faa3`. Independent review verified installed executable/plist equality with the signed artifact, notarization/staple/Gatekeeper, companion microphone entitlement, and public archive digest `3e37cb9f2295d8baddc24cc3d7ab88d853db863ff89905d6b80f7ba98e705832`. Local validation passed 110 native and 26 release tests plus actual healthy/stalled-output companion probes. Public distribution: https://github.com/sirerun/mistt-releases/releases/tag/v0.1.4 . Tap correction: `033073ea623ddfcaa19f22b1c78bb56f967861c3`.
+
+The installed app opens and responds to Muted → On → Muted. Final CLI state is muted=true, reason=user, update_ready=true. On reports a service/capture problem with zero connected clients: this does not diagnose the cause or prove a capture regression. Physical paired audio/transcription and a genuine scheduled automatic update remain unqualified. The published signed feed and enabled preferences alone do not close T4.4. Older checkpoints below are historical, not the current release state. Broad historical tasks remain open when their full acceptance has not been demonstrated.
+
+Immediate order: T4.9 scope/preflight → T4.10 healthy real-client runtime diagnosis → T4.3 paired acceptance → T4.4 genuine update → T4.5 recovery → operations/evidence review → final muted handoff. Any code change discovered by diagnosis must complete T4.11–T4.15 before runtime repetition. T4.16 records the already completed release/install slice without falsely closing broader permission/backend obligations in T4.2.
+
+Planning contract: ordinary unenrolled repository documentation. Intended executor: current attended session, capability label current/attended; child review inherits session selection. No Kazi/Foundry admission or unattended-runtime readiness is inferred. Planning does not execute the tasks below. Execution batching is auto, ceiling three coherent implementation/verification members; diagnosis and code fixes form one bounded candidate only if necessary. Updates/recovery remain a separate experiment because they consume accepted runtime evidence. Current live capacity and resource leases determine useful concurrency; historical fixed model/worker instructions below are execution history rather than a new routing selection.
+
+Validation result (2026-10-16): mandatory gate returned valid=false, required executable unavailable: wazi-contract. This artifact is a blocked draft, not conformant or merge-ready.
+
+Validation boundary: this existing split authority is retained to preserve task IDs, history and source links. Full portable Wazi conformance must pass before this refinement can merge. Missing verifier capability or split-source rejection leaves a blocked draft; no normalization, task completion or execution is inferred.
+
 ## Current checkpoint — 2026-10-06
 
 T2.67 local Go tests, vet and the sole race lane passed on exact head `4febadd2c6cc54611c635ba1ea3dc160d2fc05ac`; T2.68 independent review accepted and PR #17 landed at `bc91a23776b2bbeac9d7cc69cd8bb937a111cd4f`. T2.71–T2.75 native relay status correction, 29 Swift tests, independent review, PR #22 merge and landed-tree verification are complete. T2.76–T2.80 add Go-to-native heartbeat implementation through landed verification; review’s cadence-test finding is tracked by T2.81–T2.83 before merge. T2.70 replacement artifacts now depend on the landed fix. T2.70 remains open until fresh A/B replacement artifacts are verified; the physical T2.5 gate remains downstream of T2.70. The temporary native runner T2.62–T2.64 is implemented, passes 29 offline tests and has independent static/lifecycle acceptance; default invocation is preparation-only. The temporary runner was not executed against a provider, did not launch the app, and did not capture audio. These records do not satisfy physical MVP, replacement signed-artifact, installation or update acceptance. See [E2 plan](plans/E2.md) for exact evidence.
@@ -57,7 +71,7 @@ Estimates are relative sizes (S/M/L), not calendar commitments. Every row has an
 
 ### E3 -- Signed release, automatic updater and Homebrew cask  -> docs/plans/E3.md  (19/33)
 
-### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (1/9)
+### E4 -- Install and prove updates on this Mac  -> docs/plans/E4.md  (2/17)
 
 ### E5 -- Production backend deployment and operations  -> docs/plans/E5.md  (24/29)
 
