@@ -12,7 +12,7 @@ Planning contract: ordinary unenrolled repository documentation. Intended execut
 
 Historical validation (2026-10-16): the gate stopped at missing wazi-contract. On 2026-10-17 an existing pinned verifier was located; current validation is recorded in the delivery receipt.
 
-Authority migration (2026-10-17): docs/plan.md is the single authoritative plan. Prior docs/plans/E1.md–E5.md snapshots are retained as non-authoritative history for existing links. All 169 task IDs, authored checkbox states, owners, dependencies and detailed acceptance/evidence are preserved. Missing bracketed acc fields copy the existing Acceptance text; historical planning rows explicitly use stage author. Full Wazi conformance is required before dispatch; normalization supplies no completion or execution authority.
+Authority migration (2026-10-17): docs/plan.md is the single authoritative plan. Prior docs/plans/E1.md–E5.md snapshots are retained as non-authoritative history for existing links. All 169 task IDs, authored checkbox states, owners, dependencies and detailed acceptance/evidence are preserved. Missing bracketed acc fields copy the existing Acceptance text; historical planning rows explicitly use stage author. Six historical rows (T2.65 and T3.15–T3.19) had evidence but no prospective Acceptance text; their added acc values are explicitly evidence-derived projections of that preserved historical record, not newly claimed prospective requirements or fresh verification. Full Wazi conformance is required before dispatch; normalization supplies no completion or execution authority.
 
 ## Current checkpoint — 2026-10-06
 
