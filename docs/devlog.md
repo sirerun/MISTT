@@ -310,3 +310,8 @@ Temporary native manifest independently accepted as paper only; executable runne
 Read-only advisory triage found local gRPC transport denial-of-service exposure; unused authorization/xDS paths do not establish reachable auth bypass. Added T2.65–T2.70 scoped dependency remediation with full verification/review/merge/landed gates. Preserve current signed A/B and gateway proofs; final app artifacts need the patched transport dependency.
 
 Transport coding complete in draftPR17; verification/merge remains gated. Independent review narrowed current exposure to fragmented DATA frames; Rapid Reset was already fixed in the prior version. Added T3.28–T3.32 public-distribution source lifecycle so a release-only destination can preserve private source and explicit public tag provenance, with no external action until owner hosting choice.
+
+
+## 2026-10-16 — Release/install plan reconciliation
+
+0.1.4/build5 signed/notarized release and Homebrew installation passed independent artifact checks; PR28 fixes capture lease reentry and main-actor stdout blocking, PR29 corrects cask macOS admission. Installed mute toggles respond; zero-client On reports service/capture problem. Plan refinement adds bounded real-subscriber diagnosis, conditional correction lifecycle and explicit partial installation evidence; paired audio and scheduled update remain unqualified. Historical split authority is preserved pending the mandatory Wazi gate.
