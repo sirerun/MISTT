@@ -320,3 +320,8 @@ Transport coding complete in draftPR17; verification/merge remains gated. Indepe
 ## 2026-10-17 — Plan conformance recovery and runtime preflight
 
 Located an existing pinned wazi-contract verifier outside PATH; all 60 verifier fixtures pass. Consolidated split authority into docs/plan.md, retained historical E1–E5 snapshots, and added explicit acceptance/stages from authored criteria/evidence. Full Wazi repair/reader/pinned-schema/semantic gate recognizes 169 tasks and passes. Requested batch ceiling25; first runtime assignment has two members T4.9/T4.10. Current local relay refuses connection and no MISTT/TikTok process is visible. Native computer-use connection failed twice; owner unlock/open handoff pending. No source fault inferred, capture or provider workload started. Heavy Mac builds held at observed one-minute load19.16. Current inherited session selection retained; token/cost telemetry unavailable.
+
+
+## 2026-10-18 — Session knowledge bank
+
+Owner requested remaining-work planning and knowledge preservation before closing this session. Added a current checkpoint and handoff mapping existing stable task IDs to runtime diagnosis, conditional fixes, physical acceptance, genuine updates and recovery. Preserved all checkboxes and historical evidence, separated undecided Prosody brainstorming, and recorded volatile service/capacity observations with explicit requalification requirements. No application work or provider job started by this planning pass.
