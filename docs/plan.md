@@ -1,5 +1,15 @@
 # MISTT dual-source MVP, Homebrew distribution and automatic updates
 
+## Session-close checkpoint — 2026-10-18
+
+Plan artifact PR #30 landed `dffea3d70024c2b500ae2ebc51b0d3fb259cf944`; reviewed head `98dce25fcdb51cf5960fe3a2809cee084d381d64` and landed tree were independently equal. All 169 tasks passed pinned Wazi repair/reader/schema/semantic validation. This session-close amendment preserves task states and IDs; source present on main is not proof that every historical acceptance row is complete.
+
+Latest runtime observations (2026-10-18, not continuing health guarantees): installed version 0.1.4; local loopback relay connection refused; configured gateway TLS connection refused; Spark resource inventory reported CPU4000m, GPU1 and memory85700MB available against frozen CPU8000m/GPU1/memory49152MB deployment. Mac one-minute load was 6.66; recheck before any heavy command. Native computer-use connection failed twice on 2026-10-17; desktop availability must be requalified. Do not infer that the app crashed, credentials failed, or source requires a fix from an absent listener.
+
+The next chapter discussion does not expand MISTT: retain its capture/transcription role. A proposed, undecided RFC in the sibling Prosody repository explores capture UI, Serenity context, and agent voice messages; it is not approved MISTT scope and must not be implemented through this plan. No mobile app, memory library, categorization, advertising or autonomous follow-up is added here.
+
+Resume from [session handoff](handoff-20261018.md). T4.9/T4.10 remain incomplete. Preserve earlier 0.1.4 publication/install evidence at T4.16; do not repeat signing or compilation merely to inspect readiness. No watcher, background worker or autonomous supervisor is left running by this documentation.
+
 ## Current checkpoint — 2026-10-16
 
 MISTT 0.1.4/build 5 is publicly released and installed through the corrected Homebrew tap. PR #28 landed `711e8c03046145ca45a1adfe44b19db483748d37`; packaging PR #29 landed `ca522186e5f47a1321ec752325ad811c3270faa3`. Independent review verified installed executable/plist equality with the signed artifact, notarization/staple/Gatekeeper, companion microphone entitlement, and public archive digest `3e37cb9f2295d8baddc24cc3d7ab88d853db863ff89905d6b80f7ba98e705832`. Local validation passed 110 native and 26 release tests plus actual healthy/stalled-output companion probes. Public distribution: https://github.com/sirerun/mistt-releases/releases/tag/v0.1.4 . Tap correction: `033073ea623ddfcaa19f22b1c78bb56f967861c3`.
