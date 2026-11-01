@@ -423,9 +423,10 @@ public enum MediaError: Error {
 
     public func enqueue(generation: UInt64, pcm16: Data, sampleRate: Int) throws {
         guard running, sampleRate == 24000, !pcm16.isEmpty, pcm16.count % 2 == 0 else { throw MediaError.invalidAudio }
-        // Echo cancellation is bypassed while armed, so assistant audio would
-        // reach the wake detector unfiltered.
-        guard !armed else { throw MediaError.unavailable("playback is not admitted while armed") }
+        // Echo cancellation is bypassed while armed and until start() restores it
+        // after a wake, so assistant audio would reach recognition unfiltered.
+        let echoCancellationBypassed = engine.inputNode.isVoiceProcessingEnabled && engine.inputNode.isVoiceProcessingBypassed
+        guard !armed, !echoCancellationBypassed else { throw MediaError.unavailable("playback is not admitted while echo cancellation is bypassed") }
         try admitGeneration(generation)
         let frames = pcm16.count / 2
         guard UInt64(frames) + queued - cursor() <= 48000 else { throw MediaError.queueFull }
