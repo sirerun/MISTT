@@ -31,6 +31,8 @@ public enum MediaError: Error {
 
 /// One engine owns voice-processed capture and speaker reference. Armed audio is
 /// supplied only to an on-device recognizer, never to the host/network callback.
+/// Release builds report only the armed input level and sample count to the host;
+/// the recognizer's pre-wake transcript is exposed in debug builds only.
 @MainActor public final class ConversationMedia {
     public var onEvent: ((MediaEvent) -> Void)?
     #if DEBUG
@@ -377,7 +379,14 @@ public enum MediaError: Error {
                 fflush(stdout)
             }
             #endif
-            onEvent?(.detectorStatus(samples: localSample, level: peak, transcript: detectorTranscript))
+            // Text heard before the wake phrase stays inside the recognizer in
+            // release builds; only debug builds expose it for diagnosis.
+            #if DEBUG
+            let overheard = detectorTranscript
+            #else
+            let overheard = ""
+            #endif
+            onEvent?(.detectorStatus(samples: localSample, level: peak, transcript: overheard))
         }
         var offset = 0
         while offset < bytes.count {
@@ -414,6 +423,9 @@ public enum MediaError: Error {
 
     public func enqueue(generation: UInt64, pcm16: Data, sampleRate: Int) throws {
         guard running, sampleRate == 24000, !pcm16.isEmpty, pcm16.count % 2 == 0 else { throw MediaError.invalidAudio }
+        // Echo cancellation is bypassed while armed, so assistant audio would
+        // reach the wake detector unfiltered.
+        guard !armed else { throw MediaError.unavailable("playback is not admitted while armed") }
         try admitGeneration(generation)
         let frames = pcm16.count / 2
         guard UInt64(frames) + queued - cursor() <= 48000 else { throw MediaError.queueFull }
