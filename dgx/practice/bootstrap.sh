@@ -2,6 +2,7 @@
 set -euo pipefail
 umask 077
 mkdir -p /run/mistt-input /work /var/cache/mistt
+python3 -m pip install --disable-pip-version-check cryptography==49.0.0 > /work/transport-install.log 2>&1
 python3 - <<'PY'
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
