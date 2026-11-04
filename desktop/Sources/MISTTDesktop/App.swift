@@ -66,29 +66,44 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
+enum MISTTDesktopLauncher {
+    @MainActor
+    static func main() {
+        if DesktopLaunchMode().isBackground {
+            MISTTBackgroundApp.main()
+        } else {
+            MISTTDesktopApp.main()
+        }
+    }
+}
+
+struct MISTTBackgroundApp: App {
+    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var lifecycle
+
+    var body: some Scene {
+        // A Settings-only app has no initial window. Remove its command as well so
+        // the embedding launch exposes no empty settings window through the menu.
+        Settings { EmptyView() }
+            .commands {
+                CommandGroup(replacing: .appSettings) { }
+                CommandGroup(replacing: .newItem) { }
+            }
+    }
+}
+
 struct MISTTDesktopApp: App {
     @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var lifecycle
 
     var body: some Scene {
-        if lifecycle.launchMode.isBackground {
-            // A Settings-only app has no initial window. Remove its command as well so
-            // the embedding launch exposes no empty settings window through the menu.
-            Settings { EmptyView() }
-                .commands {
-                    CommandGroup(replacing: .appSettings) { }
-                    CommandGroup(replacing: .newItem) { }
-                }
-        } else {
-            Window("MISTT", id: "main") {
-                MicrophoneWindow(controller: lifecycle.relay)
-                    .frame(width: 260, height: 260)
-            }
-            .defaultSize(width: 260, height: 260)
-            .windowStyle(.hiddenTitleBar)
-            .windowResizability(.contentSize)
-            .commands {
-                CommandGroup(replacing: .newItem) { }
-            }
+        Window("MISTT", id: "main") {
+            MicrophoneWindow(controller: lifecycle.relay)
+                .frame(width: 260, height: 260)
+        }
+        .defaultSize(width: 260, height: 260)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .newItem) { }
         }
     }
 }

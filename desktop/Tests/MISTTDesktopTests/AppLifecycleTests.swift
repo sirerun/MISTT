@@ -29,5 +29,8 @@ final class AppLifecycleTests: XCTestCase {
         XCTAssertEqual(app.activationPolicy(), .accessory)
         XCTAssertFalse(delegate.applicationShouldHandleReopen(app, hasVisibleWindows: false))
         XCTAssertTrue(relay.presentation.status?.muted ?? true)
+        var safelyClosed: Bool?
+        delegate.shutdownHandler? { safelyClosed = $0 }
+        XCTAssertEqual(safelyClosed, true, "Failed startup remains safely closed on quit")
     }
 }
