@@ -12,6 +12,22 @@ import (
 	"time"
 )
 
+// Profiles select one exact executable; they never expand to system audio.
+var targetExecutables = map[string][]string{
+	"com.tiktok.livestudio.desktop":          {"Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"},
+	"us.zoom.xos":                            {"Contents/MacOS/zoom.us", "Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost"},
+	"run.david.evidence-copilot.development": {"Contents/MacOS/EvidenceOverlay"},
+}
+
+func ApprovedTarget(bundle, executable string) bool {
+	for _, allowed := range targetExecutables[bundle] {
+		if executable == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 const ApprovedHelperExecutable = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
 
 type Config struct {
@@ -62,7 +78,7 @@ func FromEnv() (Config, error) {
 		c.IncludeHelperExecutables = nil
 		for _, p := range strings.Split(v, ",") {
 			p = strings.TrimSpace(p)
-			if p != ApprovedHelperExecutable {
+			if !ApprovedTarget(c.TargetBundleID, p) {
 				return Config{}, errors.New("MISTT_HELPER_EXECUTABLES permits only the approved app-relative helper")
 			}
 			c.IncludeHelperExecutables = append(c.IncludeHelperExecutables, p)
@@ -107,7 +123,7 @@ func (c Config) Validate(requireCredentials bool) error {
 	if c.ClientBuffer < 1 || c.ClientBuffer > 4096 || c.FrameQueue < 1 || c.FrameQueue > 4096 || c.NativeControlQueue < 1 {
 		return errors.New("buffer capacities must be positive and bounded")
 	}
-	if len(c.IncludeHelperPIDs) > 32 || len(c.IncludeHelperExecutables) != 1 || c.IncludeHelperExecutables[0] != ApprovedHelperExecutable || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
+	if len(c.IncludeHelperPIDs) != 0 || len(c.IncludeHelperExecutables) != 1 || !ApprovedTarget(c.TargetBundleID, c.IncludeHelperExecutables[0]) || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
 		return errors.New("native target configuration exceeds bounded IPC limits")
 	}
 	if c.Endpoint != "" {

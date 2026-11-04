@@ -113,3 +113,44 @@ func TestTokenPathMustBeRestrictedRegularNonsymlink(t *testing.T) {
 		t.Fatal("accepted symlink token path")
 	}
 }
+
+func TestExplicitSelectedAppProfiles(t *testing.T) {
+	for bundle, paths := range targetExecutables {
+		for _, path := range paths {
+			cfg := Defaults()
+			cfg.TargetBundleID = bundle
+			cfg.IncludeHelperExecutables = []string{path}
+			if err := cfg.Validate(false); err != nil {
+				t.Fatalf("%s: %v", bundle, err)
+			}
+			cfg.IncludeHelperPIDs = []uint32{123}
+			if cfg.Validate(false) == nil {
+				t.Fatal("unverified PID override accepted")
+			}
+		}
+	}
+	cfg := Defaults()
+	cfg.TargetBundleID = "us.zoom.xos"
+	if cfg.Validate(false) == nil {
+		t.Fatal("TikTok helper accepted for Zoom")
+	}
+	cfg.TargetBundleID = "com.attacker.lookalike"
+	if cfg.Validate(false) == nil {
+		t.Fatal("unknown app accepted")
+	}
+}
+func TestZoomEnvironmentSelectorsRemainExplicit(t *testing.T) {
+	t.Setenv("MISTT_TARGET_BUNDLE_ID", "us.zoom.xos")
+	t.Setenv("MISTT_HELPER_EXECUTABLES", "Contents/MacOS/zoom.us")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cfg.Validate(false); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MISTT_HELPER_EXECUTABLES", ApprovedHelperExecutable)
+	if _, err = FromEnv(); err == nil {
+		t.Fatal("cross-profile executable accepted")
+	}
+}
