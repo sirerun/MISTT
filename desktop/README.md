@@ -27,6 +27,22 @@ Info.plist explicitly disables automatic updates. Update installation also
 requires a correlated native/relay idle reservation and confirmed local
 closure.
 
+## Owned background launch
+
+An embedding application may launch its privately owned desktop process with
+`MISTT_BACKGROUND_MODE=1` in the launch environment. Only the exact value `1`
+opts in; ordinary launches retain the microphone window. This is a desktop
+launch option, not a relay configuration JSON key. Background mode starts the
+relay from the application lifecycle without creating the microphone window or
+a Dock icon. Native permission dialogs and the same bounded shutdown/update
+safety remain active. Reopening the background process does not open a window.
+
+Background launches still start muted. An authorized embedding application must
+use the public revision-fenced `SetMuted` API to request capture explicitly;
+subscriber demand, backend readiness, paired permissions, and configured app
+selection continue to gate capture. Background mode does not change the saved
+standalone configuration or select a different capture target.
+
 ## Local verification
 
 Use `Scripts/test.sh` for XCTest and `Scripts/build-app.sh` for an arm64 local
