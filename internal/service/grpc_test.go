@@ -94,7 +94,11 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 	}
 	server := grpc.NewServer()
 	misttv1.RegisterMisttServer(server, s)
-	go server.Serve(lis)
+	go func() {
+		if err := server.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			t.Error(err)
+		}
+	}()
 	defer server.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -102,7 +106,11 @@ func TestRealGRPCStatusAndRevisionGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	client := misttv1.NewMisttClient(conn)
 	stream, err := client.WatchStatus(ctx, &misttv1.WatchStatusRequest{})
 	if err != nil {

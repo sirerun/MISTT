@@ -239,7 +239,11 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 		}
 	}
 	limits := map[audio.Source]sourceLimit{ready.Sources[0].Source: ready.Sources[0], ready.Sources[1].Source: ready.Sources[1]}
-	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{SessionID: ready.SessionID, Model: ready.Model.ID + "@" + ready.Model.Revision, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
+	caps := map[audio.Source]uint64{}
+	for _, source := range ready.Sources {
+		caps[source.Source] = source.MaxAudioSamples
+	}
+	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{SourceSampleCaps: caps, SessionID: ready.SessionID, Model: ready.Model.ID + "@" + ready.Model.Revision, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
 	go s.writeLoop()
 	go s.readLoop()
 	return s, nil
@@ -257,7 +261,7 @@ func readRestrictedToken(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	after, err := f.Stat()
 	if err != nil {
 		return "", err

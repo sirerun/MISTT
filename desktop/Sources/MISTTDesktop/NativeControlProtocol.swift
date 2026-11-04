@@ -117,7 +117,7 @@ enum RelayMessage: Sendable {
             return .captureStart(request)
         case "capture_stop":
             let request = try decoder.decode(CaptureStopRequest.self, from: line)
-            guard ["muted", "no_clients", "max_duration", "shutdown", "capture_failure", "backend_failure", "native_failure"].contains(request.reason) else {
+            guard ["user", "muted", "no_clients", "max_duration", "shutdown", "capture_failure", "backend_failure", "native_failure", "budget_rotation", "rotation_limit"].contains(request.reason) else {
                 throw RelayReadError.invalidMessage
             }
             return .captureStop(request)

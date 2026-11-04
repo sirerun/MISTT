@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/sirerun/MISTT/gen/mistt/v1"
 	"github.com/sirerun/MISTT/internal/audio"
@@ -193,6 +194,10 @@ func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 	}
 	if s.muted != req.Muted {
 		s.muted = req.Muted
+		if !req.Muted {
+			s.budgetStarted = time.Time{}
+			s.budgetRotations = 0
+		}
 		if req.Muted {
 			s.reason = "user"
 		} else {
