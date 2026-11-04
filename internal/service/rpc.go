@@ -192,7 +192,9 @@ func (s *Service) setMuted(ctx context.Context, req *misttv1.SetMutedRequest) (*
 		s.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, "paired capture closure is unconfirmed")
 	}
-	if s.muted != req.Muted {
+	// An explicit startup mute records operator intent even while already muted,
+	// fencing a delayed embedding auto-unmute that observed startup state.
+	if s.muted != req.Muted || (req.Muted && s.reason == "startup_muted") {
 		s.muted = req.Muted
 		if !req.Muted {
 			s.budgetStarted = time.Time{}

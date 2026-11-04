@@ -38,7 +38,9 @@ a Dock icon. Native permission dialogs and the same bounded shutdown/update
 safety remain active. Reopening the background process does not open a window.
 
 Background launches still start muted. An authorized embedding application must
-use the public revision-fenced `SetMuted` API to request capture explicitly;
+use the public revision-fenced `SetMuted` API to request capture explicitly.
+An explicit mute during startup records user intent and fences an older
+automatic unmute. Request-ID retries remain idempotent. As before,
 subscriber demand, backend readiness, paired permissions, and configured app
 selection continue to gate capture. Background mode does not change the saved
 standalone configuration or select a different capture target.

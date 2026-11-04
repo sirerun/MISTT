@@ -7,8 +7,11 @@ Settings-only app only when the owned launch environment contains exactly
 `MISTT_BACKGROUND_MODE=1`. The latter removes the settings command and uses
 accessory activation policy. Both use the same application delegate to start
 the relay/updater and install the existing bounded quit path, independently
-of any window appearance. Relay configuration, capture gates, public RPCs,
-and startup mute behavior are unchanged.
+of any window appearance. Relay configuration, capture gates, public RPC
+shapes, and startup mute behavior are unchanged. A new explicit mute while
+still in `startup_muted` now records `user` intent and advances revision, so
+a delayed embedding unmute using the earlier revision aborts. Request-ID
+replays retain their prior result; other redundant mutes remain unchanged.
 
 Observed on native Intel macOS with Xcode Swift toolchain:
 
@@ -34,3 +37,13 @@ standalone visible regression acceptance, native permission dialogs in an
 owned launch, and live relay/capture quit behavior. Existing shutdown deadlines
 and capture implementation were not changed. No signing, deployment, merge,
 real microphone capture, or provider acceptance was performed.
+
+## Startup operator-intent fence follow-up
+
+- `GOMAXPROCS=2 go test -p 1 ./internal/service -run 'TestRealGRPC|TestMuteRequestCache' -count=1 -timeout=45s`: passed (0.148s).
+- `GOMAXPROCS=2 go test -p 1 ./internal/service -count=1 -timeout=90s`: passed (4.425s).
+- A real loopback gRPC test verifies startup redundant mute records reason/revision,
+  request-ID replay does not publish twice, stale embedding unmute aborts, and
+  subsequent redundant mute leaves revision unchanged. No provider/capture effects.
+- Existing request-cache eviction test now follows returned revisions, preserving
+  its original bounded-cache assertion after startup intent is published.

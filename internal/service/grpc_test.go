@@ -153,11 +153,14 @@ func TestRunClosesWriterWhenListenerIsMissing(t *testing.T) {
 
 func TestMuteRequestCacheEvictsCompletedEntriesBeforeInsert(t *testing.T) {
 	s := newTestService(t, config.Defaults(), false)
+	revision := uint64(1)
 	for i := 1; i <= 130; i++ {
 		id := fmt.Sprintf("%08x-0000-4000-8000-%012x", i, i)
-		if _, err := s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: id, Muted: true, ExpectedRevision: 1}); err != nil {
+		result, err := s.SetMuted(context.Background(), &misttv1.SetMutedRequest{RequestId: id, Muted: true, ExpectedRevision: revision})
+		if err != nil {
 			t.Fatalf("completed request %d was rejected: %v", i, err)
 		}
+		revision = result.Revision
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -476,5 +479,64 @@ func TestNativeEOFGentlyExitsOnlyFromConfirmedSafeIdle(t *testing.T) {
 		}
 	default:
 		t.Fatal("unsafe EOF did not record native disconnect")
+	}
+}
+
+func TestRealGRPCStartupMuteFencesOwnedAutoUnmute(t *testing.T) {
+	s := newTestService(t, config.Defaults(), false)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	misttv1.RegisterMisttServer(server, s)
+	go func() {
+		if err := server.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			t.Error(err)
+		}
+	}()
+	defer server.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	client := misttv1.NewMisttClient(conn)
+	stream, err := client.WatchStatus(ctx, &misttv1.WatchStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: initial.Revision,
+		RequestId: "00112233-4455-6677-8899-aabbccddeeff"}
+	muted, err := client.SetMuted(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !muted.Muted || muted.Capturing || muted.Reason != "user" || muted.Revision <= initial.Revision {
+		t.Fatalf("startup mute did not record operator intent safely: %+v", muted)
+	}
+	replayed, err := client.SetMuted(ctx, request)
+	if err != nil || replayed.Revision != muted.Revision || replayed.Reason != "user" {
+		t.Fatalf("startup mute replay changed result: %+v, %v", replayed, err)
+	}
+	_, err = client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: false, ExpectedRevision: initial.Revision,
+		RequestId: "10112233-4455-6677-8899-aabbccddeeff"})
+	if status.Code(err) != codes.Aborted {
+		t.Fatalf("delayed startup unmute did not abort: %v", err)
+	}
+	redundant, err := client.SetMuted(ctx, &misttv1.SetMutedRequest{Muted: true, ExpectedRevision: muted.Revision,
+		RequestId: "20112233-4455-6677-8899-aabbccddeeff"})
+	if err != nil || redundant.Revision != muted.Revision {
+		t.Fatalf("ordinary redundant mute changed revision (or replay published twice): %+v, %v", redundant, err)
 	}
 }
