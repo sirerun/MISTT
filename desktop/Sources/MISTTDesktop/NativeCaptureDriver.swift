@@ -26,11 +26,12 @@ final class NativeCaptureDriver {
     func start(_ request: CaptureStartRequest, writer: NativeIPCWriter,
                completion: @escaping @MainActor (Bool) -> Void) {
         guard !busy, isClosed, request.microphone.device == "default",
-                            request.callAudio.includeHelpers.isEmpty,
-              request.callAudio.includeHelperExecutables.count == 1,
+              request.callAudio.includeHelpers.isEmpty,
+              let selectedExecutables = request.callAudio.includeHelperExecutables,
+              selectedExecutables.count == 1,
               let selectedPolicy = try? CoreAudioTargetOwnership.Policy.selected(
                 bundleIdentifier: request.callAudio.bundleId,
-                includeHelperExecutables: request.callAudio.includeHelperExecutables),
+                includeHelperExecutables: selectedExecutables),
               request.sources == Self.sources else {
             completion(false); return
         }
