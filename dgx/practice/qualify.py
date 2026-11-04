@@ -1,8 +1,8 @@
 """Bounded synthetic-only paired TLS qualification. Never captures devices."""
-import argparse,json,ssl,time,uuid,wave,struct,threading,urllib.request
+import argparse,json,ssl,time,uuid,wave,struct,threading,urllib.request,subprocess,sys
 from pathlib import Path
 from websockets.sync.client import connect
-p=argparse.ArgumentParser();p.add_argument('--private',type=Path,required=True);a=p.parse_args();r=a.private
+p=argparse.ArgumentParser();p.add_argument('--private',type=Path,required=True);p.add_argument('--decision-script',type=Path);a=p.parse_args();r=a.private
 ctx=ssl.create_default_context(cafile=str(r/'tls.crt'));token=(r/'asr.token').read_text().strip()
 base='https://192.168.86.250:18772';report={'synthetic_only':True,'endpoint':base,'tls_verified':True}
 for auth in [False,True]:
@@ -17,6 +17,12 @@ with connect(base.replace('https:','wss:')+'/mistt/v1/stream',ssl=ctx,additional
  ws.send(json.dumps({'type':'start','protocol':'mistt.paired.v1','session_id':session,'language':'en','sources':formats}))
  ready=json.loads(ws.recv(timeout=240));report['ready']=ready;report['ready_seconds']=time.monotonic()-start
  if ready.get('type')!='ready':raise RuntimeError('not ready')
+ decision_result=[]
+ def decision_check():
+  result=subprocess.run([sys.executable,str(a.decision_script)],text=True,capture_output=True,timeout=60)
+  decision_result.append({'exit':result.returncode,'stdout':result.stdout,'stderr':result.stderr})
+ decision_worker=threading.Thread(target=decision_check) if a.decision_script else None
+ if decision_worker:decision_worker.start()
  ws.send(json.dumps({'type':'capture_started','request_id':str(uuid.uuid4()),'session_id':session,'capture_epoch_host_ns':time.monotonic_ns(),'capture_epoch_unix_ms':int(time.time()*1000),'sources':formats,'microphone_ready':True,'call_audio_ready':True}))
  def receive():
   try:
@@ -44,5 +50,7 @@ with connect(base.replace('https:','wss:')+'/mistt/v1/stream',ssl=ctx,additional
   ws.send(json.dumps({'type':'source_end','session_id':session,'source':source,'last_sequence':sequence,'total_samples':size//2,'cutoff_offset_ns':(size//2)*62500}))
  eof=time.monotonic();worker.join(timeout=100)
  report.update({'events':events,'errors':errors,'duration_seconds':size/32000,'eof_to_done_seconds':time.monotonic()-eof,'completed':any(e.get('type')=='done' for e in events)})
-(r/'paired-qualification.json').write_text(json.dumps(report,indent=2)+'\n')
+if decision_worker:decision_worker.join(timeout=65)
+report['decision_concurrent']=decision_result
+(r/('paired-qualification-'+session+'.json')).write_text(json.dumps(report,indent=2)+'\n')
 print(json.dumps(report,indent=2))

@@ -21,7 +21,7 @@ def guard(args):
  return head
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('mode',choices=['reconcile','qualify']);p.add_argument('--claim-sha',required=True);p.add_argument('--approved-source',required=True);p.add_argument('--private',type=Path,required=True);p.add_argument('--python',default='python3');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('mode',choices=['reconcile','qualify']);p.add_argument('--claim-sha',required=True);p.add_argument('--approved-source',required=True);p.add_argument('--private',type=Path,required=True);p.add_argument('--python',default='python3');p.add_argument('--decision-script',type=Path);a=p.parse_args()
  os.umask(0o077)
  if not a.private.is_dir() or a.private.is_symlink() or a.private.stat().st_mode&0o077:raise RuntimeError('private receipt directory required')
  head=guard(a)
@@ -31,7 +31,9 @@ def main():
  if a.mode=='qualify':
   if pod.get('status')!='running':raise RuntimeError('exact pod not running')
   guard(a) # Recheck immediately before the next consumed synthetic operation.
-  result=subprocess.run([a.python,str(ROOT/'dgx/practice/qualify.py'),'--private',str(a.private)],cwd=ROOT,text=True,capture_output=True,timeout=360)
+  command=[a.python,str(ROOT/'dgx/practice/qualify.py'),'--private',str(a.private)]
+  if a.decision_script:command+=['--decision-script',str(a.decision_script)]
+  result=subprocess.run(command,cwd=ROOT,text=True,capture_output=True,timeout=360)
   receipt.update({'synthetic_probe_exit':result.returncode,'synthetic_stdout':result.stdout,'synthetic_stderr':result.stderr})
  name='owner-'+a.mode+'-'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'.json'
  with (a.private/name).open('x') as f:json.dump(receipt,f,indent=2)
