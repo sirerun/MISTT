@@ -26,6 +26,8 @@
 	<string>MISTT captures audio only from the app you selected in MISTT and its approved audio helper.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MISTT connects to your configured local network speech service to transcribe admitted audio.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MISTT uses your microphone to stream speech to your configured MISTT service and connected transcript clients.</string>
 	<key>SUAutomaticallyUpdate</key>
