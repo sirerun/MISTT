@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 umask 077
+MODE=${MISTT_PRACTICE_MODE:-paired-and-decision}
+case "$MODE" in asr-only|paired-and-decision) ;; *) echo "Invalid practice mode" >&2; exit 2 ;; esac
 mkdir -p /run/mistt-input /work /var/cache/mistt
 python3 -m pip install --disable-pip-version-check cryptography==49.0.0 > /work/transport-install.log 2>&1
 python3 - <<'PY'
@@ -26,9 +28,13 @@ a=k.decrypt(base64.b64decode(b['key']),padding.OAEP(mgf=padding.MGF1(hashes.SHA2
 d=json.loads(AESGCM(a).decrypt(base64.b64decode(b['nonce']),base64.b64decode(b['ciphertext']),b'mistt-practice-v1'))
 for name in ('bearer','tls.crt','tls.key'):
  p=Path('/run/mistt-input')/name;p.write_text(d[name]);p.chmod(0o600)
-p=Path('/work/auth.token');p.write_text(d['decision.token']);p.chmod(0o600)
+if os.environ.get('MISTT_PRACTICE_MODE') != 'asr-only':
+ p=Path('/work/auth.token');p.write_text(d['decision.token']);p.chmod(0o600)
 Path('/work/transport.key').unlink();Path('/work/credentials.enc').unlink()
 PY
+if [ "$MODE" = "asr-only" ]; then
+ exec /opt/mistt/dgx/gateway/bootstrap.sh
+fi
 export HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1 DECISION_DEVICE=cuda
 export HF_HOME=/var/cache/mistt/decision-hf
 python3 -m venv --system-site-packages /work/decision-venv
