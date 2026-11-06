@@ -5,7 +5,7 @@ import Foundation
 import Darwin.libproc
 import Security
 
-struct ProcessIncarnation: Equatable {
+struct ProcessIncarnation: Equatable, Sendable {
     let pid: pid_t
     let parentPID: pid_t
     let uid: uid_t
@@ -14,13 +14,13 @@ struct ProcessIncarnation: Equatable {
     let executablePath: String
 }
 
-struct RunningOwnerApplication: Equatable {
+struct RunningOwnerApplication: Equatable, Sendable {
     let bundleIdentifier: String
     let pid: pid_t
     let bundlePath: String
 }
 
-struct LiveCodeIdentity: Equatable {
+struct LiveCodeIdentity: Equatable, Sendable {
     let signingIdentifier: String
     let teamIdentifier: String
     let bundleIdentifier: String?
@@ -28,12 +28,12 @@ struct LiveCodeIdentity: Equatable {
     let appleGenericTrustValidated: Bool
 }
 
-struct CodeSignatureExpectation: Equatable {
+struct CodeSignatureExpectation: Equatable, Sendable {
     let signingIdentifier: String
     let teamIdentifier: String
 }
 
-struct VerifiedHelperTarget: Equatable {
+struct VerifiedHelperTarget: Equatable, Sendable {
     let audioClient: AudioClient
     let ownerApplication: RunningOwnerApplication
     let ownerProcess: ProcessIncarnation
@@ -52,24 +52,52 @@ protocol CoreAudioOwnershipReading {
 }
 
 struct CoreAudioTargetOwnership {
-    struct HelperAllowlist: Equatable {
+    struct HelperAllowlist: Equatable, Sendable {
         let relativeExecutablePath: String
         let signingIdentifier: String
         let teamIdentifier: String
     }
 
-    struct Policy: Equatable {
+    struct Policy: Equatable, Sendable {
         let ownerBundleIdentifier: String
         let ownerTeamIdentifier: String
         let helpers: [HelperAllowlist]
+        let capturesOwner: Bool
         var ownerCodeExpectation: CodeSignatureExpectation {
             CodeSignatureExpectation(signingIdentifier: ownerBundleIdentifier, teamIdentifier: ownerTeamIdentifier)
         }
 
-        private init(ownerBundleIdentifier: String, ownerTeamIdentifier: String, helpers: [HelperAllowlist]) {
+        private init(ownerBundleIdentifier: String, ownerTeamIdentifier: String, helpers: [HelperAllowlist], capturesOwner: Bool = false) {
             self.ownerBundleIdentifier = ownerBundleIdentifier
             self.ownerTeamIdentifier = ownerTeamIdentifier
             self.helpers = helpers
+            self.capturesOwner = capturesOwner
+        }
+
+        /// Explicit playback target. No fallback between main process and helper.
+        static func selected(bundleIdentifier: String, includeHelperExecutables: [String]) throws -> Policy {
+            if bundleIdentifier == "com.tiktok.livestudio.desktop" {
+                return try tiktokLiveStudio(includeHelperExecutables: includeHelperExecutables)
+            }
+            let team: String
+            let approved: [(String, String, Bool)]
+            switch bundleIdentifier {
+            case "us.zoom.xos":
+                team = "BJ4HAAB9B3"
+                approved = [("Contents/MacOS/zoom.us", "us.zoom.xos", true),
+                            ("Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost", "us.zoom.CptHost", false)]
+            case "run.david.evidence-copilot.development":
+                team = "38F4AYRK8L"
+                approved = [("Contents/MacOS/EvidenceOverlay", bundleIdentifier, true)]
+            default: throw ValidationError.invalidPolicy
+            }
+            guard includeHelperExecutables.count == 1,
+                  let target = approved.first(where: { $0.0 == includeHelperExecutables[0] }) else {
+                throw ValidationError.invalidPolicy
+            }
+            return Policy(ownerBundleIdentifier: bundleIdentifier, ownerTeamIdentifier: team,
+                          helpers: [HelperAllowlist(relativeExecutablePath: target.0,
+                                   signingIdentifier: target.1, teamIdentifier: team)], capturesOwner: target.2)
         }
 
         static func tiktokLiveStudio(includeHelperExecutables: [String]) throws -> Policy {
@@ -132,10 +160,12 @@ struct CoreAudioTargetOwnership {
             guard Self.isContained(expectedPath, in: bundlePath) else { throw ValidationError.helperChanged }
             var matches: [VerifiedHelperTarget] = []
 
-            for client in audioProcesses where client.pid > 0 && client.pid != ownerState.application.pid {
+            for client in audioProcesses where client.pid > 0 {
+                let eligiblePID = policy.capturesOwner ? client.pid == ownerState.application.pid : client.pid != ownerState.application.pid
+                guard eligiblePID else { continue }
                 guard let process = try? ownershipReader.processIncarnation(pid: client.pid),
                       process.pid == client.pid,
-                      process.parentPID == ownerState.application.pid,
+                      (policy.capturesOwner ? process == ownerState.process : process.parentPID == ownerState.application.pid),
                       process.uid == ownerState.process.uid,
                       Self.startedAfter(process, ownerState.process),
                       try ownershipReader.canonicalFilePath(process.executablePath) == expectedPath else {
@@ -248,7 +278,7 @@ struct CoreAudioTargetOwnership {
         let currentHelper = try ownershipReader.processIncarnation(pid: client.pid)
         guard Self.isContained(expectedPath, in: bundlePath),
               currentHelper == lease.helperProcess,
-              currentHelper.parentPID == owner.pid,
+              (policy.capturesOwner ? currentHelper == currentOwner : currentHelper.parentPID == owner.pid),
               currentHelper.uid == currentOwner.uid,
               Self.startedAfter(currentHelper, currentOwner),
               try ownershipReader.canonicalFilePath(currentHelper.executablePath) == expectedPath else {

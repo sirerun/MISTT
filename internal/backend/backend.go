@@ -17,6 +17,7 @@ type StartRequest struct {
 	Language  string
 }
 type Ready struct {
+	SourceSampleCaps                 map[audio.Source]uint64
 	SessionID, Model, Language       string
 	Sources                          []SourceFormat
 	MaxActivePairs                   uint32

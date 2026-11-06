@@ -12,6 +12,22 @@ import (
 	"time"
 )
 
+// Profiles select one exact executable; they never expand to system audio.
+var targetExecutables = map[string][]string{
+	"com.tiktok.livestudio.desktop":          {"Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"},
+	"us.zoom.xos":                            {"Contents/MacOS/zoom.us", "Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost"},
+	"run.david.evidence-copilot.development": {"Contents/MacOS/EvidenceOverlay"},
+}
+
+func ApprovedTarget(bundle, executable string) bool {
+	for _, allowed := range targetExecutables[bundle] {
+		if executable == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 const ApprovedHelperExecutable = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
 
 type Config struct {
@@ -30,10 +46,13 @@ type Config struct {
 	ClientBuffer             int
 	FrameQueue               int
 	NativeControlQueue       int
+	BudgetRotation           bool
+	MaxBudgetRotations       uint32
+	RotationHeadroom         time.Duration
 }
 
 func Defaults() Config {
-	return Config{Listen: "127.0.0.1:50051", Language: "en", MicrophoneDevice: "default", TargetBundleID: "com.tiktok.livestudio.desktop", IncludeHelperExecutables: []string{ApprovedHelperExecutable}, StartupTimeout: 180 * time.Second, DrainTimeout: 5 * time.Second, MaxDuration: 0, ClientBuffer: 64, FrameQueue: 160, NativeControlQueue: 32}
+	return Config{Listen: "127.0.0.1:50051", Language: "en", MicrophoneDevice: "default", TargetBundleID: "com.tiktok.livestudio.desktop", IncludeHelperExecutables: []string{ApprovedHelperExecutable}, StartupTimeout: 180 * time.Second, DrainTimeout: 5 * time.Second, MaxDuration: 0, ClientBuffer: 64, FrameQueue: 160, NativeControlQueue: 32, MaxBudgetRotations: 32, RotationHeadroom: 10 * time.Second}
 }
 func FromEnv() (Config, error) {
 	c := Defaults()
@@ -62,13 +81,13 @@ func FromEnv() (Config, error) {
 		c.IncludeHelperExecutables = nil
 		for _, p := range strings.Split(v, ",") {
 			p = strings.TrimSpace(p)
-			if p != ApprovedHelperExecutable {
+			if !ApprovedTarget(c.TargetBundleID, p) {
 				return Config{}, errors.New("MISTT_HELPER_EXECUTABLES permits only the approved app-relative helper")
 			}
 			c.IncludeHelperExecutables = append(c.IncludeHelperExecutables, p)
 		}
 	}
-	for key, dst := range map[string]*time.Duration{"MISTT_STARTUP_TIMEOUT": &c.StartupTimeout, "MISTT_DRAIN_TIMEOUT": &c.DrainTimeout, "MISTT_MAX_DURATION": &c.MaxDuration} {
+	for key, dst := range map[string]*time.Duration{"MISTT_STARTUP_TIMEOUT": &c.StartupTimeout, "MISTT_DRAIN_TIMEOUT": &c.DrainTimeout, "MISTT_MAX_DURATION": &c.MaxDuration, "MISTT_ROTATION_HEADROOM": &c.RotationHeadroom} {
 		if value, ok := os.LookupEnv(key); ok {
 			d, err := time.ParseDuration(value)
 			if err != nil {
@@ -86,9 +105,28 @@ func FromEnv() (Config, error) {
 			*dst = n
 		}
 	}
+
+	if value, ok := os.LookupEnv("MISTT_BUDGET_ROTATION"); ok {
+		v, e := strconv.ParseBool(value)
+		if e != nil {
+			return Config{}, fmt.Errorf("parse MISTT_BUDGET_ROTATION: %w", e)
+		}
+		c.BudgetRotation = v
+	}
+	if value, ok := os.LookupEnv("MISTT_MAX_BUDGET_ROTATIONS"); ok {
+		v, e := strconv.ParseUint(value, 10, 32)
+		if e != nil {
+			return Config{}, fmt.Errorf("parse MISTT_MAX_BUDGET_ROTATIONS: %w", e)
+		}
+		c.MaxBudgetRotations = uint32(v)
+	}
 	return c, nil
 }
 func (c Config) Validate(requireCredentials bool) error {
+	if c.BudgetRotation && (c.MaxBudgetRotations < 1 || c.MaxBudgetRotations > 256 || c.RotationHeadroom < c.DrainTimeout+2*time.Second || c.RotationHeadroom > time.Minute) {
+		return errors.New("budget rotation requires1..256 rotations and drain+2s..1m headroom")
+	}
+
 	host, port, err := net.SplitHostPort(c.Listen)
 	if err != nil {
 		return fmt.Errorf("listen must be loopback host:port: %w", err)
@@ -107,7 +145,7 @@ func (c Config) Validate(requireCredentials bool) error {
 	if c.ClientBuffer < 1 || c.ClientBuffer > 4096 || c.FrameQueue < 1 || c.FrameQueue > 4096 || c.NativeControlQueue < 1 {
 		return errors.New("buffer capacities must be positive and bounded")
 	}
-	if len(c.IncludeHelperPIDs) > 32 || len(c.IncludeHelperExecutables) != 1 || c.IncludeHelperExecutables[0] != ApprovedHelperExecutable || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
+	if len(c.IncludeHelperPIDs) != 0 || len(c.IncludeHelperExecutables) != 1 || !ApprovedTarget(c.TargetBundleID, c.IncludeHelperExecutables[0]) || len(c.MicrophoneDevice) > 256 || len(c.TargetBundleID) > 255 {
 		return errors.New("native target configuration exceeds bounded IPC limits")
 	}
 	if c.Endpoint != "" {

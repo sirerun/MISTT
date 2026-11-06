@@ -44,6 +44,7 @@ type sourceLedger struct {
 	ended        bool
 }
 type activePair struct {
+	budgetDeadline time.Time
 	id             string
 	remote         backend.Session
 	ready          backend.Ready
@@ -53,14 +54,12 @@ type activePair struct {
 	started        *misttv1.StreamResponse
 	sequence       uint64
 	ledgers        map[audio.Source]*sourceLedger
-	pending        [2][]audio.Frame
 	sourceEnds     map[audio.Source]bool
 	stopping       bool
 	closed         bool
 	cutoffHostNS   uint64
 	cutoffKnown    bool
 	cutoffOffsetNS uint64
-	runtimeFailure error
 	seen           map[string]segmentState
 }
 type segmentState struct {
@@ -85,6 +84,8 @@ type queuedNativeCommand struct {
 }
 
 type Service struct {
+	budgetStarted   time.Time
+	budgetRotations uint32
 	misttv1.UnimplementedMisttServer
 	cfg                config.Config
 	backend            backend.Provider
@@ -114,7 +115,6 @@ type Service struct {
 	closed             chan struct{}
 	shutdownDone       chan struct{}
 	closeOnce          sync.Once
-	heartbeat          uint64
 	commandHigh        uint64
 	commands           map[uint64]commandRecord
 	requestCommands    map[string]uint64
@@ -342,7 +342,6 @@ func (s *Service) signalLocked() {
 	default:
 	}
 }
-func (s *Service) signal() { s.mu.Lock(); s.signalLocked(); s.mu.Unlock() }
 func (s *Service) publishLocked() {
 	s.revision++
 	if s.revision == 0 {
@@ -424,6 +423,15 @@ func (s *Service) supervise() {
 func (s *Service) startPair() (result error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StartupTimeout)
 	s.mu.Lock()
+	if s.rotationOverallExpiredLocked(time.Now()) {
+		s.muted = true
+		s.reason = "max_duration"
+		s.publishLocked()
+		s.signalLocked()
+		s.mu.Unlock()
+		cancel()
+		return nil
+	}
 	if !s.demandLocked() || !s.closureConfirmed || s.starting || s.active != nil {
 		s.mu.Unlock()
 		cancel()
@@ -466,7 +474,13 @@ func (s *Service) startPair() (result error) {
 	remote, err := s.backend.Connect(ctx, backend.StartRequest{SessionID: id, Language: s.cfg.Language})
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil
+			s.mu.Lock()
+			ownerCancelled := !s.demandLocked() || s.shutdownRequested
+			s.mu.Unlock()
+			if !s.cfg.BudgetRotation || ownerCancelled {
+				return nil
+			}
+			return fmt.Errorf("rotation admission timed out without a known terminal: %w", ctx.Err())
 		}
 		return fmt.Errorf("paired remote readiness failed: %w", err)
 	}
@@ -487,6 +501,18 @@ func (s *Service) startPair() (result error) {
 		_ = remote.Close()
 		return err
 	}
+	var rotationWindow time.Duration
+	if s.cfg.BudgetRotation {
+		if s.cfg.MaxBudgetRotations < 1 || s.cfg.MaxBudgetRotations > 256 {
+			_ = remote.Close()
+			return errors.New("invalid rotation bound")
+		}
+		rotationWindow, err = budgetCaptureWindow(ready, s.cfg.RotationHeadroom, s.cfg.DrainTimeout)
+		if err != nil {
+			_ = remote.Close()
+			return err
+		}
+	}
 	formats := []ipc.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}}
 	start := ipc.NativeMessage{Type: "capture_start", RequestID: reqID, SessionID: id, Sources: formats, Device: s.cfg.MicrophoneDevice, BundleID: s.cfg.TargetBundleID, IncludeHelpers: s.cfg.IncludeHelperPIDs, IncludeHelperExecutables: s.cfg.IncludeHelperExecutables}
 	// Close the optimistic idle report before dispatch. From this point through
@@ -497,6 +523,19 @@ func (s *Service) startPair() (result error) {
 		s.mu.Unlock()
 		_ = remote.Close()
 		return nil
+	}
+	if s.rotationOverallExpiredLocked(time.Now()) {
+		s.muted = true
+		s.reason = "max_duration"
+		s.publishLocked()
+		s.signalLocked()
+		s.mu.Unlock()
+		_ = remote.Close()
+		return nil
+	}
+	captureRequestedAt := time.Now()
+	if s.cfg.BudgetRotation && s.budgetStarted.IsZero() {
+		s.budgetStarted = captureRequestedAt
 	}
 	s.closureConfirmed = false
 	s.publishLocked()
@@ -547,6 +586,9 @@ func (s *Service) startPair() (result error) {
 					return failStartedRequest(fmt.Errorf("forward capture epoch to DGX: %w", err))
 				}
 				pair := &activePair{id: id, remote: remote, ready: ready, reqID: reqID, epochHostNS: m.CaptureEpochHostNS, epochUnixMS: m.CaptureEpochUnixMS, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}}
+				if s.cfg.BudgetRotation {
+					pair.budgetDeadline = captureRequestedAt.Add(rotationWindow)
+				}
 				pair.started = &misttv1.StreamResponse{SessionId: id, Sequence: 1, Payload: &misttv1.StreamResponse_SessionStarted{SessionStarted: &misttv1.SessionStarted{Backend: "dgx_paired", Model: ready.Model, Language: ready.Language, SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding, CaptureEpochHostNs: m.CaptureEpochHostNS, CaptureEpochUnixMs: m.CaptureEpochUnixMS, Sources: []*misttv1.SourceFormat{{Source: string(audio.Microphone), SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}, {Source: string(audio.CallAudio), SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}}}}}
 				s.mu.Lock()
 				s.active = pair
@@ -615,7 +657,8 @@ func (s *Service) stopUnstarted(sessionID string) bool {
 			}
 		case <-s.closed:
 			return false
-		case <-s.fatal:
+		case fatal := <-s.fatal:
+			_ = fatal // Any fatal event leaves closure unconfirmed; detail does not establish closure.
 			return false
 		}
 	}
@@ -628,7 +671,24 @@ func formatsToBackend(v []ipc.SourceFormat) []backend.SourceFormat {
 	return out
 }
 func (s *Service) runPair(pair *activePair) {
-	maxTimer := time.NewTimer(s.cfg.MaxDuration)
+	maxDuration := s.cfg.MaxDuration
+	s.mu.Lock()
+	if s.cfg.BudgetRotation && maxDuration > 0 && !s.budgetStarted.IsZero() {
+		maxDuration = time.Until(s.budgetStarted.Add(s.cfg.MaxDuration))
+	}
+	s.mu.Unlock()
+	if maxDuration < 0 {
+		maxDuration = 0
+	}
+	maxTimer := time.NewTimer(maxDuration)
+	var budgetTimer *time.Timer
+	var budget <-chan time.Time
+	if s.cfg.BudgetRotation {
+		budgetTimer = time.NewTimer(time.Until(pair.budgetDeadline))
+		budget = budgetTimer.C
+		defer budgetTimer.Stop()
+	}
+
 	var max <-chan time.Time
 	if s.cfg.MaxDuration > 0 {
 		max = maxTimer.C
@@ -639,6 +699,9 @@ func (s *Service) runPair(pair *activePair) {
 		select {
 		case <-s.closed:
 			s.stopPair(pair, "shutdown", nil)
+			return
+		case <-budget:
+			s.rotatePair(pair)
 			return
 		case <-max:
 			s.mu.Lock()
@@ -871,6 +934,7 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 	defer timer.Stop()
 	remoteEvents := pair.remote.Events()
 	done := false
+	completed := map[audio.Source]bool{}
 	failure := error(nil)
 	for !done {
 		select {
@@ -894,11 +958,25 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 					done = true
 				}
 			} else if e.SourceDone != nil {
+				if s.cfg.BudgetRotation {
+					source := e.SourceDone.Source
+					if !source.Valid() || completed[source] {
+						failure = errors.New("invalid or duplicate source completion during rotation")
+						done = true
+						continue
+					}
+					if e.SourceDone.Success {
+						completed[source] = true
+					}
+				}
 				if !e.SourceDone.Success {
 					failure = fmt.Errorf("DGX %s context failed (%s)", e.SourceDone.Source, e.SourceDone.Code)
 					done = true
 				}
 			} else if e.Done {
+				if s.cfg.BudgetRotation && (!completed[audio.Microphone] || !completed[audio.CallAudio]) {
+					failure = errors.New("DGX done before both successful source completions")
+				}
 				done = true
 			}
 		case event := <-s.incoming:
@@ -1048,8 +1126,20 @@ func (s *Service) abortPair(pair *activePair, reason string, err error) {
 func (s *Service) finishPair(pair *activePair, reason string, err error) {
 	s.mu.Lock()
 	if s.active == pair {
+		if reason == budgetRotationReason && err == nil {
+			if s.muted || s.shutdownRequested {
+				reason = "muted"
+			} else if !s.demandLocked() {
+				reason = "no_clients"
+			} else {
+				s.budgetRotations++
+			}
+		}
 		pair.sequence++
 		detail := ""
+		if reason == budgetRotationReason && err == nil {
+			detail = "Paired capture closed and drained for budget renewal. Audio is not captured between sessions; the transition interval is not established."
+		}
 		code := int32(codes.OK)
 		if err != nil {
 			detail = sanitize(err)
@@ -1184,14 +1274,9 @@ func (s *Service) terminateClients(err error) {
 	s.publishLocked()
 	s.mu.Unlock()
 }
-func (s *Service) waitForStopSignal(pair *activePair) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return !s.demandLocked() || s.active != pair
-}
 func normalizeStopReason(reason string) string {
 	switch reason {
-	case "user", "muted", "no_clients", "max_duration", "shutdown", "capture_failure", "backend_failure", "native_failure":
+	case "user", "muted", "no_clients", "max_duration", "shutdown", "capture_failure", "backend_failure", "native_failure", budgetRotationReason, rotationLimitReason:
 		return reason
 	default:
 		return "muted"
