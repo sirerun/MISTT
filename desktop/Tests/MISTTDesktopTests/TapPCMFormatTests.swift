@@ -44,7 +44,9 @@ final class TapPCMFormatTests: XCTestCase {
             { $0.mBytesPerFrame = 8 },
             { $0.mChannelsPerFrame = 0 },
             { $0.mChannelsPerFrame = 3 },
-            { $0.mSampleRate = 0 }
+            { $0.mSampleRate = 0 },
+            { $0.mSampleRate = .infinity },
+            { $0.mSampleRate = .nan }
         ]
         for (index, mutate) in mutations.enumerated() {
             var candidate = format()
