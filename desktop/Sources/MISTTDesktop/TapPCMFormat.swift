@@ -11,7 +11,6 @@ enum TapPCMFormat {
         return format.mSampleRate > 0
             && format.mFormatID == kAudioFormatLinearPCM
             && flags & kAudioFormatFlagIsFloat != 0
-            && flags & kAudioFormatFlagIsPacked != 0
             && flags & kAudioFormatFlagIsBigEndian == 0
             && format.mBitsPerChannel == 32
             && format.mBytesPerFrame == 4

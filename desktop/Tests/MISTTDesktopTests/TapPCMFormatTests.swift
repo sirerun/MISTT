@@ -16,6 +16,14 @@ final class TapPCMFormatTests: XCTestCase {
         XCTAssertTrue(TapPCMFormat.isSupported(format(planar: true)))
     }
 
+    func testEquivalentFloat32LayoutsDoNotRequirePackedFlag() {
+        for candidate in [format(), format(planar: true), format(channels: 2, planar: true)] {
+            var unpackedFlag = candidate
+            unpackedFlag.mFormatFlags &= ~kAudioFormatFlagIsPacked
+            XCTAssertTrue(TapPCMFormat.isSupported(unpackedFlag))
+        }
+    }
+
     func testStereoRemainsPlanarOnly() {
         XCTAssertTrue(TapPCMFormat.isSupported(format(channels: 2, planar: true)))
         var interleaved = format(channels: 2)
@@ -30,7 +38,6 @@ final class TapPCMFormatTests: XCTestCase {
         let mutations: [(inout AudioStreamBasicDescription) -> Void] = [
             { $0.mFormatID = kAudioFormatMPEG4AAC },
             { $0.mFormatFlags &= ~kAudioFormatFlagIsFloat },
-            { $0.mFormatFlags &= ~kAudioFormatFlagIsPacked },
             { $0.mFormatFlags |= kAudioFormatFlagIsBigEndian },
             { $0.mBitsPerChannel = 16 },
             { $0.mBytesPerFrame = 2 },
