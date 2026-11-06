@@ -8,7 +8,7 @@ enum TapPCMFormat {
 
     static func isSupported(_ format: AudioStreamBasicDescription) -> Bool {
         let flags = format.mFormatFlags
-        return format.mSampleRate > 0
+        return format.mSampleRate.isFinite && format.mSampleRate > 0
             && format.mFormatID == kAudioFormatLinearPCM
             && flags & kAudioFormatFlagIsFloat != 0
             && flags & kAudioFormatFlagIsBigEndian == 0
