@@ -489,14 +489,20 @@ final class NativePairCapture: @unchecked Sendable {
         var size: UInt32 = 0
         var status = AudioObjectGetPropertyDataSize(aggregateID, &address, 0, nil, &size)
         guard status == noErr else { throw CaptureStartError.coreAudio("reading tap input stream list size", status) }
-        guard size >= UInt32(MemoryLayout<AudioStreamID>.size) else { throw CaptureStartError.unsupportedTapFormat }
+        guard size >= UInt32(MemoryLayout<AudioStreamID>.size) else {
+            TapPCMFormat.logEmptyStreams(byteCount: size)
+            throw CaptureStartError.unsupportedTapFormat
+        }
         let count = Int(size) / MemoryLayout<AudioStreamID>.size
         var streams = [AudioStreamID](repeating: kAudioObjectUnknown, count: count)
         status = streams.withUnsafeMutableBytes { raw in
             AudioObjectGetPropertyData(aggregateID, &address, 0, nil, &size, raw.baseAddress!)
         }
         guard status == noErr else { throw CaptureStartError.coreAudio("reading tap input stream list", status) }
-        guard let stream = streams.first else { throw CaptureStartError.unsupportedTapFormat }
+        guard let stream = streams.first else {
+            TapPCMFormat.logEmptyStreams(byteCount: size)
+            throw CaptureStartError.unsupportedTapFormat
+        }
         var formatAddress = AudioObjectPropertyAddress(
             mSelector: kAudioStreamPropertyVirtualFormat,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -507,11 +513,8 @@ final class NativePairCapture: @unchecked Sendable {
             AudioObjectGetPropertyData(stream, &formatAddress, 0, nil, &formatSize, $0)
         }
         guard status == noErr else { throw CaptureStartError.coreAudio("reading tap virtual stream format", status) }
-        guard streamFormat.mSampleRate > 0, (1...2).contains(streamFormat.mChannelsPerFrame),
-              streamFormat.mFormatID == kAudioFormatLinearPCM,
-              streamFormat.mFormatFlags & kAudioFormatFlagIsFloat != 0,
-              streamFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0,
-              streamFormat.mBitsPerChannel == 32, streamFormat.mBytesPerFrame == 4 else {
+        guard TapPCMFormat.isSupported(streamFormat) else {
+            TapPCMFormat.logRejected(streamFormat)
             throw CaptureStartError.unsupportedTapFormat
         }
     }
