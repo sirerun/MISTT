@@ -1,0 +1,102 @@
+import Foundation
+import OSLog
+
+/// No received text is logged: parsers return only whitelisted enums/numbers.
+enum RelayOperationalDiagnostics {
+    private static let logger = Logger(subsystem: "com.sirerun.mistt", category: "relay-lifecycle")
+
+    static func failureClass(_ reason: String) -> String {
+        switch reason {
+        case "MISTT relay or configuration is unavailable.": return "configuration_unavailable"
+        case "MISTT relay input closed during a control or audio write.": return "input_closed"
+        case "MISTT relay heartbeat expired.": return "heartbeat_expired"
+        case "MISTT relay could not start.": return "launch_failed"
+        case "MISTT relay control is unavailable.": return "control_unavailable"
+        case "MISTT relay sent malformed control data.": return "malformed_control"
+        case "MISTT relay did not acknowledge its correlated control request.": return "control_timeout"
+        default: return "other"
+        }
+    }
+
+    static func failed(_ reason: String) {
+        let code = failureClass(reason)
+        logger.error("relay_failed class=\(code, privacy: .public)")
+    }
+
+    static func terminated(status: Int32, reason: Process.TerminationReason) {
+        let code = reason == .exit ? "exit" : "signal"
+        logger.error("relay_terminated reason=\(code, privacy: .public) status=\(status)")
+    }
+
+    struct StartupRecord: Equatable {
+        let phase: String
+        let errorClass: String
+        let nativeCode: String
+        let elapsedMS: UInt64
+    }
+
+    static func startupRecord(_ line: String) -> StartupRecord? {
+        // Go's default slog text handler uses this fixed numeric date/time prefix.
+        let parts = line.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 9, parts[2] == "INFO", parts[3] == "paired_startup",
+              parts[0].range(of: #"^\d{4}/\d{2}/\d{2}$"#, options: .regularExpression) != nil,
+              parts[1].range(of: #"^\d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil else { return nil }
+        let keys = ["phase", "error_class", "native_code", "elapsed_ms", "session_id"]
+        var values: [String] = []
+        for (part, key) in zip(parts.dropFirst(4), keys) {
+            guard part.hasPrefix(key + "=") else { return nil }
+            values.append(String(part.dropFirst(key.count + 1)))
+        }
+        guard ["backend_connect", "backend_readiness", "native_start", "capture_started", "backend_capture_started"].contains(values[0]),
+              ["ok", "failure", "canceled", "timeout"].contains(values[1]),
+              ["\"\"", "unknown", "capture_start_failed", "closure_unconfirmed", "stop_timeout", "native_capture_failure", "shutdown", "busy", "relay_unavailable", "stale_session"].contains(values[2]),
+              let elapsed = UInt64(values[3]), UUID(uuidString: values[4]) != nil else { return nil }
+        return StartupRecord(phase: values[0], errorClass: values[1],
+                             nativeCode: values[2] == "\"\"" ? "none" : values[2], elapsedMS: elapsed)
+    }
+
+    static func finalErrorClass(_ line: String) -> String? {
+        switch line {
+        case "native owner disconnected": return "native_disconnected"
+        case "context canceled": return "canceled"
+        case "context deadline exceeded": return "timeout"
+        default: return nil
+        }
+    }
+
+    static func received(_ line: String) {
+        if let record = startupRecord(line) {
+            logger.info("relay_startup phase=\(record.phase, privacy: .public) error_class=\(record.errorClass, privacy: .public) native_code=\(record.nativeCode, privacy: .public) elapsed_ms=\(record.elapsedMS)")
+        } else if let code = finalErrorClass(line) {
+            logger.error("relay_final_error class=\(code, privacy: .public)")
+        }
+    }
+}
+
+/// Always drains stderr. Oversized/unrecognized lines are discarded, never raw-logged.
+final class RelayDiagnosticLineReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var discarding = false
+    private let deliver: @Sendable (String) -> Void
+    private let limit = 1024
+
+    init(deliver: @escaping @Sendable (String) -> Void = RelayOperationalDiagnostics.received) {
+        self.deliver = deliver
+    }
+
+    func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        for byte in data {
+            if byte == 0x0A {
+                if !discarding, let line = String(data: buffer, encoding: .utf8) { deliver(line) }
+                buffer.removeAll(keepingCapacity: true)
+                discarding = false
+            } else if !discarding {
+                if buffer.count < limit { buffer.append(byte) }
+                else { buffer.removeAll(keepingCapacity: true); discarding = true }
+            }
+        }
+    }
+}
