@@ -1,11 +1,13 @@
 import AVFoundation
 import CoreAudio
 import Foundation
+import OSLog
 
 /// Owns the paired microphone/private-app tap generation. Every admitted start
 /// validates the selected app and exact helper executable lease again before IO.
 @MainActor
 final class NativeCaptureDriver {
+    private static let startupLogger = Logger(subsystem: "com.sirerun.mistt", category: "capture-startup")
     private var generation: UInt64 = 0
     private var capture: NativePairCapture?
     private var abortingCapture: NativePairCapture?
@@ -115,6 +117,8 @@ final class NativeCaptureDriver {
                     self.performStop(pending.0, writer: pending.1, completion: pending.2, cutoff: pending.3)
                 }
             } catch {
+                let diagnostic = NativeStartupDiagnostic.classify(error)
+                Self.startupLogger.error("native_capture_start_failed error_class=\(diagnostic.errorClass, privacy: .public) domain=\(diagnostic.domain, privacy: .public) code=\(diagnostic.code)")
                 self.startWatchdog?.cancel(); self.startWatchdog = nil
                 let snapshot = native.currentSnapshot()
                 writer.enqueueControl(CaptureFailed(requestId: request.requestId, sessionId: request.sessionId,
