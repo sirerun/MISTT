@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import hmac
 import math
+import json
+import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable
 from uuid import UUID
@@ -42,6 +44,30 @@ from .protocol import (
 from .qualification_telemetry import QualificationSessionTelemetry, QualificationTelemetryStore
 from .resample import StatefulLinearResampler
 from .runtime import ModelGeometry, StreamingRuntime, VibeVoiceRuntime, cached_context_tokens
+
+
+_startup_logger = logging.getLogger("uvicorn.error")
+
+
+@contextmanager
+def startup_phase(phase: str, session_id: UUID):
+    """Operational timing only: never log exception messages or model content."""
+    started = time.monotonic()
+    def emit(state: str, error_class: str | None = None):
+        event = {"event": "mistt_startup", "phase": phase, "state": state,
+                 "session_id": str(session_id),
+                 "elapsed_ms": round((time.monotonic() - started) * 1000)}
+        if error_class is not None:
+            event["error_class"] = error_class
+        _startup_logger.info(json.dumps(event, sort_keys=True))
+    emit("started")
+    try:
+        yield
+    except BaseException as error:
+        emit("failed", type(error).__name__)
+        raise
+    else:
+        emit("completed")
 
 
 MAX_ACTIVE_PAIRS = 1
@@ -112,7 +138,10 @@ class ModelManager:
             if self._runtime is not None:
                 return self._runtime
             self._inflight += 1
-            task = asyncio.create_task(asyncio.to_thread(self.runtime_factory))
+            def construct():
+                with startup_phase("model_construct", admission.session_id):
+                    return self.runtime_factory()
+            task = asyncio.create_task(asyncio.to_thread(construct))
             try:
                 runtime = await asyncio.shield(task)
             except asyncio.CancelledError:
@@ -289,15 +318,18 @@ def create_app(
                 await send_error(terminal_reason)
                 return
 
+            startup_started = time.monotonic()
             try:
-                runtime = await asyncio.wait_for(manager.load(admission), timeout=settings.startup_timeout_seconds)
+                with startup_phase("model_load", session_id):
+                    runtime = await asyncio.wait_for(manager.load(admission), timeout=settings.startup_timeout_seconds)
                 geometry = runtime.geometry
                 if not _valid_geometry(geometry):
                     raise RuntimeError("unsupported pinned model geometry")
                 for source in SOURCES:
-                    state = await asyncio.wait_for(
-                        manager.run_blocking(runtime.new_state), timeout=settings.startup_timeout_seconds
-                    )
+                    with startup_phase("source_state_" + source, session_id):
+                        state = await asyncio.wait_for(
+                            manager.run_blocking(runtime.new_state), timeout=settings.startup_timeout_seconds
+                        )
                     tokens = cached_context_tokens(state)
                     if tokens < geometry.prompt_tokens or tokens > geometry.max_context_tokens:
                         runtime.release_state(state)
@@ -313,7 +345,12 @@ def create_app(
                 return
             except asyncio.CancelledError:
                 raise
-            except BaseException:
+            except BaseException as error:
+                _startup_logger.info(json.dumps({
+                    "event": "mistt_startup", "phase": "startup_validation", "state": "failed",
+                    "session_id": str(session_id), "error_class": type(error).__name__,
+                    "elapsed_ms": round((time.monotonic() - startup_started) * 1000),
+                }, sort_keys=True))
                 terminal_reason = "backend_failure"
                 await send_error(terminal_reason)
                 return
@@ -395,30 +432,31 @@ def create_app(
                 }
                 for format_entry in _formats()
             ]
-            await send({
-                "type": "ready",
-                "protocol": PROTOCOL,
-                "session_id": str(session_id),
-                "language": "en",
-                "model": {
-                    "id": settings.model_id,
-                    "revision": settings.model_revision,
-                    "source_commit": settings.source_commit,
-                    "sample_rate": geometry.sample_rate,
-                    "chunk_samples": geometry.chunk_samples,
-                    "lookahead_samples": geometry.lookahead_samples,
-                },
-                "sources": source_queues,
-                "max_active_pairs": MAX_ACTIVE_PAIRS,
-                "aggregate_max_audio_samples": source_max_audio * len(SOURCES),
-                "aggregate_max_queue_frames": queue_frames * len(SOURCES),
-                "aggregate_max_context_tokens": aggregate_context_limit,
-                "max_inference_workers": 1,
-                "aggregate_drain_reserve_model_samples": geometry.window_samples * len(SOURCES),
-                "aggregate_drain_reserve_tokens": geometry.reserved_tokens_per_window * len(SOURCES),
-                "startup_timeout_ms": int(settings.startup_timeout_seconds * 1000),
-                "drain_timeout_ms": int(settings.drain_timeout_seconds * 1000),
-            })
+            with startup_phase("ready_send", session_id):
+                await send({
+                    "type": "ready",
+                    "protocol": PROTOCOL,
+                    "session_id": str(session_id),
+                    "language": "en",
+                    "model": {
+                        "id": settings.model_id,
+                        "revision": settings.model_revision,
+                        "source_commit": settings.source_commit,
+                        "sample_rate": geometry.sample_rate,
+                        "chunk_samples": geometry.chunk_samples,
+                        "lookahead_samples": geometry.lookahead_samples,
+                    },
+                    "sources": source_queues,
+                    "max_active_pairs": MAX_ACTIVE_PAIRS,
+                    "aggregate_max_audio_samples": source_max_audio * len(SOURCES),
+                    "aggregate_max_queue_frames": queue_frames * len(SOURCES),
+                    "aggregate_max_context_tokens": aggregate_context_limit,
+                    "max_inference_workers": 1,
+                    "aggregate_drain_reserve_model_samples": geometry.window_samples * len(SOURCES),
+                    "aggregate_drain_reserve_tokens": geometry.reserved_tokens_per_window * len(SOURCES),
+                    "startup_timeout_ms": int(settings.startup_timeout_seconds * 1000),
+                    "drain_timeout_ms": int(settings.drain_timeout_seconds * 1000),
+                })
 
             capture_started = False
             capture_epoch_host_ns: int | None = None

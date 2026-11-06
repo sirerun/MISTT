@@ -292,6 +292,41 @@ class UvicornTransportTests(unittest.TestCase):
 
 
 class GatewayIntegrationTests(unittest.TestCase):
+    def test_startup_diagnostics_report_phases_without_exception_content(self) -> None:
+        sentinel = "private-token-and-transcript-sentinel"
+        def fail():
+            raise RuntimeError(sentinel)
+        app = create_app(GatewaySettings(token="test-bearer"), fail)
+        with self.assertLogs("uvicorn.error", level="INFO") as logs:
+            with TestClient(app) as client:
+                with client.websocket_connect("/mistt/v1/stream", headers={"Authorization": "Bearer test-bearer"}) as socket:
+                    socket.send_json(start_message())
+                    with self.assertRaises(WebSocketDisconnect) as closed:
+                        socket.receive_json()
+                    self.assertEqual(closed.exception.code, 1011)
+        events = [json.loads(record.getMessage()) for record in logs.records]
+        self.assertNotIn(sentinel, json.dumps(events))
+        self.assertTrue(any(e["phase"] == "model_construct" and e["state"] == "failed"
+                            and e["error_class"] == "RuntimeError" for e in events))
+        self.assertTrue(any(e["phase"] == "model_load" and e["state"] == "failed" for e in events))
+        self.assertTrue(all(set(e) <= {"event", "phase", "state", "session_id", "elapsed_ms", "error_class"}
+                            and e["elapsed_ms"] >= 0 for e in events))
+
+    def test_noaudio_ready_logs_source_initialization_and_send(self) -> None:
+        app, _ = self._app()
+        with self.assertLogs("uvicorn.error", level="INFO") as logs:
+            with TestClient(app) as client:
+                with client.websocket_connect("/mistt/v1/stream", headers={"Authorization": "Bearer test-bearer"}) as socket:
+                    socket.send_json(start_message())
+                    self.assertEqual(socket.receive_json()["type"], "ready")
+                    socket.send_json({"type": "invalid_noaudio_end"})
+                    with self.assertRaises(WebSocketDisconnect):
+                        socket.receive_json()
+        completed = {json.loads(r.getMessage())["phase"] for r in logs.records
+                     if json.loads(r.getMessage())["state"] == "completed"}
+        self.assertTrue({"model_construct", "model_load", "source_state_microphone",
+                         "source_state_call_audio", "ready_send"} <= completed)
+
     def _app(self, runtime: FakeRuntime | None = None, *, max_audio_samples: int = 16_000):
         model = runtime or FakeRuntime()
         settings = GatewaySettings(token="test-bearer", max_audio_samples=max_audio_samples,

@@ -278,3 +278,17 @@ health endpoint over TLS, trusts the mounted server leaf certificate, and
 verifies the configured IP SAN. It starts after a 120-second grace period and
 requires three consecutive failures before restart. This checks that the
 process can serve verified TLS health; it does not claim model readiness.
+
+### Startup diagnostics and bounded practice tolerance
+
+Gateway startup emits `mistt_startup` JSON log events through the server logger.
+Events identify model load/construction, per-source state creation and ready
+transmission, with elapsed milliseconds and exception class on failure. They
+exclude exception messages, credentials, frames and transcript text. Health
+reports process availability; it does not load the speech model.
+
+For a reviewed bounded practice deployment, the existing settings support
+`MISTT_STARTUP_TIMEOUT_SECONDS=600` and `MISTT_IDLE_UNLOAD_SECONDS=600`. Match the
+relay with `MISTT_STARTUP_TIMEOUT=600s` or `--startup-timeout 600s`. These are
+explicit operator choices; defaults remain unchanged. Longer startup tolerance
+does not qualify readiness, authorize audio or bypass single-session admission.
