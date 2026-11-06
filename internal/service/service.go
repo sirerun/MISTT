@@ -421,7 +421,7 @@ func (s *Service) supervise() {
 		}
 	}
 }
-func (s *Service) startPair() error {
+func (s *Service) startPair() (result error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StartupTimeout)
 	s.mu.Lock()
 	if !s.demandLocked() || !s.closureConfirmed || s.starting || s.active != nil {
@@ -444,10 +444,25 @@ func (s *Service) startPair() error {
 		s.signalLocked()
 		s.mu.Unlock()
 	}()
+	started := time.Now()
+	phase, nativeCode := "backend_connect", ""
 	id, err := newUUID()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		class := "ok"
+		if result != nil {
+			class = "failure"
+		}
+		if ctx.Err() != nil {
+			class = "canceled"
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				class = "timeout"
+			}
+		}
+		logStartup(phase, class, nativeCode, id, time.Since(started))
+	}()
 	remote, err := s.backend.Connect(ctx, backend.StartRequest{SessionID: id, Language: s.cfg.Language})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -459,11 +474,14 @@ func (s *Service) startPair() error {
 		_ = remote.Close()
 		return fmt.Errorf("paired start canceled before native capture: %w", err)
 	}
+	phase = "backend_readiness"
 	ready := remote.Ready()
 	if ready.SessionID != id || ready.Language != s.cfg.Language || ready.Model == "" {
 		_ = remote.Close()
 		return errors.New("remote provider returned an invalid paired session")
 	}
+	logStartup(phase, "ok", "", id, time.Since(started))
+	phase = "native_start"
 	reqID, err := newUUID()
 	if err != nil {
 		_ = remote.Close()
@@ -523,6 +541,8 @@ func (s *Service) startPair() error {
 				if m.CaptureEpochUnixMS < 0 {
 					return failStartedRequest(errors.New("native capture epoch wall clock is negative"))
 				}
+				logStartup("capture_started", "ok", "", id, time.Since(started))
+				phase = "backend_capture_started"
 				if err := remote.CaptureStarted(backend.CaptureStarted{RequestID: m.RequestID, CaptureEpochHostNS: m.CaptureEpochHostNS, CaptureEpochUnixMS: m.CaptureEpochUnixMS, Sources: formatsToBackend(formats), MicrophoneReady: m.MicrophoneReady, CallAudioReady: m.CallAudioReady}); err != nil {
 					return failStartedRequest(fmt.Errorf("forward capture epoch to DGX: %w", err))
 				}
@@ -541,6 +561,7 @@ func (s *Service) startPair() error {
 				return nil
 			case "capture_failed":
 				if m.SessionID == id {
+					nativeCode = startupNativeCode(m.Code)
 					failure := fmt.Errorf("native paired start failed (%s)", m.Code)
 					if m.ClosureConfirmed {
 						s.mu.Lock()
