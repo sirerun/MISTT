@@ -17,8 +17,11 @@ final class StatusLineReader: @unchecked Sendable {
     func append(_ data: Data) {
         guard !data.isEmpty else { return }
         lock.lock()
-        guard !failed, data.count <= maximumBufferedBytes - buffer.count else {
+        guard !failed else { lock.unlock(); return }
+        let receivedBytes = buffer.count + data.count
+        guard data.count <= maximumBufferedBytes - buffer.count else {
             failed = true; buffer.removeAll(keepingCapacity: false); lock.unlock()
+            RelayOperationalDiagnostics.parserFailed(RelayReadError.lineTooLarge, line: Data(), byteCount: receivedBytes)
             deliver(.failure(.lineTooLarge)); return
         }
         buffer.append(data)
@@ -34,11 +37,15 @@ final class StatusLineReader: @unchecked Sendable {
         let mustFail = failed
         if mustFail { buffer.removeAll(keepingCapacity: false) }
         lock.unlock()
-        if mustFail { deliver(.failure(.lineTooLarge)); return }
+        if mustFail {
+            RelayOperationalDiagnostics.parserFailed(RelayReadError.lineTooLarge, line: Data(), byteCount: receivedBytes)
+            deliver(.failure(.lineTooLarge)); return
+        }
         for line in lines {
             do { deliver(.success(try RelayMessage.decode(line))) }
             catch {
                 lock.lock(); failed = true; buffer.removeAll(keepingCapacity: false); lock.unlock()
+                RelayOperationalDiagnostics.parserFailed(error, line: line)
                 deliver(.failure(.invalidMessage)); return
             }
         }

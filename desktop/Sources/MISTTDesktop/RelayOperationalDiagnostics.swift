@@ -28,6 +28,45 @@ enum RelayOperationalDiagnostics {
         logger.error("relay_terminated reason=\(code, privacy: .public) status=\(status)")
     }
 
+    struct ParserFailure: Equatable {
+        let family: String
+        let messageType: String
+        let missingKey: String
+        let byteCount: Int
+    }
+
+    static func classifyParserFailure(_ error: Error, line: Data) -> ParserFailure {
+        let family: String
+        var missingKey = "none"
+        switch error {
+        case StrictJSONValidator.Failure.invalid: family = "strict_json_invalid"
+        case StrictJSONValidator.Failure.duplicateKey: family = "duplicate_key"
+        case StrictJSONValidator.Failure.nonIntegerNumber: family = "noninteger_number"
+        case DecodingError.keyNotFound(let key, _):
+            family = "missing_key"
+            let allowed = ["type", "requestId", "sessionId", "sources", "sampleRateHz", "channels", "encoding", "source", "microphone", "device", "callAudio", "bundleId", "includeHelpers", "includeHelperExecutables", "reason", "muted", "capturing", "connectedClients", "revision", "updateReady", "updateReserved", "counter", "status", "error", "code", "detail"]
+            missingKey = allowed.contains(key.stringValue) ? key.stringValue : "other"
+        case DecodingError.typeMismatch: family = "type_mismatch"
+        case DecodingError.valueNotFound: family = "missing_value"
+        case DecodingError.dataCorrupted: family = "corrupt_value"
+        case RelayReadError.invalidStatus: family = "status_invariant"
+        case RelayReadError.lineTooLarge: family = "line_too_large"
+        case RelayReadError.invalidMessage: family = "message_invariant"
+        default: family = "other"
+        }
+        let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let receivedType = object?["type"] as? String
+        let known = ["capture_start", "capture_stop", "status", "control_result", "heartbeat"]
+        let messageType = receivedType.flatMap { known.contains($0) ? $0 : nil } ?? "unknown"
+        return ParserFailure(family: family, messageType: messageType, missingKey: missingKey, byteCount: line.count)
+    }
+
+    static func parserFailed(_ error: Error, line: Data, byteCount: Int? = nil) {
+        let diagnostic = classifyParserFailure(error, line: line)
+        let count = byteCount ?? diagnostic.byteCount
+        logger.error("relay_parser_failed family=\(diagnostic.family, privacy: .public) message_type=\(diagnostic.messageType, privacy: .public) missing_key=\(diagnostic.missingKey, privacy: .public) bytes=\(count)")
+    }
+
     struct StartupRecord: Equatable {
         let phase: String
         let errorClass: String
