@@ -31,7 +31,8 @@ final class StatusLineReader: @unchecked Sendable {
             buffer.removeSubrange(...newline)
             if line.count > maximumLineBytes { failed = true; break }
             if !line.isEmpty { lines.append(line) }
-            if lines.count > 256 { failed = true; break }
+            // Pipe read boundaries are arbitrary. The byte limits bound this
+            // batch; a coalesced batch of valid records is not a protocol fault.
         }
         if buffer.count > maximumLineBytes { failed = true }
         let mustFail = failed
