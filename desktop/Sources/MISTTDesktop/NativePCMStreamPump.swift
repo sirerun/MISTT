@@ -159,7 +159,7 @@ final class NativePCMStreamPump: @unchecked Sendable {
             } else {
                 for index in 0..<n { interleaved[index * 2] = left[index]; interleaved[index * 2 + 1] = right[index] }
             }
-            try append(try stream.converter!.appendInterleavedFloat(interleaved, channels: Int(block.channels)), to: stream)
+            try append(try stream.converter!.appendCallbackInterleavedFloat(interleaved, channels: Int(block.channels)), to: stream)
         }
     }
 
