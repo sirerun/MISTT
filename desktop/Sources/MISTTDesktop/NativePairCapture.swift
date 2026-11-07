@@ -79,6 +79,7 @@ final class NativePairCapture: @unchecked Sendable {
     private var isOpen = false
     private var isStarting = false
     private var startCancelled = false
+    private var startupStopWatchdogScheduled = false
     private var didStart = false
     private var teardownInProgress = false
     private var startupCompletion: DispatchSemaphore?
@@ -344,6 +345,8 @@ final class NativePairCapture: @unchecked Sendable {
             return
         }
         if isStarting {
+            let needsWatchdog = !startupStopWatchdogScheduled
+            startupStopWatchdogScheduled = true
             startCancelled = true
             snapshot.stopAtNanoseconds = cutoff.nanoseconds
             snapshot.status = "Muted · \(reason); waiting for in-flight start to release resources"
@@ -353,7 +356,7 @@ final class NativePairCapture: @unchecked Sendable {
             // A HAL create/start call can block outside our control. Cancellation
             // is not reported as successful closure; terminate if startup cannot
             // unwind and release its owned resources by the Stop deadline.
-            if let completion {
+            if needsWatchdog, let completion {
                 DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [self] in
                     if completion.wait(timeout: .now()) == .timedOut {
                         withExtendedLifetime(self) { _exit(70) }
