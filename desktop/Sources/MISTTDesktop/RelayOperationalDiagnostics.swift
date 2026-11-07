@@ -65,6 +65,17 @@ enum RelayOperationalDiagnostics {
         let diagnostic = classifyParserFailure(error, line: line)
         let count = byteCount ?? diagnostic.byteCount
         logger.error("relay_parser_failed family=\(diagnostic.family, privacy: .public) message_type=\(diagnostic.messageType, privacy: .public) missing_key=\(diagnostic.missingKey, privacy: .public) bytes=\(count)")
+        if diagnostic.family == "status_invariant" {
+            let fields = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
+            var mask = 0
+            for (index, key) in ["muted", "capturing", "update_ready", "update_reserved"].enumerated() {
+                if fields?[key] as? Bool == true { mask |= 1 << index }
+            }
+            let received = fields?["reason"] as? String ?? ""
+            let allowed = ["startup_muted", "armed", "user", "muted", "capturing", "starting", "no_clients", "permission_denied", "backend_unavailable", "backend_failure", "capture_failure", "native_failure", "shutdown", "max_duration", "budget_rotation", "rotation_limit"]
+            let reason = allowed.contains(received) ? received : "other"
+            logger.error("relay_status_rejected state_mask=\(mask) reason=\(reason, privacy: .public)")
+        }
     }
 
     struct StartupRecord: Equatable {
