@@ -76,6 +76,42 @@ final class NativeCaptureStopContractTests: XCTestCase {
         release.signal()
         wait(for: [completions], timeout: 1)
         XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+        Thread.sleep(forTimeInterval: 1.1) // Both joined deadlines must not consume the one completion twice.
+    }
+
+    func testUnconfirmedStartupStopDeadlineTerminatesIsolatedProcess() throws {
+        if ProcessInfo.processInfo.environment["MISTT_TEST_STALLED_START"] == "1" {
+            let capture = NativePairCapture(generation: 1)
+            let entered = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                try? capture.start(targets: [], validateTargets: {
+                    entered.signal()
+                    Thread.sleep(forTimeInterval: 2)
+                    return []
+                }, generation: 1, onStop: { _ in })
+            }
+            XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+            capture.stop(deadline: 0.05, onTeardown: { _ in })
+            Thread.sleep(forTimeInterval: 1)
+            XCTFail("unconfirmed teardown failed to terminate at its deadline")
+            return
+        }
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        child.arguments = ["xctest", "-XCTest", "MISTTDesktopTests.NativeCaptureStopContractTests/testUnconfirmedStartupStopDeadlineTerminatesIsolatedProcess", Bundle(for: Self.self).bundleURL.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["MISTT_TEST_STALLED_START"] = "1"
+        child.environment = environment
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        try child.run()
+        let exited = expectation(description: "deadline fixture exits")
+        child.terminationHandler = { _ in exited.fulfill() }
+        wait(for: [exited], timeout: 3)
+        if child.isRunning { child.terminate() }
+        child.waitUntilExit()
+        XCTAssertEqual(child.terminationReason, .exit)
+        XCTAssertEqual(child.terminationStatus, 70)
     }
 
 }
