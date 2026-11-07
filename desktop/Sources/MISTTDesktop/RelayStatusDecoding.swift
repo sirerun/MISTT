@@ -13,9 +13,12 @@ extension RelayStatus {
     }
 
     func validate() throws {
-        guard !(muted && capturing), connectedClients <= UInt32(Int32.max) else { throw RelayReadError.invalidStatus }
+        // Muted is logical intent; capturing remains true until correlated native
+        // closure. The Go owner also publishes failure reasons while stopping.
+        // Neither transition establishes update readiness or authorizes capture.
+        guard connectedClients <= UInt32(Int32.max) else { throw RelayReadError.invalidStatus }
         if ["permission_denied", "backend_unavailable", "backend_failure", "capture_failure", "native_failure"]
-            .contains(reason), !muted { throw RelayReadError.invalidStatus }
+            .contains(reason), !muted && !capturing { throw RelayReadError.invalidStatus }
         guard !updateReady || (muted && !capturing), !updateReserved || updateReady else { throw RelayReadError.invalidStatus }
     }
 }
