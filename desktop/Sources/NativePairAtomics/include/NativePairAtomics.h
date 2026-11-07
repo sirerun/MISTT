@@ -65,6 +65,10 @@ int32_t MISTTRecordBuffer(MISTTAtomicCapture *state, uint32_t source, bool host_
 int32_t MISTTRecordBufferWithTestHook(MISTTAtomicCapture *state, uint32_t source, bool host_time_valid,
                                      uint64_t start_ns, uint64_t frame_count, double sample_rate,
                                      MISTTPreCommitHook hook, void *context);
+// Diagnostic-only: never changes capture gates, counters or failure state.
+void MISTTRecordCallbackRejection(MISTTAtomicCapture *state, uint32_t source, uint32_t reason,
+                                  uint32_t frames, uint32_t channels, uint32_t buffers, uint32_t flags);
+uint64_t MISTTTakeCallbackRejection(MISTTAtomicCapture *state);
 uint32_t MISTTFirstFailure(const MISTTAtomicCapture *state);
 void MISTTReadSource(const MISTTAtomicCapture *state, uint32_t source, MISTTSourceSnapshot *out);
 bool MISTTEnqueueEnergy(MISTTAtomicCapture *state, uint32_t source, uint64_t start_ns, uint64_t end_ns, uint16_t rms_level);
