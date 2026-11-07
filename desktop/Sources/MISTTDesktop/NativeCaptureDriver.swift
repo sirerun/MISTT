@@ -177,6 +177,8 @@ final class NativeCaptureDriver {
     private func performStop(_ request: CaptureStopRequest, writer: NativeIPCWriter,
                              completion: @escaping @MainActor (Bool) -> Void, cutoff: PairedCutoff) {
         guard let capture, let pump, !busy else { completion(false); return }
+        let stopReason = ["user", "muted", "no_clients", "max_duration", "shutdown", "capture_failure", "backend_failure", "native_failure", "budget_rotation", "rotation_limit"].contains(request.reason) ? request.reason : "other"
+        Self.startupLogger.info("native_capture_stop phase=begin reason=\(stopReason, privacy: .public)")
         busy = true
         let token = generation
         capture.closeGate(at: cutoff)
@@ -193,10 +195,10 @@ final class NativeCaptureDriver {
         }
         let driver = self
         Task.detached(priority: .userInitiated) {
-            capture.stop(reason: request.reason, cutoff: cutoff, deadline: 1.0)
-            let snapshot = capture.currentSnapshot()
-            let closed = snapshot.microphoneIOStopped == true && snapshot.tapIOStopped == true &&
-                         snapshot.aggregateDestroyed == true && snapshot.tapDestroyed == true
+            let snapshot = await NativeCaptureStopContract.waitForTeardown { completed in
+                capture.stop(reason: request.reason, cutoff: cutoff, deadline: 1.0, onTeardown: completed)
+            }
+            let closed = NativeCaptureStopContract.confirmed(snapshot)
             await MainActor.run {
                 guard driver.generation == token else { completion(false); return }
                 driver.watchdog?.cancel(); driver.watchdog = nil
@@ -212,6 +214,7 @@ final class NativeCaptureDriver {
                                                        cutoffHostNs: cutoff.nanoseconds))
                 pump.finish { [driver] result in
                     Task { @MainActor [driver] in
+                        Self.startupLogger.info("native_capture_stop phase=completed success=\(result.isSuccess)")
                         driver.pump = nil; driver.capture = nil; driver.currentStartRequest = nil; driver.preclosedCutoff = nil
                         driver.selectedLeases = []; driver.policy = nil; driver.busy = false
                         completion(result.isSuccess)
@@ -261,7 +264,9 @@ final class NativeCaptureDriver {
 
     private func unexpectedStop(_ snapshot: CaptureSnapshot, generation token: UInt64,
                                 request: CaptureStartRequest, writer: NativeIPCWriter) {
-        guard token == generation, capture != nil, !busy else { return }
+        Self.startupLogger.info("native_capture_stop_callback generation_match=\(token == generation) busy=\(busy) capture_present=\(capture != nil)")
+        guard NativeCaptureStopContract.isUnexpected(generationMatches: token == generation,
+                                                      capturePresent: capture != nil, busy: busy) else { return }
         let code = capture?.runtimeFailureCode() ?? 0
         Self.startupLogger.error("native_capture_runtime_failed class=unexpected_stop atomic_code=\(code)")
         // Runtime failures are never stop acknowledgments. Preserve the generation

@@ -99,6 +99,7 @@ final class NativePairCapture: @unchecked Sendable {
         failureSignal = signal
         signal.setEventHandler { [weak self] in
             guard let self else { return }
+            CallbackRejectionDiagnostic.log(MISTTTakeCallbackRejection(self.atomicState))
             let reason: String
             switch MISTTFirstFailure(self.atomicState) {
             case 1: reason = "invalid native host timestamp"
@@ -331,9 +332,19 @@ final class NativePairCapture: @unchecked Sendable {
         MISTTAudioQueueCloseGate(microphonePCMQueue, cutoff.nanoseconds)
         MISTTAudioQueueCloseGate(callAudioPCMQueue, cutoff.nanoseconds)
         generationCancellation.cancel(through: ownerGeneration)
+        if let completion {
+            if let pending = teardownCompletion {
+                teardownCompletion = { snapshot in pending(snapshot); completion(snapshot) }
+            } else {
+                teardownCompletion = completion
+            }
+        }
+        if teardownInProgress {
+            lock.unlock()
+            return
+        }
         if isStarting {
             startCancelled = true
-            if let completion { teardownCompletion = completion }
             snapshot.stopAtNanoseconds = cutoff.nanoseconds
             snapshot.status = "Muted · \(reason); waiting for in-flight start to release resources"
             snapshot.firstFailure = snapshot.firstFailure ?? reason
@@ -367,7 +378,7 @@ final class NativePairCapture: @unchecked Sendable {
             snapshot.tapDestroyed = true
             let result = snapshot
             let handler = stoppedHandler
-            let pendingCompletion = teardownCompletion ?? completion
+            let pendingCompletion = teardownCompletion
             stoppedHandler = nil
             teardownCompletion = nil
             lock.unlock()
@@ -375,7 +386,6 @@ final class NativePairCapture: @unchecked Sendable {
             pendingCompletion?(result)
             return
         }
-        if let completion { teardownCompletion = completion }
         let started = DispatchTime.now()
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [self] in
@@ -526,11 +536,13 @@ final class NativePairCapture: @unchecked Sendable {
             guard let self else { return }
             let source = AudioSource.callAudio.rawValue
             guard MISTTCallbackEnter(self.atomicState, source) else {
+                self.callbackRejected(8, source: source)
                 self.failureSignal?.add(data: 1)
                 return
             }
             defer {
                 if !MISTTCallbackExit(self.atomicState, source) {
+                    self.callbackRejected(9, source: source)
                     self.failureSignal?.add(data: 1)
                 }
             }
@@ -539,6 +551,7 @@ final class NativePairCapture: @unchecked Sendable {
             let valid = time.mFlags.contains(.hostTimeValid) && time.mHostTime != 0
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
             guard let buffer = buffers.first else {
+                self.callbackRejected(1, source: source)
                 self.failureSignal?.add(data: 1)
                 return
             }
@@ -552,6 +565,7 @@ final class NativePairCapture: @unchecked Sendable {
                   let startNs = UInt64(exactly: AudioConvertHostTimeToNanos(time.mHostTime)),
                   self.pushPCM(inputData, frames: frames, sampleRate: self.streamFormat.mSampleRate,
                                startNs: startNs, source: .callAudio) else {
+                self.callbackRejected(2, source: source, frames: UInt32(clamping: frames), channels: self.streamFormat.mChannelsPerFrame, buffers: UInt32(clamping: buffers.count))
                 self.failureSignal?.add(data: 1)
                 return
             }
@@ -582,11 +596,13 @@ final class NativePairCapture: @unchecked Sendable {
             guard let self else { return }
             let source = AudioSource.microphone.rawValue
             guard MISTTCallbackEnter(self.atomicState, source) else {
+                self.callbackRejected(8, source: source)
                 self.failureSignal?.add(data: 1)
                 return
             }
             defer {
                 if !MISTTCallbackExit(self.atomicState, source) {
+                    self.callbackRejected(9, source: source)
                     self.failureSignal?.add(data: 1)
                 }
             }
@@ -597,6 +613,7 @@ final class NativePairCapture: @unchecked Sendable {
                         energy: Self.sampledRMS(buffer))
             guard valid, let startNs = UInt64(exactly: AudioConvertHostTimeToNanos(time.hostTime)),
                   self.pushPCM(buffer, startNs: startNs) else {
+                self.callbackRejected(2, source: source, frames: UInt32(buffer.frameLength), channels: buffer.format.channelCount)
                 self.failureSignal?.add(data: 1)
                 return
             }
@@ -615,31 +632,60 @@ final class NativePairCapture: @unchecked Sendable {
     /// Callbacks sample at most 32 positions per channel into a bounded scalar-energy
     /// queue. No PCM blocks leave the callback, and no callback allocates or waits.
     private func pushPCM(_ buffer: AVAudioPCMBuffer, startNs: UInt64) -> Bool {
-        guard let channels = buffer.floatChannelData else { return false }
+        guard let channels = buffer.floatChannelData else {
+            callbackRejected(3, source: AudioSource.microphone.rawValue, frames: UInt32(buffer.frameLength), channels: buffer.format.channelCount)
+            return false
+        }
         let frames = UInt32(buffer.frameLength)
         guard frames > 0 else { return true }
         let queue = microphonePCMQueue
-        return MISTTAudioQueuePushFloat32(queue, channels[0], buffer.format.channelCount > 1 ? channels[1] : nil,
+        let accepted = MISTTAudioQueuePushFloat32(queue, channels[0], buffer.format.channelCount > 1 ? channels[1] : nil,
                                           frames, UInt32(buffer.format.channelCount),
                                           UInt32(buffer.format.sampleRate), startNs)
+        if !accepted { callbackRejected(7, source: AudioSource.microphone.rawValue, frames: frames, channels: buffer.format.channelCount) }
+        return accepted
     }
 
     private func pushPCM(_ list: UnsafePointer<AudioBufferList>, frames: Int,
                          sampleRate: Double, startNs: UInt64, source: AudioSource) -> Bool {
         guard frames > 0, frames <= 8192, sampleRate.isFinite,
-              sampleRate.rounded() == sampleRate, (8_000...384_000).contains(sampleRate) else { return false }
+              sampleRate.rounded() == sampleRate, (8_000...384_000).contains(sampleRate) else {
+            callbackRejected(4, source: source.rawValue, frames: UInt32(clamping: frames), channels: streamFormat.mChannelsPerFrame)
+            return false
+        }
         let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
-        guard (1...2).contains(buffers.count), buffers.count == Int(streamFormat.mChannelsPerFrame) else { return false }
-        guard let leftData = buffers[0].mData else { return false }
+        guard (1...2).contains(buffers.count), buffers.count == Int(streamFormat.mChannelsPerFrame) else {
+            callbackRejected(4, source: source.rawValue, frames: UInt32(clamping: frames), channels: streamFormat.mChannelsPerFrame, buffers: UInt32(clamping: buffers.count))
+            return false
+        }
+        guard let leftData = buffers[0].mData else {
+            callbackRejected(5, source: source.rawValue, frames: UInt32(clamping: frames), channels: streamFormat.mChannelsPerFrame, buffers: UInt32(clamping: buffers.count))
+            return false
+        }
         let left = leftData.assumingMemoryBound(to: Float.self)
         let right: UnsafePointer<Float>?
         if buffers.count == 2 {
-            guard let rightData = buffers[1].mData else { return false }
+            guard let rightData = buffers[1].mData else {
+                callbackRejected(6, source: source.rawValue, frames: UInt32(clamping: frames), channels: streamFormat.mChannelsPerFrame, buffers: 2)
+                return false
+            }
             right = UnsafePointer(rightData.assumingMemoryBound(to: Float.self))
         } else { right = nil }
-        return MISTTAudioQueuePushFloat32(source == .callAudio ? callAudioPCMQueue : microphonePCMQueue,
+        let accepted = MISTTAudioQueuePushFloat32(source == .callAudio ? callAudioPCMQueue : microphonePCMQueue,
                                           UnsafePointer(left), right, UInt32(frames), UInt32(buffers.count),
                                           UInt32(sampleRate), startNs)
+        if !accepted { callbackRejected(7, source: source.rawValue, frames: UInt32(clamping: frames), channels: streamFormat.mChannelsPerFrame, buffers: UInt32(clamping: buffers.count)) }
+        return accepted
+    }
+
+    @inline(__always)
+    private func callbackRejected(_ code: UInt32, source: UInt32, frames: UInt32 = 0,
+                                  channels: UInt32 = 0, buffers: UInt32 = 0) {
+        let queue = source == AudioSource.microphone.rawValue ? microphonePCMQueue : callAudioPCMQueue
+        let flags: UInt32 = (MISTTAudioQueueIsOpen(queue) ? 1 : 0) |
+                            (MISTTAudioQueueOverflowed(queue) ? 2 : 0) |
+                            (MISTTCaptureGateIsOpen(atomicState) ? 4 : 0)
+        MISTTRecordCallbackRejection(atomicState, source, code, frames, channels, buffers, flags)
     }
 
     private func record(source: AudioSource, validHostTime: Bool, ticks: UInt64, frames: Int, sampleRate: Double, energy: UInt16? = nil) {
