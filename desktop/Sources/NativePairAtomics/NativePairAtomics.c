@@ -50,6 +50,7 @@ struct MISTTAtomicCapture {
     _Atomic uint64_t open_ns;
     _Atomic uint64_t cutoff_ns;
     _Atomic uint32_t first_failure;
+    _Atomic uint64_t first_callback_rejection;
     _Atomic uint32_t callbacks_in_flight[2];
     SourceMetrics source[2];
 };
@@ -242,6 +243,7 @@ MISTTAtomicCapture *MISTTCreateCaptureState(void) {
     atomic_init(&state->open_ns, 0);
     atomic_init(&state->cutoff_ns, UINT64_MAX);
     atomic_init(&state->first_failure, MISTT_FAILURE_NONE);
+    atomic_init(&state->first_callback_rejection, 0);
     for (uint32_t i = 0; i < 2; ++i) {
         atomic_init(&state->callbacks_in_flight[i], 0);
         SourceMetrics *m = &state->source[i];
@@ -530,4 +532,25 @@ void MISTTRecordCallbackDuration(MISTTAtomicCapture *state, uint32_t source, uin
                                                   memory_order_relaxed, memory_order_relaxed)) {}
     if (duration_ns > overrun_threshold_ns && !try_add_counter(&m->callback_overruns, 1))
         fail_once(state, MISTT_FAILURE_COUNTER_OVERFLOW);
+}
+
+// Operational metadata only: one coherent, lock-free first-writer snapshot.
+void MISTTRecordCallbackRejection(MISTTAtomicCapture *state, uint32_t source, uint32_t reason,
+                                  uint32_t frames, uint32_t channels, uint32_t buffers, uint32_t flags) {
+    if (!state || source > 1 || reason == 0 || reason > 255) return;
+    uint64_t value = reason | ((uint64_t)source << 8) | ((uint64_t)(flags & 7) << 9) |
+                     ((uint64_t)(channels > 255 ? 255 : channels) << 12) |
+                     ((uint64_t)(buffers > 255 ? 255 : buffers) << 20) | ((uint64_t)frames << 28);
+    uint64_t expected = 0;
+    atomic_compare_exchange_strong_explicit(&state->first_callback_rejection, &expected, value,
+                                            memory_order_release, memory_order_relaxed);
+}
+
+uint64_t MISTTTakeCallbackRejection(MISTTAtomicCapture *state) {
+    if (!state) return 0;
+    uint64_t value = atomic_load_explicit(&state->first_callback_rejection, memory_order_acquire);
+    if (value == 0 || value == UINT64_MAX) return 0;
+    uint64_t expected = value;
+    return atomic_compare_exchange_strong_explicit(&state->first_callback_rejection, &expected, UINT64_MAX,
+                                                   memory_order_acq_rel, memory_order_relaxed) ? value : 0;
 }
