@@ -129,6 +129,8 @@ final class NativePairCapture: @unchecked Sendable {
         MISTTAudioQueueCloseGate(callAudioPCMQueue, cutoff.nanoseconds)
     }
 
+    func runtimeFailureCode() -> UInt32 { MISTTFirstFailure(atomicState) }
+
     func currentSnapshot() -> CaptureSnapshot {
         lock.lock()
         var result = snapshot
