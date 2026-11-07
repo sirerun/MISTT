@@ -64,7 +64,7 @@ final class NativeCaptureStopContractTests: XCTestCase {
                 entered.signal()
                 _ = release.wait(timeout: .now() + 0.5)
                 return [] // Empty target prevents HAL creation after cancellation.
-            }, generation: 1)
+            }, generation: 1, onStop: nil)
         }
         XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
         for _ in 0..<2 {
