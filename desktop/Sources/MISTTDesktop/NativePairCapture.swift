@@ -332,9 +332,19 @@ final class NativePairCapture: @unchecked Sendable {
         MISTTAudioQueueCloseGate(microphonePCMQueue, cutoff.nanoseconds)
         MISTTAudioQueueCloseGate(callAudioPCMQueue, cutoff.nanoseconds)
         generationCancellation.cancel(through: ownerGeneration)
+        if let completion {
+            if let pending = teardownCompletion {
+                teardownCompletion = { snapshot in pending(snapshot); completion(snapshot) }
+            } else {
+                teardownCompletion = completion
+            }
+        }
+        if teardownInProgress {
+            lock.unlock()
+            return
+        }
         if isStarting {
             startCancelled = true
-            if let completion { teardownCompletion = completion }
             snapshot.stopAtNanoseconds = cutoff.nanoseconds
             snapshot.status = "Muted · \(reason); waiting for in-flight start to release resources"
             snapshot.firstFailure = snapshot.firstFailure ?? reason
@@ -368,7 +378,7 @@ final class NativePairCapture: @unchecked Sendable {
             snapshot.tapDestroyed = true
             let result = snapshot
             let handler = stoppedHandler
-            let pendingCompletion = teardownCompletion ?? completion
+            let pendingCompletion = teardownCompletion
             stoppedHandler = nil
             teardownCompletion = nil
             lock.unlock()
@@ -376,7 +386,6 @@ final class NativePairCapture: @unchecked Sendable {
             pendingCompletion?(result)
             return
         }
-        if let completion { teardownCompletion = completion }
         let started = DispatchTime.now()
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [self] in
