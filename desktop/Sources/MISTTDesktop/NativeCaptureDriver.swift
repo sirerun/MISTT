@@ -264,7 +264,7 @@ final class NativeCaptureDriver {
 
     private func unexpectedStop(_ snapshot: CaptureSnapshot, generation token: UInt64,
                                 request: CaptureStartRequest, writer: NativeIPCWriter) {
-        Self.startupLogger.info("native_capture_stop_callback generation_match=\(token == generation) busy=\(busy) capture_present=\(capture != nil)")
+        Self.startupLogger.info("native_capture_stop_callback generation_match=\(token == self.generation) busy=\(self.busy) capture_present=\(self.capture != nil)")
         guard NativeCaptureStopContract.isUnexpected(generationMatches: token == generation,
                                                       capturePresent: capture != nil, busy: busy) else { return }
         let code = capture?.runtimeFailureCode() ?? 0
