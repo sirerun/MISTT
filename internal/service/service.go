@@ -799,6 +799,7 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 	}
 	s.capturing = true
 	if cause != nil {
+		s.muted = true
 		s.reason = "native_failure"
 	}
 	s.publishLocked()
@@ -845,7 +846,8 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 	s.mu.Lock()
 	s.capturing = false
 	s.closureConfirmed = true
-	if cause != nil {
+	if cause != nil || runtimeFailure != nil {
+		s.muted = true
 		s.reason = "native_failure"
 	} else {
 		s.reason = normalizeStopReason(reason)

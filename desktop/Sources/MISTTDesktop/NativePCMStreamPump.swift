@@ -1,10 +1,12 @@
 import AVFoundation
 import Foundation
+import OSLog
 import NativeAudioQueue
 
 /// Drains callback-owned bounded SPSC queues away from Core Audio. Each source
 /// retains an independent converter and timestamp/sample sequence.
 final class NativePCMStreamPump: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.sirerun.mistt", category: "capture-startup")
     fileprivate final class SourceStream {
         let source: PairedAudioFrame.Source
         let queue: OpaquePointer
@@ -16,6 +18,9 @@ final class NativePCMStreamPump: @unchecked Sendable {
         var ledger: PCMFrameLedger?
         var finished = false
         var expectedNextInputNs: UInt64?
+        var lastInputFrames: UInt32 = 0
+        var lastInputRate: UInt32 = 0
+        var lastInputChannels: UInt32 = 0
 
         init(source: PairedAudioFrame.Source, queue: OpaquePointer, writerSource: NativeIPCWriter.Source) {
             self.source = source; self.queue = queue; self.writerSource = writerSource
@@ -70,18 +75,39 @@ final class NativePCMStreamPump: @unchecked Sendable {
     }
 
     private func drain() {
+        var phase = "drain"
+        var source = "none"
+        var currentStream: SourceStream?
         do {
-            for stream in streams where !stream.finished { try drain(stream) }
+            for stream in streams where !stream.finished {
+                source = stream.source.wireName
+                currentStream = stream
+                try drain(stream)
+            }
             guard draining, streams.allSatisfy({ stream in
                 MISTTAudioQueuePendingFrames(stream.queue) == 0 && MISTTAudioQueueCallbacksInFlight(stream.queue) == 0
             }) else { return }
-            try finish(streams[0]); try finish(streams[1])
+            phase = "finish"
+            for stream in streams {
+                source = stream.source.wireName
+                currentStream = stream
+                try finish(stream)
+            }
             timer?.cancel(); timer = nil
             let counts = (streams[0].ledger?.totalSamples ?? 0, streams[1].ledger?.totalSamples ?? 0)
-            try streams[0].writerEnd(writer, sessionID: sessionID)
-            try streams[1].writerEnd(writer, sessionID: sessionID)
+            phase = "source_end"
+            for stream in streams {
+                source = stream.source.wireName
+                currentStream = stream
+                try stream.writerEnd(writer, sessionID: sessionID)
+            }
             completion?(.success(counts)); completion = nil
         } catch {
+            let errorClass = Self.failureClass(error)
+            let frames = currentStream?.lastInputFrames ?? 0
+            let rate = currentStream?.lastInputRate ?? 0
+            let channels = currentStream?.lastInputChannels ?? 0
+            Self.logger.error("native_pcm_pump_failed phase=\(phase, privacy: .public) source=\(source, privacy: .public) class=\(errorClass, privacy: .public) input_frames=\(frames) sample_rate=\(rate) channels=\(channels)")
             timer?.cancel(); timer = nil
             let wasDraining = draining
             completion?(.failure(error)); completion = nil
@@ -101,6 +127,9 @@ final class NativePCMStreamPump: @unchecked Sendable {
                 }
             }
             guard available else { break }
+            stream.lastInputFrames = block.frame_count
+            stream.lastInputRate = block.sample_rate
+            stream.lastInputChannels = block.channels
             guard block.frame_count > 0, block.frame_count <= UInt32(left.count), (1...2).contains(block.channels),
                   block.sample_rate >= 8_000, block.sample_rate <= 384_000 else { throw PumpError.invalidBlock }
             if stream.converter == nil {
@@ -169,7 +198,33 @@ final class NativePCMStreamPump: @unchecked Sendable {
         stream.ledger = nextLedger
     }
 
-    fileprivate enum PumpError: Error { case alreadyDraining, invalidBlock, invalidTimestamp, formatChanged, clockDiscontinuity, writerRejectedAudio, sequenceOverflow }
+    static func failureClass(_ error: Error) -> String {
+        if let error = error as? PumpError {
+            switch error {
+            case .alreadyDraining: return "already_draining"
+            case .invalidBlock: return "invalid_block"
+            case .invalidTimestamp: return "invalid_timestamp"
+            case .formatChanged: return "format_changed"
+            case .clockDiscontinuity: return "clock_discontinuity"
+            case .writerRejectedAudio: return "writer_rejected_audio"
+            case .sequenceOverflow: return "sequence_overflow"
+            }
+        }
+        if let error = error as? PCMStreamConverterError {
+            switch error {
+            case .invalidFormat: return "converter_invalid_format"
+            case .inputBlockTooLarge: return "converter_input_block_too_large"
+            case .malformedInterleavedInput: return "converter_malformed_input"
+            case .alreadyFinished: return "converter_already_finished"
+            case .conversionFailed: return "converter_conversion_failed"
+            case .outputLimitExceeded: return "converter_output_limit"
+            case .anchorOverflow: return "converter_anchor_overflow"
+            }
+        }
+        return "other"
+    }
+
+    enum PumpError: Error { case alreadyDraining, invalidBlock, invalidTimestamp, formatChanged, clockDiscontinuity, writerRejectedAudio, sequenceOverflow }
 }
 
 private extension NativePCMStreamPump.SourceStream {
