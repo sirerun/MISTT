@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	misttv1 "github.com/sirerun/MISTT/gen/mistt/v1"
+
 	"github.com/sirerun/MISTT/internal/audio"
 	"github.com/sirerun/MISTT/internal/backend"
 	"github.com/sirerun/MISTT/internal/config"
@@ -34,6 +36,7 @@ func TestFatalPairedStopMutesBeforeClosureAndDoesNotRearm(t *testing.T) {
 			s, reader := serviceWithOutputReader(t, config.Defaults(), nil)
 			remote := &stoppingTestSession{events: make(chan backend.Event, 1)}
 			pair := &activePair{id: "00112233-4455-6677-8899-aabbccddeeff", remote: remote, sourceEnds: map[audio.Source]bool{audio.Microphone: true, audio.CallAudio: true}}
+			s.clients[1] = &subscriber{id: 1, events: make(chan *misttv1.StreamResponse, 8), done: make(chan struct{}), terminal: make(chan error, 1)}
 			s.muted = false
 			s.capturing = true
 			s.closureConfirmed = false
@@ -70,7 +73,11 @@ func TestFatalPairedStopMutesBeforeClosureAndDoesNotRearm(t *testing.T) {
 			s.mu.Lock()
 			final := s.nativeStatusLocked()
 			active := s.active
+			canStart := s.canStartLocked()
 			s.mu.Unlock()
+			if tc.wantMuted && canStart {
+				t.Fatal("fatal stop rearmed despite retained client demand")
+			}
 			if final.Muted != tc.wantMuted || final.Capturing || active != nil {
 				t.Fatalf("final state=%+v active=%v", final, active != nil)
 			}
