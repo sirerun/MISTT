@@ -303,7 +303,7 @@ final class NativePairCapture: @unchecked Sendable {
             completion?(result)
             if !outcome.succeeded {
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [self] in
-                    withExtendedLifetime(self) { _exit(71) }
+                    withExtendedLifetime(self) { () -> Void in _exit(71) }
                 }
             }
             throw error
@@ -415,7 +415,7 @@ final class NativePairCapture: @unchecked Sendable {
             finished.signal()
             if !outcome.succeeded {
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [capture] in
-                    withExtendedLifetime(capture) { _exit(71) }
+                    withExtendedLifetime(capture) { () -> Void in _exit(71) }
                 }
             }
         }
