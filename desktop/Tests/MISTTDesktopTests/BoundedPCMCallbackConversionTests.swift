@@ -62,9 +62,10 @@ final class BoundedPCMCallbackConversionTests: XCTestCase {
         XCTAssertEqual(MISTTAudioQueuePendingFrames(queue), 0)
     }
     func testFinishBoundsRetainOnlyActualFractionalOutputAndTrimPadding() {
-            XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 18), 18)
-            XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 19), 19)
-            XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 17))
+        XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 16_000, targetRate: 16_000, emittedFrames: 0, pendingFrames: 4606), 4606)
+        XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 18), 18)
+        XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 19), 19)
+        XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 17))
         XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1582, pendingFrames: 50), 18)
         XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1582, pendingFrames: 17))
         XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1601, pendingFrames: 0))
@@ -73,7 +74,7 @@ final class BoundedPCMCallbackConversionTests: XCTestCase {
     }
 
     func testFractionalAndIntegralRatesFinishWithinExactRationalBounds() throws {
-        for rate in [16_000.0, 44_100.0, 48_000.0, 96_000.0] {
+        for rate in [32_000.0, 44_100.0, 48_000.0, 96_000.0] {
             for channels in [1, 2] {
                 let converter = try BoundedPCMStreamConverter(sourceRate: rate, channels: channels)
                 let frames = 4606
