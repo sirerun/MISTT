@@ -14,6 +14,8 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     private let captureDriver = NativeCaptureDriver()
     private var process: Process?
     private var inputPipe: Pipe?
+    private var diagnosticHandle: FileHandle?
+    private var diagnosticReader: RelayDiagnosticLineReader?
     private var outputHandle: FileHandle?
     private var writer: NativeIPCWriter?
     private var lineReader: StatusLineReader?
@@ -73,17 +75,26 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
         let child = Process()
         let stdin = Pipe()
         let stdout = Pipe()
+        let stderr = Pipe()
         child.executableURL = relayExecutableURL
         child.arguments = Self.relayArguments
         child.environment = configuredEnvironment
         child.standardInput = stdin
         child.standardOutput = stdout
-        child.standardError = FileHandle.nullDevice
+        child.standardError = stderr
+        let diagnostics = RelayDiagnosticLineReader()
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty { handle.readabilityHandler = nil }
+            else { diagnostics.append(data) }
+        }
         child.terminationHandler = { [weak self] child in
             Task { @MainActor in self?.childTerminated(child, generation: token) }
         }
         do {
             try child.run()
+            diagnosticHandle = stderr.fileHandleForReading
+            diagnosticReader = diagnostics
             process = child
             inputPipe = stdin
             let output = stdout.fileHandleForReading
@@ -113,6 +124,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
                 }
             }
         } catch {
+            stderr.fileHandleForReading.readabilityHandler = nil
             failClosed("MISTT relay could not start.")
             if let child = process, child.isRunning { child.terminate() }
         }
@@ -366,6 +378,7 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
     }
 
     private func failClosed(_ reason: String) {
+        RelayOperationalDiagnostics.failed(reason)
         pendingCommandTimeout?.cancel(); pendingCommandTimeout = nil
         resolveUpdateReservation(false)
         if let continuation = shutdownControlContinuation { shutdownControlContinuation = nil; continuation.resume(returning: false) }
@@ -376,6 +389,8 @@ final class BridgeController: ObservableObject, UpdateSafetyProviding {
 
     private func childTerminated(_ child: Process, generation: Int) {
         guard RelayProcessGeneration.invalidate(&processGeneration, terminating: generation) else { return }
+        RelayOperationalDiagnostics.terminated(status: child.terminationStatus, reason: child.terminationReason)
+        // Let the stderr reader drain through EOF even if exit delivery wins the race.
         outputHandle?.readabilityHandler = nil
         writer?.close()
         outputHandle = nil; inputPipe = nil; writer = nil; lineReader = nil; process = nil
