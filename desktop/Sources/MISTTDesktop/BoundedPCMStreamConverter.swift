@@ -24,6 +24,23 @@ enum PCMStreamNumericBounds {
     }
 }
 
+enum PCMStreamOutputBounds {
+    static func releaseFrames(receivedFrames: UInt64, sourceRate: Double, targetRate: Double,
+                              emittedFrames: UInt64, pendingFrames: Int) -> Int? {
+        guard sourceRate.isFinite, sourceRate > 0, targetRate.isFinite, targetRate > 0,
+              pendingFrames >= 0 else { return nil }
+        let expected = Double(receivedFrames) * targetRate / sourceRate
+        guard let lower = PCMStreamNumericBounds.uint64(floor(expected)),
+              let upper = PCMStreamNumericBounds.uint64(ceil(expected)), emittedFrames <= upper else { return nil }
+        let available = emittedFrames.addingReportingOverflow(UInt64(pendingFrames))
+        guard !available.overflow, available.partialValue >= lower else { return nil }
+        // AVAudioConverter may round the fractional final sample down. Retain
+        // actual output within floor/ceil bounds and trim only filter padding.
+        let retained = min(available.partialValue, upper)
+        return Int(exactly: retained - emittedFrames)
+    }
+}
+
 /// Stateful AVAudioConverter wrapper for callback-sized Float32 blocks. The
 /// converter retains its filter/phase state between calls; buffers and output
 /// are bounded, and this type never persists PCM.
@@ -161,14 +178,12 @@ final class BoundedPCMStreamConverter {
         let pendingFrames = pendingBytes.count / 2
         let releaseFrames: Int
         if endOfStream {
-            let expected = ceil(Double(receivedFrames) * targetRate / sourceRate)
-            guard let expectedFrames = PCMStreamNumericBounds.uint64(expected) else {
+            guard let remaining = PCMStreamOutputBounds.releaseFrames(
+                receivedFrames: receivedFrames, sourceRate: sourceRate, targetRate: targetRate,
+                emittedFrames: emittedFrames, pendingFrames: pendingFrames) else {
                 throw PCMStreamConverterError.outputLimitExceeded
             }
-            guard emittedFrames <= expectedFrames else { throw PCMStreamConverterError.outputLimitExceeded }
-            let remaining = expectedFrames - emittedFrames
-            guard remaining <= UInt64(pendingFrames) else { throw PCMStreamConverterError.outputLimitExceeded }
-            releaseFrames = Int(remaining)
+            releaseFrames = remaining
         } else {
             releaseFrames = max(0, pendingFrames - holdbackFrames)
         }
