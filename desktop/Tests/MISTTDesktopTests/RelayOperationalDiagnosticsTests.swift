@@ -107,4 +107,45 @@ final class RelayOperationalDiagnosticsTests: XCTestCase {
         XCTAssertThrowsError(try unmutedIdleFailure.validate())
     }
 
+    func testValidCoalescedHeartbeatBatchesDoNotFailOnRecordCount() {
+        final class Results: @unchecked Sendable { var successes = 0; var failures = 0 }
+        for count in [257, 3000] {
+            let results = Results()
+            let reader = StatusLineReader { result in
+                switch result {
+                case .success: results.successes += 1
+                case .failure: results.failures += 1
+                }
+            }
+            let heartbeat = "{\"type\":\"heartbeat\",\"counter\":1}\n"
+            reader.append(Data(String(repeating: heartbeat, count: count).utf8))
+            XCTAssertEqual(results.successes, count)
+            XCTAssertEqual(results.failures, 0)
+        }
+    }
+
+    func testCoalescedBatchPreservesLineLimitAndFirstInvalidBoundary() {
+        final class Results: @unchecked Sendable { var successes = 0; var failures = 0 }
+        let heartbeat = "{\"type\":\"heartbeat\",\"counter\":1}"
+        let atLimit = heartbeat + String(repeating: " ", count: 65_536 - heartbeat.utf8.count)
+        for (batch, expectedSuccesses, expectedFailures) in [
+            (atLimit + "\n", 1, 0),
+            (atLimit + " \n", 0, 1),
+            (heartbeat + "\nnot JSON\n" + heartbeat + "\n", 1, 1),
+            ("not JSON\n" + heartbeat + "\n", 0, 1)
+        ] {
+            let results = Results()
+            let reader = StatusLineReader { result in
+                switch result {
+                case .success: results.successes += 1
+                case .failure: results.failures += 1
+                }
+            }
+            reader.append(Data(batch.utf8))
+            reader.append(Data((heartbeat + "\n").utf8))
+            XCTAssertEqual(results.successes, expectedSuccesses + (expectedFailures == 0 ? 1 : 0))
+            XCTAssertEqual(results.failures, expectedFailures)
+        }
+    }
+
 }
