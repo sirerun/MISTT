@@ -251,6 +251,7 @@ final class NativeCaptureDriver {
 
     private func pumpFailed(generation token: UInt64, request: CaptureStartRequest, writer: NativeIPCWriter) {
         guard token == generation, !busy, let capture else { return }
+        Self.startupLogger.error("native_capture_runtime_failed class=pcm_queue")
         let cutoff = PairedCutoff.now()
         preclosedCutoff = cutoff
         capture.closeGate(at: cutoff)
@@ -262,6 +263,8 @@ final class NativeCaptureDriver {
     private func unexpectedStop(_ snapshot: CaptureSnapshot, generation token: UInt64,
                                 request: CaptureStartRequest, writer: NativeIPCWriter) {
         guard token == generation, capture != nil, !busy else { return }
+        let code = capture?.runtimeFailureCode() ?? 0
+        Self.startupLogger.error("native_capture_runtime_failed class=unexpected_stop atomic_code=\(code)")
         // Runtime failures are never stop acknowledgments. Preserve the generation
         // until Go asks for its correlated capture_stop response.
         writer.enqueueControl(CaptureFailed(requestId: request.requestId, sessionId: request.sessionId,
