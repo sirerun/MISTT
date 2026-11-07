@@ -84,4 +84,27 @@ final class RelayOperationalDiagnosticsTests: XCTestCase {
         XCTAssertEqual(RelayOperationalDiagnostics.classifyParserFailure(RelayReadError.invalidMessage, line: Data()).family, "message_invariant")
     }
 
+    func testGoStoppingFailureProjectionIsAcceptedWithoutUpdateAuthority() throws {
+        // Actual exact-2fdbdae Service.stopPair(cause:) output, using synthetic input.
+        let fixture = #"{"capturing":true,"connected_clients":0,"muted":false,"reason":"native_failure","revision":2,"type":"status","update_ready":false,"update_reserved":false}"#
+        let status = try RelayStatus.decodeLine(Data(fixture.utf8))
+        XCTAssertTrue(status.capturing)
+        XCTAssertFalse(RelayShutdownReadiness.isReady(status: status, localCaptureClosed: true))
+        for muted in [false, true] {
+            let closing = RelayStatus(muted: muted, capturing: true, connectedClients: 1,
+                                      reason: "native_failure", revision: 3, updateReady: false, updateReserved: false)
+            XCTAssertNoThrow(try closing.validate())
+            XCTAssertFalse(RelayShutdownReadiness.isReady(status: closing, localCaptureClosed: true))
+            let unsafeUpdate = RelayStatus(muted: muted, capturing: true, connectedClients: 1,
+                                          reason: "native_failure", revision: 3, updateReady: true, updateReserved: false)
+            XCTAssertThrowsError(try unsafeUpdate.validate())
+            let unsafeReservation = RelayStatus(muted: muted, capturing: true, connectedClients: 1,
+                                               reason: "native_failure", revision: 3, updateReady: false, updateReserved: true)
+            XCTAssertThrowsError(try unsafeReservation.validate())
+        }
+        let unmutedIdleFailure = RelayStatus(muted: false, capturing: false, connectedClients: 1,
+                                            reason: "native_failure", revision: 3, updateReady: false, updateReserved: false)
+        XCTAssertThrowsError(try unmutedIdleFailure.validate())
+    }
+
 }
