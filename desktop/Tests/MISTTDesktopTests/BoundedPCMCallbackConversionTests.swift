@@ -20,7 +20,7 @@ final class BoundedPCMCallbackConversionTests: XCTestCase {
             output += try actual.finish()
             expected += try reference.finish()
             XCTAssertEqual(output, expected, "stereo frame/channel ordering for \(frames)")
-            XCTAssertEqual(output.count / 2, Int(ceil(Double(frames) / 3)))
+            XCTAssertEqual(output.count / 2, [4606: 1535, 4800: 1600, 8192: 2731][frames]!)
             XCTAssertEqual(actual.inputFrameCount, UInt64(frames))
             XCTAssertEqual(actual.outputFrameCount, UInt64(output.count / 2))
         }
@@ -61,4 +61,31 @@ final class BoundedPCMCallbackConversionTests: XCTestCase {
         })
         XCTAssertEqual(MISTTAudioQueuePendingFrames(queue), 0)
     }
+    func testFinishBoundsRetainOnlyActualFractionalOutputAndTrimPadding() {
+            XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 18), 18)
+            XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 19), 19)
+            XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4606, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1517, pendingFrames: 17))
+        XCTAssertEqual(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1582, pendingFrames: 50), 18)
+        XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1582, pendingFrames: 17))
+        XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 4800, sourceRate: 48_000, targetRate: 16_000, emittedFrames: 1601, pendingFrames: 0))
+        XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: UInt64.max, sourceRate: 1, targetRate: 1, emittedFrames: 0, pendingFrames: 0))
+        XCTAssertNil(PCMStreamOutputBounds.releaseFrames(receivedFrames: 1, sourceRate: .nan, targetRate: 16_000, emittedFrames: 0, pendingFrames: 1))
+    }
+
+    func testFractionalAndIntegralRatesFinishWithinExactRationalBounds() throws {
+        for rate in [16_000.0, 44_100.0, 48_000.0, 96_000.0] {
+            for channels in [1, 2] {
+                let converter = try BoundedPCMStreamConverter(sourceRate: rate, channels: channels)
+                let frames = 4606
+                var bytes = try converter.appendCallbackInterleavedFloat([Float](repeating: 0.1, count: frames * channels), channels: channels)
+                bytes += try converter.finish()
+                let exact = Double(frames) * 16_000 / rate
+                XCTAssertGreaterThanOrEqual(bytes.count / 2, Int(floor(exact)))
+                XCTAssertLessThanOrEqual(bytes.count / 2, Int(ceil(exact)))
+                XCTAssertEqual(converter.inputFrameCount, UInt64(frames))
+                XCTAssertEqual(converter.outputFrameCount, UInt64(bytes.count / 2))
+            }
+        }
+    }
+
 }
