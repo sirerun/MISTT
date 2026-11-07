@@ -93,8 +93,8 @@ final class BridgeControllerTests: XCTestCase {
         XCTAssertTrue(gate.accept(first), "revision tracking resets with a new process")
     }
 
-    func testContradictoryAndUnknownStatusFieldsAreRejected() {
-        XCTAssertThrowsError(try RelayStatus.decodeLine(
+    func testPendingMuteStatusIsAcceptedButUnknownFieldsAreRejected() {
+        XCTAssertNoThrow(try RelayStatus.decodeLine(
             Data(#"{"type":"status","muted":true,"connected_clients":1,"capturing":true,"reason":"user","revision":1,"update_ready":false,"update_reserved":false}"#.utf8)
         ))
         XCTAssertThrowsError(try RelayStatus.decodeLine(
