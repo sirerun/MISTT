@@ -51,4 +51,31 @@ final class NativeCaptureStopContractTests: XCTestCase {
         XCTAssertFalse(NativeCaptureStopContract.confirmed(snapshot))
         XCTAssertFalse(NativeCaptureStopContract.isUnexpected(generationMatches: false, capturePresent: true, busy: false))
     }
+    func testStopJoinersDuringPendingStartEachReceiveTeardownProof() throws {
+        let capture = NativePairCapture(generation: 1)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let completions = expectation(description: "both stop callers receive proof")
+        completions.expectedFulfillmentCount = 2
+        DispatchQueue.global().async {
+            defer { finished.signal() }
+            try? capture.start(targets: [], validateTargets: {
+                entered.signal()
+                _ = release.wait(timeout: .now() + 0.5)
+                return [] // Empty target prevents HAL creation after cancellation.
+            }, generation: 1)
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+        for _ in 0..<2 {
+            capture.stop(deadline: 1, onTeardown: { snapshot in
+                XCTAssertTrue(NativeCaptureStopContract.confirmed(snapshot))
+                completions.fulfill()
+            })
+        }
+        release.signal()
+        wait(for: [completions], timeout: 1)
+        XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+    }
+
 }
