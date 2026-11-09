@@ -133,22 +133,28 @@ material or uncertain, a separately reviewed matched119s V1 run against the
 unchanged production VibeVoice endpoint uses the same fixedWAV/cadence/zeroMic
 and private snapshots, avoiding a production model/configuration change.
 
-### Pending isolated q02 EOF/reset experiment (not executed)
+### Pending exact-context q02 EOF/reset experiment (not executed)
 
-The model-only q02_cut.py qualifier compares the complete fixed33,674-sample
-q02 WAV against its exact24,000-sample (1.5s) prefix and9,674-sample successor.
-It runs current EOF, one extra all-zero9360-sample MODEL step, and a fresh
-successor state. Model-only padding never advances claimed real source sample
-coverage; original successor origin stays24,000. A complete uncut reference
-uses six bounded model-zero steps, with full token-trace parity against the
-pinned HF generate implementation before interpreting results. Each actual
-label/blank trace and unchanged raw fictional hypothesis is private0600;
-public output is numeric counts/timing/hash only. Raw old+successor text is
-compared literally, without deduplication or reference substitution.
+The model-only q02_cut.py qualifier reconstructs the SHA-pinned synthetic
+call-audio PCM from the executed schedule: q01@2s, q10@20s, q11@40s, q12@70s,
+q02@108.5s, with generated-zero gaps. The complete source is1,769,674samples;
+the exact cut is1,760,000, which is24,000samples/1.5s into q02. The fresh
+successor receives all9,674 remaining original WAV samples. This preserves
+both the observed encoder chunk phase and preceding linguistic context.
 
-This isolates the cut/EOF mechanism; it does not reproduce the preceding108.5s
-linguistic context or qualify a PCM overlap protocol. Zero-only model padding
-is an experiment, not an asserted documented six-frame drain API. The pinned
-HF streaming generator pads its last fixed-size feature chunk and terminates
-when its generator is exhausted, without an explicit finalization/drain call.
-EOF coverage and successful recognition of trailing words remain distinct.
+It runs current EOF, one extra all-zero9360-sample MODEL step, and fresh
+successor states. Padding never advances claimed real source coverage; the
+successor original origin stays1,760,000. One complete uncut HF reference uses
+six bounded model-zero steps; the direct step implementation must match its
+full token trace before interpretation. Every actual label/blank trace and
+unchanged raw fictional hypothesis is private0600/capped16MiB; public output
+is numeric counts/timing/hash only. Old+successor text is compared literally,
+without deduplication or reference substitution. No WS session is opened.
+
+A prefix padded with silence cannot establish truth about the409ms of speech
+remaining after the cut, even if the model predicts the expected final word.
+No padding prediction counts as reliable acoustic continuity. Zero-only model
+padding is an experiment, not a documented six-frame drain API: pinned HF
+pads its final fixed-size feature chunk and stops at generator exhaustion,
+without an explicit finalization/drain call. Any PCM overlap/provenance or
+consumer duplicate reconciliation protocol needs separate review.

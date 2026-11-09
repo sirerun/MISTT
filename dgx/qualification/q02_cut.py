@@ -1,6 +1,6 @@
 """Reviewed public-fictional model-only q02 cut experiment; no WS/production change."""
 from __future__ import annotations
-import hashlib,json,math,os
+import hashlib,json,os
 from pathlib import Path
 import sys,time,wave
 import numpy as np
@@ -9,7 +9,9 @@ try:
 except ImportError:
     from nemotron_steps import modules,build_jobs,reference_ids,normalize
 
-CUT_SAMPLE=24000  # Exact executed first-cut minus q02 origin:1,760,000−1,736,000.
+Q02_ORIGIN=1_736_000
+CUT_SAMPLE=1_760_000
+CONTEXT_SCHEDULE=(('q01',32_000),('q10',320_000),('q11',640_000),('q12',1_120_000),('q02',Q02_ORIGIN))
 
 
 def padding_jobs(pair,real_end,count):
@@ -20,13 +22,21 @@ def padding_jobs(pair,real_end,count):
 
 def main(root):
     root=Path(root);os.umask(0o077);adapter,pair,ledger,protocol=modules(root)
-    fixture=next(item for item in json.loads((root/'fixture-manifest.json').read_text()) if item['id']=='q02')
-    data=(root/fixture['file']).read_bytes()
-    if hashlib.sha256(data).hexdigest()!=fixture['sha256']:raise RuntimeError('fixture_digest_changed')
-    with wave.open(str(root/fixture['file']),'rb') as audio:
-        if (audio.getframerate(),audio.getsampwidth(),audio.getnchannels())!=(16000,2,1):raise RuntimeError('fixture_geometry_changed')
-        pcm=np.frombuffer(audio.readframes(audio.getnframes()),dtype='<i2').copy()
-    if len(pcm)!=33674 or not 0<CUT_SAMPLE<len(pcm):raise RuntimeError('exact_q02_cut_required')
+    manifest=json.loads((root/'fixture-manifest.json').read_text())
+    fixture=next(item for item in manifest if item['id']=='q02')
+    pcm=np.zeros(Q02_ORIGIN+33674,dtype='<i2');references=[]
+    for fixture_id,origin in CONTEXT_SCHEDULE:
+        item=next(entry for entry in manifest if entry['id']==fixture_id)
+        data=(root/item['file']).read_bytes()
+        if hashlib.sha256(data).hexdigest()!=item['sha256']:raise RuntimeError('fixture_digest_changed')
+        with wave.open(str(root/item['file']),'rb') as audio:
+            if (audio.getframerate(),audio.getsampwidth(),audio.getnchannels())!=(16000,2,1):raise RuntimeError('fixture_geometry_changed')
+            part=np.frombuffer(audio.readframes(audio.getnframes()),dtype='<i2')
+        if origin+len(part)>len(pcm):raise RuntimeError('synthetic_context_bound')
+        pcm[origin:origin+len(part)]=part;references.append(item['reference'])
+        if fixture_id=='q02' and len(part)!=33674:raise RuntimeError('exact_q02_required')
+    expected_context=' '.join(references)
+    if len(pcm)!=1_769_674 or CUT_SAMPLE-Q02_ORIGIN!=24000:raise RuntimeError('exact_q02_cut_required')
     reuse=json.loads((root/'cache-reuse.json').read_text())
     if reuse.get('local_files_only') is not True:raise RuntimeError('offline_cache_required')
     metrics=os.open(root/'candidate-metrics.jsonl',os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
@@ -34,9 +44,9 @@ def main(root):
     backend=None;phase='load';all_jobs=[];hypothesis_bytes=0
     with os.fdopen(metrics,'w') as numeric,os.fdopen(private,'w') as hypotheses:
         def emit(event,**fields):numeric.write(json.dumps({'event':event,**fields})+'\n');numeric.flush();os.fsync(numeric.fileno())
-        def retain(name,text,ids,trace,real_end,origin=0):
+        def retain(name,text,ids,trace,real_end,origin=0,before_q02=''):
             nonlocal hypothesis_bytes
-            body=json.dumps({'synthetic_only':True,'variant':name,'raw_hypothesis':text,
+            body=json.dumps({'synthetic_only':True,'variant':name,'raw_hypothesis':text,'raw_observed_prefix_before_q02':before_q02,
                 'actual_label_token_ids':ids,'actual_decoder_trace_including_blanks':trace,
                 'claimed_real_source_samples':real_end,'original_source_origin_sample':origin})+'\n'
             size=len(body.encode())
@@ -62,18 +72,20 @@ def main(root):
             for name,samples,zeros in [('uncut_current_EOF',pcm,0),('uncut_reference_padding',pcm,6),
                     ('prefix_cut_current_EOF',pcm[:CUT_SAMPLE],0),('prefix_cut_plus_one_model_zero_step',pcm[:CUT_SAMPLE],1),
                     ('reset_successor_current_EOF',pcm[CUT_SAMPLE:],0),('reset_successor_plus_one_model_zero_step',pcm[CUT_SAMPLE:],1)]:
-                jobs=jobs_for(samples,zeros);state=engine.new_state(trace=True);started=time.monotonic();times=[]
+                jobs=jobs_for(samples,zeros);state=engine.new_state(trace=True);started=time.monotonic();times=[];before_q02=''
                 try:
                     for _,job,_ in jobs:
                         tick=time.monotonic();text=engine.step(state,job.audio);backend.torch.cuda.synchronize()
                         times.append(round((time.monotonic()-tick)*1000,3))
+                        if not name.startswith('reset_successor_') and job.end_sample<=Q02_ORIGIN:before_q02=text
                     ids=list(state.token_ids);trace=list(state.trace);outputs[name]=text
                     origin=CUT_SAMPLE if name.startswith('reset_successor_') else 0
-                    retain(name,text,ids,trace,len(samples),origin)
+                    retain(name,text,ids,trace,len(samples),origin,before_q02)
                     parity=trace==reference if name=='uncut_reference_padding' else None
                     emit('variant_result',variant=name,actual_label_count=len(ids),decoder_trace_count=len(trace),
                          token_trace_sha256=hashlib.sha256(json.dumps(trace).encode()).hexdigest(),
-                         exact_full_reference=normalize(text)==normalize(fixture['reference']),
+                         exact_full_synthetic_context_reference=normalize(text)==normalize(expected_context),
+                         observed_prefix_before_q02_word_count=len(normalize(before_q02).split()),
                          reference_token_parity=parity,model_zero_steps=zeros,model_inference_calls=len(jobs),
                          claimed_real_source_samples=len(samples),last_processed_end_sample=jobs[-1][1].end_sample,
                          original_source_origin_sample=origin,original_source_end_sample=origin+jobs[-1][1].end_sample,
@@ -88,13 +100,14 @@ def main(root):
                 old=outputs['prefix_cut_'+mode];new=outputs['reset_successor_'+mode]
                 literal=old+' '+new
                 emit('literal_old_successor_comparison',mode=mode,
-                     raw_literal_concatenation_exact=normalize(literal)==normalize(fixture['reference']),
+                     raw_literal_concatenation_exact=normalize(literal)==normalize(expected_context),
                      old_word_count=len(normalize(old).split()),successor_word_count=len(normalize(new).split()),
-                     reference_word_count=len(normalize(fixture['reference']).split()),
+                     reference_word_count=len(normalize(expected_context).split()),
                      duplicate_reconciliation_applied=False,consumer_reassembly_qualified=False)
-            emit('completed',fixture_id='q02',cut_sample=CUT_SAMPLE,uncut_real_samples=len(pcm),
+            emit('completed',fixture_id='q02',cut_sample=CUT_SAMPLE,relative_q02_cut_sample=CUT_SAMPLE-Q02_ORIGIN,
+                 q02_origin_sample=Q02_ORIGIN,uncut_real_samples=len(pcm),
                  private_fictional_hypotheses_retained=True,audio_PCM_retained=False,model_promoted=False,
-                 isolated_q02_not_preceding_108_second_context=True,
+                 exact_executed_synthetic_context_reconstructed=True,real_capture=False,
                  peak_cuda_allocated_bytes=backend.torch.cuda.max_memory_allocated())
         except BaseException as error:
             emit('failed',phase=phase,error_class=type(error).__name__);raise SystemExit(1)
