@@ -30,6 +30,8 @@ from .pair import (
 )
 from .protocol import (
     PROTOCOL,
+    CONTINUATION_PROTOCOL,
+    validate_capture_continued,
     SOURCES,
     ProtocolError,
     parse_uuid,
@@ -278,6 +280,7 @@ def create_app(
             try:
                 start = strict_json_loads(start_text)
                 session_id = validate_start(start)
+                negotiated_protocol = start["protocol"]
             except ProtocolError:
                 terminal_reason = "invalid_config"
                 await send_error(terminal_reason)
@@ -397,7 +400,7 @@ def create_app(
             ]
             await send({
                 "type": "ready",
-                "protocol": PROTOCOL,
+                "protocol": negotiated_protocol,
                 "session_id": str(session_id),
                 "language": "en",
                 "model": {
@@ -418,6 +421,7 @@ def create_app(
                 "aggregate_drain_reserve_tokens": geometry.reserved_tokens_per_window * len(SOURCES),
                 "startup_timeout_ms": int(settings.startup_timeout_seconds * 1000),
                 "drain_timeout_ms": int(settings.drain_timeout_seconds * 1000),
+                **({"capture_continuation": True} if negotiated_protocol == CONTINUATION_PROTOCOL else {}),
             })
 
             capture_started = False
@@ -531,7 +535,10 @@ def create_app(
                 try:
                     control = strict_json_loads(text)
                     if not capture_started:
-                        capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_started(control, session_id)
+                        if negotiated_protocol == CONTINUATION_PROTOCOL and isinstance(control, dict) and control.get("type") == "capture_continued":
+                            capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_continued(control, session_id)
+                        else:
+                            capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_started(control, session_id)
                         capture_started = True
                         continue
                     source, last_sequence, total_samples, cutoff = validate_source_end(control, session_id)

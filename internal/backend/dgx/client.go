@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +92,7 @@ type sourceLimit struct {
 	DrainReserveTokens       uint64       `json:"drain_reserve_tokens"`
 }
 type readyWire struct {
+	CaptureContinuation               bool          `json:"capture_continuation,omitempty"`
 	Type                              string        `json:"type"`
 	Protocol                          string        `json:"protocol"`
 	SessionID                         string        `json:"session_id"`
@@ -209,7 +211,7 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 		_ = conn.Close()
 		return nil, fmt.Errorf("set paired start deadline: %w", err)
 	}
-	if err := conn.WriteJSON(startWire{Type: "start", Protocol: protocol, SessionID: req.SessionID, Language: req.Language, Sources: formats}); err != nil {
+	if err := conn.WriteJSON(startWire{Type: "start", Protocol: requestProtocol(req), SessionID: req.SessionID, Language: req.Language, Sources: formats}); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("send paired DGX start: %w", err)
 	}
@@ -218,7 +220,11 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 		return nil, fmt.Errorf("clear paired start deadline: %w", err)
 	}
 	var ready readyWire
-	if err := readStrictJSON(conn, &ready, "type", "protocol", "session_id", "language", "model", "sources", "max_active_pairs", "aggregate_max_audio_samples", "aggregate_max_queue_frames", "aggregate_max_context_tokens", "aggregate_drain_reserve_model_samples", "aggregate_drain_reserve_tokens", "max_inference_workers", "startup_timeout_ms", "drain_timeout_ms"); err != nil {
+	readyKeys := []string{"type", "protocol", "session_id", "language", "model", "sources", "max_active_pairs", "aggregate_max_audio_samples", "aggregate_max_queue_frames", "aggregate_max_context_tokens", "aggregate_drain_reserve_model_samples", "aggregate_drain_reserve_tokens", "max_inference_workers", "startup_timeout_ms", "drain_timeout_ms"}
+	if req.ContinuousCapture {
+		readyKeys = append(readyKeys, "capture_continuation")
+	}
+	if err := readStrictJSON(conn, &ready, readyKeys...); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("read paired DGX ready: %w", err)
 	}
@@ -243,7 +249,7 @@ func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend
 	for _, source := range ready.Sources {
 		caps[source.Source] = source.MaxAudioSamples
 	}
-	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{SourceSampleCaps: caps, SessionID: ready.SessionID, Model: ready.Model.ID + "@" + ready.Model.Revision, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
+	s := &ClientSession{conn: conn, cfg: c.cfg, ready: backend.Ready{CaptureContinuation: ready.CaptureContinuation, SourceSampleCaps: caps, SessionID: ready.SessionID, Model: ready.Model.ID + "@" + ready.Model.Revision, Language: ready.Language, Sources: formats, MaxActivePairs: ready.MaxActivePairs, StartupTimeoutMS: ready.StartupTimeoutMS, DrainTimeoutMS: ready.DrainTimeoutMS}, mic: make(chan audio.Frame, capMic), call: make(chan audio.Frame, capCall), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: limits, queued: map[audio.Source]backend.EndRequest{}, events: make(chan backend.Event, 32), closed: make(chan struct{}), writeDone: make(chan error, 1)}
 	go s.writeLoop()
 	go s.readLoop()
 	return s, nil
@@ -279,7 +285,7 @@ func readRestrictedToken(path string) (string, error) {
 	return string(data), nil
 }
 func validateReady(r readyWire, req backend.StartRequest, want []backend.SourceFormat) error {
-	if r.Type != "ready" || r.Protocol != protocol || r.SessionID != req.SessionID || r.Language != req.Language || r.Model.ID == "" || r.Model.Revision == "" || r.Model.SourceCommit == "" || r.Model.SampleRate == 0 || r.Model.ChunkSamples == 0 || r.Model.Lookahead > r.Model.SampleRate || r.MaxActivePairs != 1 || r.AggregateMaxAudioSamples == 0 || r.AggregateMaxQueueFrames == 0 || r.AggregateMaxContextTokens == 0 || r.MaxInferenceWorkers != 1 || r.StartupTimeoutMS == 0 || r.DrainTimeoutMS == 0 || len(r.Sources) != 2 {
+	if r.Type != "ready" || r.Protocol != requestProtocol(req) || (req.ContinuousCapture && !r.CaptureContinuation) || r.SessionID != req.SessionID || r.Language != req.Language || r.Model.ID == "" || r.Model.Revision == "" || r.Model.SourceCommit == "" || r.Model.SampleRate == 0 || r.Model.ChunkSamples == 0 || r.Model.Lookahead > r.Model.SampleRate || r.MaxActivePairs != 1 || r.AggregateMaxAudioSamples == 0 || r.AggregateMaxQueueFrames == 0 || r.AggregateMaxContextTokens == 0 || r.MaxInferenceWorkers != 1 || r.StartupTimeoutMS == 0 || r.DrainTimeoutMS == 0 || len(r.Sources) != 2 {
 		return errors.New("DGX ready violates paired protocol or admission requirements")
 	}
 	if len(want) != 2 || r.Sources[0].Source != want[0].Source || r.Sources[1].Source != want[1].Source {
@@ -757,4 +763,40 @@ func remoteObject(data []byte) (map[string]json.RawMessage, error) {
 		return nil, errors.New("DGX message has trailing JSON")
 	}
 	return fields, nil
+}
+
+func requestProtocol(req backend.StartRequest) string {
+	if req.ContinuousCapture {
+		return "mistt.paired.v2"
+	}
+	return protocol
+}
+
+type captureContinuedWire struct {
+	Type      string                  `json:"type"`
+	SessionID string                  `json:"session_id"`
+	Native    captureStartedWire      `json:"native_capture_started"`
+	Cut       uint64                  `json:"cutover_offset_ns"`
+	Origins   []backend.CaptureOrigin `json:"source_origins"`
+}
+
+func (s *ClientSession) CaptureContinued(c backend.CaptureContinuation) error {
+	wire, err := continuationWire(c, s.ready)
+	if err != nil {
+		return err
+	}
+	return s.writeJSON(wire)
+}
+func continuationWire(c backend.CaptureContinuation, ready backend.Ready) (captureContinuedWire, error) {
+	a := c.NativeStarted
+	if !ready.CaptureContinuation || !audio.ValidUUIDText(c.NativeSessionID) || c.NativeSessionID == ready.SessionID || !audio.ValidUUIDText(a.RequestID) || a.CaptureEpochHostNS == 0 || a.CaptureEpochUnixMS <= 0 || !a.MicrophoneReady || !a.CallAudioReady || !reflect.DeepEqual(a.Sources, ready.Sources) || c.CutoverOffsetNS == 0 || a.CaptureEpochHostNS > math.MaxUint64-c.CutoverOffsetNS || c.CutoverOffsetNS/1_000_000 > uint64(math.MaxInt64-a.CaptureEpochUnixMS) || len(c.Origins) != 2 {
+		return captureContinuedWire{}, errors.New("invalid continuous native capture provenance")
+	}
+	for i, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
+		o := c.Origins[i]
+		if o.Source != source || o.NativeSequence == 0 || o.NativeCaptureOffsetNS < c.CutoverOffsetNS || o.NativeCaptureOffsetNS-c.CutoverOffsetNS >= audio.SampleNS {
+			return captureContinuedWire{}, errors.New("continuous native source does not cover boundary")
+		}
+	}
+	return captureContinuedWire{"capture_continued", ready.SessionID, captureStartedWire{Type: "capture_started", SessionID: c.NativeSessionID, RequestID: a.RequestID, CaptureEpochHostNS: a.CaptureEpochHostNS, CaptureEpochUnixMS: a.CaptureEpochUnixMS, Sources: a.Sources, MicrophoneReady: a.MicrophoneReady, CallAudioReady: a.CallAudioReady}, c.CutoverOffsetNS, c.Origins}, nil
 }

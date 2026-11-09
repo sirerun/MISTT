@@ -51,8 +51,9 @@ func TestRolloverSplitAtExactSample(t *testing.T) {
 	if !reflect.DeepEqual(append(append([]int16{}, l.Samples...), r.Samples...), f.Samples) || r.StartSample != 12 || r.Sequence != 4 {
 		t.Fatal("cut lost samples/provenance")
 	}
-	if _, _, err = splitRolloverFrame(f, 12*audio.SampleNS+1); err == nil {
-		t.Fatal("unaligned cut accepted")
+	l, r, err = splitRolloverFrame(f, 12*audio.SampleNS+1)
+	if err != nil || len(l.Samples) != 3 || len(r.Samples) != 1 || r.CaptureOffsetNS != 13*audio.SampleNS {
+		t.Fatal("source clock phase lost samples")
 	}
 }
 func TestRolloverFailsClosed(t *testing.T) {

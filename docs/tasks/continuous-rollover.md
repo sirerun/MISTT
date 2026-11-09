@@ -35,3 +35,13 @@ both public batch regressions. No other public-main replacement was applied.
 Initial independent buffer review identified a first-frame coverage hole: fixed
 by requiring exact per-source cut cursors and rejecting initial skipped samples.
 Terminal take failures now zero retained PCM as well. Focused rollover tests pass.
+
+Read-only runtime contract verified by the runtime owner: max_active_pairs=1;
+no new pair may open until old cleanup releases admission. The existing source
+caps are 1,920,000 transport samples/source and inference_workers=1.
+Protocol checkpoint adds explicit mistt.paired.v2 negotiation and a separate
+capture_continued message, retaining the original native acknowledgement and
+paired source origins. v1 start/ready bytes and behavior remain unchanged.
+No caller currently requests v2; service integration remains outstanding.
+Focused Go DGX client tests and three dependency-free continuation protocol tests
+pass; Python gateway files compile. These are contract tests, not live proof.

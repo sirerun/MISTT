@@ -134,3 +134,46 @@ func TestPerSourceQueueIsBoundedAndEOFSealsSource(t *testing.T) {
 		t.Fatal("accepted mismatched paired cutoff")
 	}
 }
+
+func TestContinuationRequiresNegotiatedVersion(t *testing.T) {
+	r := readyFixture()
+	req := backend.StartRequest{SessionID: r.SessionID, Language: r.Language, ContinuousCapture: true}
+	want := []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: 1, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: 1, Encoding: audio.Encoding}}
+	if err := validateReady(r, req, want); err == nil {
+		t.Fatal("v1 silently admitted continuation")
+	}
+	r.Protocol = "mistt.paired.v2"
+	r.CaptureContinuation = true
+	if err := validateReady(r, req, want); err != nil {
+		t.Fatal(err)
+	}
+	req.ContinuousCapture = false
+	if err := validateReady(r, req, want); err == nil {
+		t.Fatal("v2 silently replaced v1")
+	}
+}
+func TestContinuationWirePreservesRealNativeAck(t *testing.T) {
+	native := "00112233-4455-6677-8899-aabbccddeeff"
+	remote := "00112233-4455-6677-8899-aabbccddeeaa"
+	sources := []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: audio.SampleRate, Channels: 1, Encoding: audio.Encoding}, {Source: audio.CallAudio, SampleRateHz: audio.SampleRate, Channels: 1, Encoding: audio.Encoding}}
+	c := backend.CaptureContinuation{NativeSessionID: native, NativeStarted: backend.CaptureStarted{RequestID: native, CaptureEpochHostNS: 1000, CaptureEpochUnixMS: 1000, Sources: sources, MicrophoneReady: true, CallAudioReady: true}, CutoverOffsetNS: 1_000_000_000, Origins: []backend.CaptureOrigin{{Source: audio.Microphone, NativeSequence: 11, NativeStartSample: 16000, NativeCaptureOffsetNS: 1_000_000_000}, {Source: audio.CallAudio, NativeSequence: 12, NativeStartSample: 16000, NativeCaptureOffsetNS: 1_000_000_001}}}
+	ready := backend.Ready{SessionID: remote, Sources: sources, CaptureContinuation: true}
+	wire, err := continuationWire(c, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.Type != "capture_continued" || wire.Native.SessionID != native || wire.Native.RequestID != native || wire.Native.CaptureEpochHostNS != 1000 || wire.SessionID != remote {
+		t.Fatal("native restart fabricated")
+	}
+	for _, mutate := range []func(*backend.CaptureContinuation){func(v *backend.CaptureContinuation) { v.NativeSessionID = remote }, func(v *backend.CaptureContinuation) { v.NativeStarted.MicrophoneReady = false }, func(v *backend.CaptureContinuation) { v.CutoverOffsetNS = 0 }, func(v *backend.CaptureContinuation) { v.Origins = nil }} {
+		bad := c
+		mutate(&bad)
+		if _, err := continuationWire(bad, ready); err == nil {
+			t.Fatal("invalid continuation accepted")
+		}
+	}
+	ready.CaptureContinuation = false
+	if _, err := continuationWire(c, ready); err == nil {
+		t.Fatal("unnegotiated continuation accepted")
+	}
+}

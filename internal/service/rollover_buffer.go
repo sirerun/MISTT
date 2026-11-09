@@ -146,7 +146,8 @@ func (b *rolloverBuffer) clearLocked() {
 }
 
 // splitRolloverFrame partitions without changing native identity, sample indices,
-// or timestamps. The cut must lie on the 16 kHz sample grid.
+// or timestamps. Each source retains samples before the shared cut and hands
+// off its first real sample at/after it; source clock phases may differ.
 func splitRolloverFrame(f audio.Frame, boundary uint64) (*audio.Frame, *audio.Frame, error) {
 	if err := f.Validate(); err != nil {
 		return nil, nil, err
@@ -155,10 +156,10 @@ func splitRolloverFrame(f audio.Frame, boundary uint64) (*audio.Frame, *audio.Fr
 		return nil, &f, nil
 	}
 	delta := boundary - f.CaptureOffsetNS
-	if delta%audio.SampleNS != 0 {
-		return nil, nil, errors.New("rollover boundary is not sample aligned")
-	}
 	count := delta / audio.SampleNS
+	if delta%audio.SampleNS != 0 {
+		count++
+	}
 	if count >= uint64(len(f.Samples)) {
 		return &f, nil, nil
 	}
@@ -166,7 +167,7 @@ func splitRolloverFrame(f audio.Frame, boundary uint64) (*audio.Frame, *audio.Fr
 	left.Samples = f.Samples[:count]
 	right.Samples = f.Samples[count:]
 	right.StartSample += count
-	right.CaptureOffsetNS = boundary
+	right.CaptureOffsetNS = f.CaptureOffsetNS + count*audio.SampleNS
 	// Native sequence identifies the original callback frame in both pieces. The
 	// remote generation assigns its own independent sequence ledger.
 	return &left, &right, nil
