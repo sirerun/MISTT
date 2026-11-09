@@ -72,9 +72,9 @@ func (s *Service) rotatePair(pair *activePair) {
 	s.signalLocked()
 	s.mu.Unlock()
 	if reason == budgetRotationReason && s.cfg.ContinuousRollover {
-		if next := s.rolloverPair(pair); next != nil {
-			go s.runPair(next)
-		}
+		// supervise owns the only runPair consumer. The handoff installs s.active;
+		// after this returns the supervisor resumes that successor exactly once.
+		s.rolloverPair(pair)
 		return
 	}
 	// No retry/unmute: only a fully settled nil-cause stop can leave consent intact.

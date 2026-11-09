@@ -33,3 +33,21 @@ pre-finalization state custody, budget/counter audits and mid-word qualification
 No overlap, state transfer, cap increase, model or boundary algorithm change is
 part of this checkpoint. Any new ASR run requires exact owner-reviewed source,
 Linux artifact and bounded execution preview approval.
+
+## Successor ownership regression
+
+The real supervisor regression exposed two concurrent `runPair` owners after a
+successful continuous handoff: `rotatePair` started a goroutine for the successor,
+then returned to `supervise`, which synchronously started that same successor.
+Each owner could consume the other's first cut frame while advancing a shared
+native ledger. This explains a valid global clock with an invalid per-owner cut
+cursor; it is not evidence for changing the clock or weakening cursor validation.
+
+The minimal correction leaves successor execution exclusively to `supervise`;
+`rolloverPair` already installs `s.active`. The regression observes backend event
+ownership before allowing either owner to consume a frame. It fails against the
+old source with two owners, passes ten race-enabled repetitions with the fix,
+and verifies bounded mute/native closure and supervisor shutdown after handoff.
+A timer/entry barrier prevents the fixture from consuming frames before the first
+cut is planned. No public protocol, sample mapping, model, cap or native UI change
+is involved. Real240second and900second qualification remain separate owner gates.
