@@ -706,8 +706,11 @@ type SessionStarted struct {
 	CaptureEpochUnixMs int64                  `protobuf:"varint,8,opt,name=capture_epoch_unix_ms,json=captureEpochUnixMs,proto3" json:"capture_epoch_unix_ms,omitempty"`
 	Sources            []*SourceFormat        `protobuf:"bytes,9,rep,name=sources,proto3" json:"sources,omitempty"`
 	CaptureMode        CaptureMode            `protobuf:"varint,10,opt,name=capture_mode,json=captureMode,proto3,enum=mistt.v1.CaptureMode" json:"capture_mode,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Optional paired-v2 attestation from the trusted MISTT producer, not ASR
+	// text or an independent cryptographic authentication of capture.
+	CaptureContinuation *CaptureContinuation `protobuf:"bytes,11,opt,name=capture_continuation,json=captureContinuation,proto3" json:"capture_continuation,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SessionStarted) Reset() {
@@ -810,6 +813,154 @@ func (x *SessionStarted) GetCaptureMode() CaptureMode {
 	return CaptureMode_CAPTURE_MODE_LEGACY_PAIRED
 }
 
+func (x *SessionStarted) GetCaptureContinuation() *CaptureContinuation {
+	if x != nil {
+		return x.CaptureContinuation
+	}
+	return nil
+}
+
+// Present only after the previous paired ASR generation settled successfully,
+// both native ledgers continued across the cut, and its successor accepted v2.
+// The outer SessionStarted retains the original physical epoch/model/formats.
+type CaptureContinuation struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Version           uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"` // Version 1; absent/unknown proof must never imply a join.
+	PreviousSessionId string                 `protobuf:"bytes,2,opt,name=previous_session_id,json=previousSessionId,proto3" json:"previous_session_id,omitempty"`
+	NativeSessionId   string                 `protobuf:"bytes,3,opt,name=native_session_id,json=nativeSessionId,proto3" json:"native_session_id,omitempty"`
+	CutoverOffsetNs   uint64                 `protobuf:"varint,4,opt,name=cutover_offset_ns,json=cutoverOffsetNs,proto3" json:"cutover_offset_ns,omitempty"`
+	Sources           []*CaptureSourceOrigin `protobuf:"bytes,5,rep,name=sources,proto3" json:"sources,omitempty"` // Exactly microphone, call_audio.
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *CaptureContinuation) Reset() {
+	*x = CaptureContinuation{}
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaptureContinuation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaptureContinuation) ProtoMessage() {}
+
+func (x *CaptureContinuation) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaptureContinuation.ProtoReflect.Descriptor instead.
+func (*CaptureContinuation) Descriptor() ([]byte, []int) {
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *CaptureContinuation) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *CaptureContinuation) GetPreviousSessionId() string {
+	if x != nil {
+		return x.PreviousSessionId
+	}
+	return ""
+}
+
+func (x *CaptureContinuation) GetNativeSessionId() string {
+	if x != nil {
+		return x.NativeSessionId
+	}
+	return ""
+}
+
+func (x *CaptureContinuation) GetCutoverOffsetNs() uint64 {
+	if x != nil {
+		return x.CutoverOffsetNs
+	}
+	return 0
+}
+
+func (x *CaptureContinuation) GetSources() []*CaptureSourceOrigin {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+type CaptureSourceOrigin struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Source string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// Native-global coordinates: previous accepted end == successor first start.
+	// Source clock phase permits capture_offset_ns in cut+[0, 62500ns).
+	StartSample     uint64 `protobuf:"varint,2,opt,name=start_sample,json=startSample,proto3" json:"start_sample,omitempty"`
+	CaptureOffsetNs uint64 `protobuf:"varint,3,opt,name=capture_offset_ns,json=captureOffsetNs,proto3" json:"capture_offset_ns,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CaptureSourceOrigin) Reset() {
+	*x = CaptureSourceOrigin{}
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CaptureSourceOrigin) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CaptureSourceOrigin) ProtoMessage() {}
+
+func (x *CaptureSourceOrigin) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CaptureSourceOrigin.ProtoReflect.Descriptor instead.
+func (*CaptureSourceOrigin) Descriptor() ([]byte, []int) {
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CaptureSourceOrigin) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *CaptureSourceOrigin) GetStartSample() uint64 {
+	if x != nil {
+		return x.StartSample
+	}
+	return 0
+}
+
+func (x *CaptureSourceOrigin) GetCaptureOffsetNs() uint64 {
+	if x != nil {
+		return x.CaptureOffsetNs
+	}
+	return 0
+}
+
 type TranscriptionEvent struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	Source              string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
@@ -829,7 +980,7 @@ type TranscriptionEvent struct {
 
 func (x *TranscriptionEvent) Reset() {
 	*x = TranscriptionEvent{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[9]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -841,7 +992,7 @@ func (x *TranscriptionEvent) String() string {
 func (*TranscriptionEvent) ProtoMessage() {}
 
 func (x *TranscriptionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[9]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -854,7 +1005,7 @@ func (x *TranscriptionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptionEvent.ProtoReflect.Descriptor instead.
 func (*TranscriptionEvent) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{9}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TranscriptionEvent) GetSource() string {
@@ -945,7 +1096,7 @@ type SessionStopped struct {
 
 func (x *SessionStopped) Reset() {
 	*x = SessionStopped{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[10]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -957,7 +1108,7 @@ func (x *SessionStopped) String() string {
 func (*SessionStopped) ProtoMessage() {}
 
 func (x *SessionStopped) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[10]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -970,7 +1121,7 @@ func (x *SessionStopped) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionStopped.ProtoReflect.Descriptor instead.
 func (*SessionStopped) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{10}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SessionStopped) GetReason() string {
@@ -1007,7 +1158,7 @@ type SessionGap struct {
 
 func (x *SessionGap) Reset() {
 	*x = SessionGap{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[11]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1019,7 +1170,7 @@ func (x *SessionGap) String() string {
 func (*SessionGap) ProtoMessage() {}
 
 func (x *SessionGap) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[11]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1032,7 +1183,7 @@ func (x *SessionGap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionGap.ProtoReflect.Descriptor instead.
 func (*SessionGap) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{11}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SessionGap) GetReason() string {
@@ -1081,7 +1232,7 @@ type SpeechActivity struct {
 
 func (x *SpeechActivity) Reset() {
 	*x = SpeechActivity{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[12]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1093,7 +1244,7 @@ func (x *SpeechActivity) String() string {
 func (*SpeechActivity) ProtoMessage() {}
 
 func (x *SpeechActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[12]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1106,7 +1257,7 @@ func (x *SpeechActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpeechActivity.ProtoReflect.Descriptor instead.
 func (*SpeechActivity) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{12}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SpeechActivity) GetSource() string {
@@ -1141,7 +1292,7 @@ type RecognitionProgress struct {
 
 func (x *RecognitionProgress) Reset() {
 	*x = RecognitionProgress{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[13]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1153,7 +1304,7 @@ func (x *RecognitionProgress) String() string {
 func (*RecognitionProgress) ProtoMessage() {}
 
 func (x *RecognitionProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[13]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1166,7 +1317,7 @@ func (x *RecognitionProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecognitionProgress.ProtoReflect.Descriptor instead.
 func (*RecognitionProgress) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{13}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RecognitionProgress) GetSource() string {
@@ -1201,7 +1352,7 @@ type WakeDetected struct {
 
 func (x *WakeDetected) Reset() {
 	*x = WakeDetected{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[14]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1213,7 +1364,7 @@ func (x *WakeDetected) String() string {
 func (*WakeDetected) ProtoMessage() {}
 
 func (x *WakeDetected) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[14]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1226,7 +1377,7 @@ func (x *WakeDetected) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WakeDetected.ProtoReflect.Descriptor instead.
 func (*WakeDetected) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{14}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WakeDetected) GetSource() string {
@@ -1261,7 +1412,7 @@ type ConversationStart struct {
 
 func (x *ConversationStart) Reset() {
 	*x = ConversationStart{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[15]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1424,7 @@ func (x *ConversationStart) String() string {
 func (*ConversationStart) ProtoMessage() {}
 
 func (x *ConversationStart) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[15]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1437,7 @@ func (x *ConversationStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConversationStart.ProtoReflect.Descriptor instead.
 func (*ConversationStart) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{15}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ConversationStart) GetSessionId() string {
@@ -1321,7 +1472,7 @@ type MicrophonePCM struct {
 
 func (x *MicrophonePCM) Reset() {
 	*x = MicrophonePCM{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[16]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1484,7 @@ func (x *MicrophonePCM) String() string {
 func (*MicrophonePCM) ProtoMessage() {}
 
 func (x *MicrophonePCM) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[16]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1497,7 @@ func (x *MicrophonePCM) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MicrophonePCM.ProtoReflect.Descriptor instead.
 func (*MicrophonePCM) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{16}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MicrophonePCM) GetSequence() uint64 {
@@ -1380,7 +1531,7 @@ type ConversationActivity struct {
 
 func (x *ConversationActivity) Reset() {
 	*x = ConversationActivity{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[17]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1392,7 +1543,7 @@ func (x *ConversationActivity) String() string {
 func (*ConversationActivity) ProtoMessage() {}
 
 func (x *ConversationActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[17]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1405,7 +1556,7 @@ func (x *ConversationActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConversationActivity.ProtoReflect.Descriptor instead.
 func (*ConversationActivity) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{17}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ConversationActivity) GetSpeaking() bool {
@@ -1433,7 +1584,7 @@ type RecognitionCheckpoint struct {
 
 func (x *RecognitionCheckpoint) Reset() {
 	*x = RecognitionCheckpoint{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[18]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1445,7 +1596,7 @@ func (x *RecognitionCheckpoint) String() string {
 func (*RecognitionCheckpoint) ProtoMessage() {}
 
 func (x *RecognitionCheckpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[18]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1458,7 +1609,7 @@ func (x *RecognitionCheckpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecognitionCheckpoint.ProtoReflect.Descriptor instead.
 func (*RecognitionCheckpoint) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{18}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RecognitionCheckpoint) GetThroughSample() uint64 {
@@ -1483,7 +1634,7 @@ type ConversationRequest struct {
 
 func (x *ConversationRequest) Reset() {
 	*x = ConversationRequest{}
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[19]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1495,7 +1646,7 @@ func (x *ConversationRequest) String() string {
 func (*ConversationRequest) ProtoMessage() {}
 
 func (x *ConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[19]
+	mi := &file_proto_mistt_v1_mistt_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1508,7 +1659,7 @@ func (x *ConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConversationRequest.ProtoReflect.Descriptor instead.
 func (*ConversationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{19}
+	return file_proto_mistt_v1_mistt_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ConversationRequest) GetPayload() isConversationRequest_Payload {
@@ -1629,7 +1780,7 @@ const file_proto_mistt_v1_mistt_proto_rawDesc = "" +
 	"\x14recognition_progress\x18\t \x01(\v2\x1d.mistt.v1.RecognitionProgressH\x00R\x13recognitionProgress\x12=\n" +
 	"\rwake_detected\x18\n" +
 	" \x01(\v2\x16.mistt.v1.WakeDetectedH\x00R\fwakeDetectedB\t\n" +
-	"\apayload\"\x8c\x03\n" +
+	"\apayload\"\xde\x03\n" +
 	"\x0eSessionStarted\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1a\n" +
@@ -1641,7 +1792,18 @@ const file_proto_mistt_v1_mistt_proto_rawDesc = "" +
 	"\x15capture_epoch_unix_ms\x18\b \x01(\x03R\x12captureEpochUnixMs\x120\n" +
 	"\asources\x18\t \x03(\v2\x16.mistt.v1.SourceFormatR\asources\x128\n" +
 	"\fcapture_mode\x18\n" +
-	" \x01(\x0e2\x15.mistt.v1.CaptureModeR\vcaptureMode\"\x89\x03\n" +
+	" \x01(\x0e2\x15.mistt.v1.CaptureModeR\vcaptureMode\x12P\n" +
+	"\x14capture_continuation\x18\v \x01(\v2\x1d.mistt.v1.CaptureContinuationR\x13captureContinuation\"\xf0\x01\n" +
+	"\x13CaptureContinuation\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12.\n" +
+	"\x13previous_session_id\x18\x02 \x01(\tR\x11previousSessionId\x12*\n" +
+	"\x11native_session_id\x18\x03 \x01(\tR\x0fnativeSessionId\x12*\n" +
+	"\x11cutover_offset_ns\x18\x04 \x01(\x04R\x0fcutoverOffsetNs\x127\n" +
+	"\asources\x18\x05 \x03(\v2\x1d.mistt.v1.CaptureSourceOriginR\asources\"|\n" +
+	"\x13CaptureSourceOrigin\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12!\n" +
+	"\fstart_sample\x18\x02 \x01(\x04R\vstartSample\x12*\n" +
+	"\x11capture_offset_ns\x18\x03 \x01(\x04R\x0fcaptureOffsetNs\"\x89\x03\n" +
 	"\x12TranscriptionEvent\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x122\n" +
 	"\x15source_event_sequence\x18\x02 \x01(\x04R\x13sourceEventSequence\x12\x1d\n" +
@@ -1728,7 +1890,7 @@ func file_proto_mistt_v1_mistt_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_mistt_v1_mistt_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_mistt_v1_mistt_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_proto_mistt_v1_mistt_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_proto_mistt_v1_mistt_proto_goTypes = []any{
 	(CaptureMode)(0),              // 0: mistt.v1.CaptureMode
 	(*ClientMessage)(nil),         // 1: mistt.v1.ClientMessage
@@ -1740,50 +1902,54 @@ var file_proto_mistt_v1_mistt_proto_goTypes = []any{
 	(*Status)(nil),                // 7: mistt.v1.Status
 	(*StreamResponse)(nil),        // 8: mistt.v1.StreamResponse
 	(*SessionStarted)(nil),        // 9: mistt.v1.SessionStarted
-	(*TranscriptionEvent)(nil),    // 10: mistt.v1.TranscriptionEvent
-	(*SessionStopped)(nil),        // 11: mistt.v1.SessionStopped
-	(*SessionGap)(nil),            // 12: mistt.v1.SessionGap
-	(*SpeechActivity)(nil),        // 13: mistt.v1.SpeechActivity
-	(*RecognitionProgress)(nil),   // 14: mistt.v1.RecognitionProgress
-	(*WakeDetected)(nil),          // 15: mistt.v1.WakeDetected
-	(*ConversationStart)(nil),     // 16: mistt.v1.ConversationStart
-	(*MicrophonePCM)(nil),         // 17: mistt.v1.MicrophonePCM
-	(*ConversationActivity)(nil),  // 18: mistt.v1.ConversationActivity
-	(*RecognitionCheckpoint)(nil), // 19: mistt.v1.RecognitionCheckpoint
-	(*ConversationRequest)(nil),   // 20: mistt.v1.ConversationRequest
+	(*CaptureContinuation)(nil),   // 10: mistt.v1.CaptureContinuation
+	(*CaptureSourceOrigin)(nil),   // 11: mistt.v1.CaptureSourceOrigin
+	(*TranscriptionEvent)(nil),    // 12: mistt.v1.TranscriptionEvent
+	(*SessionStopped)(nil),        // 13: mistt.v1.SessionStopped
+	(*SessionGap)(nil),            // 14: mistt.v1.SessionGap
+	(*SpeechActivity)(nil),        // 15: mistt.v1.SpeechActivity
+	(*RecognitionProgress)(nil),   // 16: mistt.v1.RecognitionProgress
+	(*WakeDetected)(nil),          // 17: mistt.v1.WakeDetected
+	(*ConversationStart)(nil),     // 18: mistt.v1.ConversationStart
+	(*MicrophonePCM)(nil),         // 19: mistt.v1.MicrophonePCM
+	(*ConversationActivity)(nil),  // 20: mistt.v1.ConversationActivity
+	(*RecognitionCheckpoint)(nil), // 21: mistt.v1.RecognitionCheckpoint
+	(*ConversationRequest)(nil),   // 22: mistt.v1.ConversationRequest
 }
 var file_proto_mistt_v1_mistt_proto_depIdxs = []int32{
 	2,  // 0: mistt.v1.ClientMessage.subscribe:type_name -> mistt.v1.Subscribe
 	3,  // 1: mistt.v1.ClientMessage.keep_alive:type_name -> mistt.v1.KeepAlive
 	0,  // 2: mistt.v1.Subscribe.capture_mode:type_name -> mistt.v1.CaptureMode
 	9,  // 3: mistt.v1.StreamResponse.session_started:type_name -> mistt.v1.SessionStarted
-	10, // 4: mistt.v1.StreamResponse.transcription:type_name -> mistt.v1.TranscriptionEvent
-	11, // 5: mistt.v1.StreamResponse.session_stopped:type_name -> mistt.v1.SessionStopped
-	12, // 6: mistt.v1.StreamResponse.session_gap:type_name -> mistt.v1.SessionGap
-	13, // 7: mistt.v1.StreamResponse.speech_started:type_name -> mistt.v1.SpeechActivity
-	13, // 8: mistt.v1.StreamResponse.speech_stopped:type_name -> mistt.v1.SpeechActivity
-	14, // 9: mistt.v1.StreamResponse.recognition_progress:type_name -> mistt.v1.RecognitionProgress
-	15, // 10: mistt.v1.StreamResponse.wake_detected:type_name -> mistt.v1.WakeDetected
+	12, // 4: mistt.v1.StreamResponse.transcription:type_name -> mistt.v1.TranscriptionEvent
+	13, // 5: mistt.v1.StreamResponse.session_stopped:type_name -> mistt.v1.SessionStopped
+	14, // 6: mistt.v1.StreamResponse.session_gap:type_name -> mistt.v1.SessionGap
+	15, // 7: mistt.v1.StreamResponse.speech_started:type_name -> mistt.v1.SpeechActivity
+	15, // 8: mistt.v1.StreamResponse.speech_stopped:type_name -> mistt.v1.SpeechActivity
+	16, // 9: mistt.v1.StreamResponse.recognition_progress:type_name -> mistt.v1.RecognitionProgress
+	17, // 10: mistt.v1.StreamResponse.wake_detected:type_name -> mistt.v1.WakeDetected
 	6,  // 11: mistt.v1.SessionStarted.sources:type_name -> mistt.v1.SourceFormat
 	0,  // 12: mistt.v1.SessionStarted.capture_mode:type_name -> mistt.v1.CaptureMode
-	0,  // 13: mistt.v1.ConversationStart.capture_mode:type_name -> mistt.v1.CaptureMode
-	16, // 14: mistt.v1.ConversationRequest.start:type_name -> mistt.v1.ConversationStart
-	17, // 15: mistt.v1.ConversationRequest.audio:type_name -> mistt.v1.MicrophonePCM
-	18, // 16: mistt.v1.ConversationRequest.activity:type_name -> mistt.v1.ConversationActivity
-	19, // 17: mistt.v1.ConversationRequest.checkpoint:type_name -> mistt.v1.RecognitionCheckpoint
-	1,  // 18: mistt.v1.Mistt.StreamTranscription:input_type -> mistt.v1.ClientMessage
-	20, // 19: mistt.v1.Mistt.Conversation:input_type -> mistt.v1.ConversationRequest
-	4,  // 20: mistt.v1.Mistt.WatchStatus:input_type -> mistt.v1.WatchStatusRequest
-	5,  // 21: mistt.v1.Mistt.SetMuted:input_type -> mistt.v1.SetMutedRequest
-	8,  // 22: mistt.v1.Mistt.StreamTranscription:output_type -> mistt.v1.StreamResponse
-	8,  // 23: mistt.v1.Mistt.Conversation:output_type -> mistt.v1.StreamResponse
-	7,  // 24: mistt.v1.Mistt.WatchStatus:output_type -> mistt.v1.Status
-	7,  // 25: mistt.v1.Mistt.SetMuted:output_type -> mistt.v1.Status
-	22, // [22:26] is the sub-list for method output_type
-	18, // [18:22] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	10, // 13: mistt.v1.SessionStarted.capture_continuation:type_name -> mistt.v1.CaptureContinuation
+	11, // 14: mistt.v1.CaptureContinuation.sources:type_name -> mistt.v1.CaptureSourceOrigin
+	0,  // 15: mistt.v1.ConversationStart.capture_mode:type_name -> mistt.v1.CaptureMode
+	18, // 16: mistt.v1.ConversationRequest.start:type_name -> mistt.v1.ConversationStart
+	19, // 17: mistt.v1.ConversationRequest.audio:type_name -> mistt.v1.MicrophonePCM
+	20, // 18: mistt.v1.ConversationRequest.activity:type_name -> mistt.v1.ConversationActivity
+	21, // 19: mistt.v1.ConversationRequest.checkpoint:type_name -> mistt.v1.RecognitionCheckpoint
+	1,  // 20: mistt.v1.Mistt.StreamTranscription:input_type -> mistt.v1.ClientMessage
+	22, // 21: mistt.v1.Mistt.Conversation:input_type -> mistt.v1.ConversationRequest
+	4,  // 22: mistt.v1.Mistt.WatchStatus:input_type -> mistt.v1.WatchStatusRequest
+	5,  // 23: mistt.v1.Mistt.SetMuted:input_type -> mistt.v1.SetMutedRequest
+	8,  // 24: mistt.v1.Mistt.StreamTranscription:output_type -> mistt.v1.StreamResponse
+	8,  // 25: mistt.v1.Mistt.Conversation:output_type -> mistt.v1.StreamResponse
+	7,  // 26: mistt.v1.Mistt.WatchStatus:output_type -> mistt.v1.Status
+	7,  // 27: mistt.v1.Mistt.SetMuted:output_type -> mistt.v1.Status
+	24, // [24:28] is the sub-list for method output_type
+	20, // [20:24] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_proto_mistt_v1_mistt_proto_init() }
@@ -1805,7 +1971,7 @@ func file_proto_mistt_v1_mistt_proto_init() {
 		(*StreamResponse_RecognitionProgress)(nil),
 		(*StreamResponse_WakeDetected)(nil),
 	}
-	file_proto_mistt_v1_mistt_proto_msgTypes[19].OneofWrappers = []any{
+	file_proto_mistt_v1_mistt_proto_msgTypes[21].OneofWrappers = []any{
 		(*ConversationRequest_Start)(nil),
 		(*ConversationRequest_Audio)(nil),
 		(*ConversationRequest_Activity)(nil),
@@ -1817,7 +1983,7 @@ func file_proto_mistt_v1_mistt_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mistt_v1_mistt_proto_rawDesc), len(file_proto_mistt_v1_mistt_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

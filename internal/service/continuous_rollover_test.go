@@ -27,6 +27,7 @@ type handoffSession struct {
 func newHandoffSession(id string) *handoffSession {
 	r := rotationReady(id)
 	r.MaxActivePairs = 1
+	r.Sources = []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}, {Source: audio.CallAudio, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}}
 	r.CaptureContinuation = true
 	return &handoffSession{ready: r, events: make(chan backend.Event, 8), ends: map[audio.Source]backend.EndRequest{}, ended: make(chan struct{})}
 }
@@ -59,11 +60,12 @@ func (h *handoffSession) Close() error                 { return nil }
 func (h *handoffSession) count() int                   { h.mu.Lock(); defer h.mu.Unlock(); return len(h.frames) }
 
 type handoffProvider struct {
-	old    *handoffSession
-	called chan struct{}
-	allow  chan struct{}
-	mu     sync.Mutex
-	next   *handoffSession
+	mutateReady func(*backend.Ready)
+	old         *handoffSession
+	called      chan struct{}
+	allow       chan struct{}
+	mu          sync.Mutex
+	next        *handoffSession
 }
 
 func (h *handoffProvider) Connect(ctx context.Context, r backend.StartRequest) (backend.Session, error) {
@@ -81,6 +83,9 @@ func (h *handoffProvider) Connect(ctx context.Context, r backend.StartRequest) (
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.next = newHandoffSession(r.SessionID)
+	if h.mutateReady != nil {
+		h.mutateReady(&h.next.ready)
+	}
 	return h.next, nil
 }
 func handoffFrame(id string, source audio.Source, seq uint64) audio.Frame {
@@ -149,6 +154,10 @@ func TestContinuousRolloverQueuesSpeechUntilOldSettlementAndNewReadiness(t *test
 	if next.nativeSessionID() != id || next.id == id || !pair.remoteSettled || !pair.syntheticRemoteEnds || next.remoteOffsetNS != 200_000_000 {
 		t.Fatal("generation/cut proof lost")
 	}
+	proof := next.started.GetSessionStarted().GetCaptureContinuation()
+	if proof == nil || proof.Version != 1 || proof.PreviousSessionId != id || proof.NativeSessionId != id || len(proof.Sources) != 2 || proof.Sources[1].StartSample != 3200 {
+		t.Fatal("missing settled capture attestation")
+	}
 	if old.count() != 4 || provider.next.count() != 8 {
 		t.Fatalf("sample stream lost/duplicated: oldframes=%d newframes=%d", old.count(), provider.next.count())
 	}
@@ -172,7 +181,7 @@ func newHandoffHarness(t *testing.T) (*Service, *activePair, *handoffSession, *h
 	cfg.BudgetRotation = true
 	cfg.ContinuousRollover = true
 	s, decoder := serviceWithOutputReader(t, cfg, provider)
-	pair := &activePair{id: id, nativeID: id, nativeStarted: backend.CaptureStarted{RequestID: id, CaptureEpochHostNS: 1, CaptureEpochUnixMS: 1, MicrophoneReady: true, CallAudioReady: true}, remote: old, ready: old.ready, epochHostNS: 1, epochUnixMS: 1, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}, started: &misttv1.StreamResponse{SessionId: id, Sequence: 1, Payload: &misttv1.StreamResponse_SessionStarted{SessionStarted: &misttv1.SessionStarted{CaptureEpochHostNs: 1, CaptureEpochUnixMs: 1}}}}
+	pair := &activePair{id: id, nativeID: id, nativeStarted: backend.CaptureStarted{RequestID: id, CaptureEpochHostNS: 1, CaptureEpochUnixMS: 1, MicrophoneReady: true, CallAudioReady: true, Sources: []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}, {Source: audio.CallAudio, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}}}, remote: old, ready: old.ready, epochHostNS: 1, epochUnixMS: 1, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}, started: &misttv1.StreamResponse{SessionId: id, Sequence: 1, Payload: &misttv1.StreamResponse_SessionStarted{SessionStarted: &misttv1.SessionStarted{Backend: "dgx_paired", Model: old.ready.Model, Language: "en", SampleRateHz: 16000, Channels: 1, Encoding: "s16le", CaptureEpochHostNs: 1, CaptureEpochUnixMs: 1, Sources: []*misttv1.SourceFormat{{Source: "microphone", SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}, {Source: "call_audio", SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}}}}}}
 	for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
 		if err := s.acceptFrame(pair, handoffFrame(id, source, 1), nil); err != nil {
 			t.Fatal(err)
@@ -308,5 +317,47 @@ func TestContinuousRolloverDeadlineFailsClosed(t *testing.T) {
 	defer s.mu.Unlock()
 	if !s.muted || s.active != nil || !s.closureConfirmed {
 		t.Fatal("deadline lost native closure proof")
+	}
+}
+
+func TestContinuousRolloverRejectsChangedSuccessorBeforeProofOrReplay(t *testing.T) {
+	for name, mutate := range map[string]func(*backend.Ready){"model": func(r *backend.Ready) { r.Model = "different-model@pin" }, "language": func(r *backend.Ready) { r.Language = "fr" }, "formats": func(r *backend.Ready) { r.Sources[0].SampleRateHz = 48000 }} {
+		t.Run(name, func(t *testing.T) {
+			s, pair, old, provider, decoder := newHandoffHarness(t)
+			provider.mutateReady = mutate
+			result := make(chan *activePair, 1)
+			go func() { result <- s.rolloverPair(pair) }()
+			for seq := uint64(2); seq <= 3; seq++ {
+				for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
+					f := handoffFrame(pair.id, source, seq)
+					s.incoming <- ipc.Event{Frame: &f}
+				}
+			}
+			waitHandoff(t, old.ended)
+			old.events <- backend.Event{SourceDone: &backend.SourceCompletion{Source: audio.Microphone, Success: true}}
+			old.events <- backend.Event{SourceDone: &backend.SourceCompletion{Source: audio.CallAudio, Success: true}}
+			old.events <- backend.Event{Done: true}
+			waitHandoff(t, provider.called)
+			close(provider.allow)
+			stopHandoffFixture(t, s, pair, old, decoder, 3)
+			select {
+			case next := <-result:
+				if next != nil {
+					t.Fatal("changed successor activated")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("changed successor did not fail closed")
+			}
+			provider.next.mu.Lock()
+			defer provider.next.mu.Unlock()
+			if provider.next.continuation != nil || len(provider.next.frames) != 0 {
+				t.Fatal("changed successor received proof or replay")
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if !s.muted || s.active != nil || !s.closureConfirmed {
+				t.Fatal("changed successor lost native stop proof")
+			}
+		})
 	}
 }

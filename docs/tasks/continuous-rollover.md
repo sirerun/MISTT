@@ -52,3 +52,13 @@ cursor coverage was added. Final committed service/invalidation review, final
 focused checks, native/relay artifacts, DGX reviewed deployment, installation and
 live long-session acceptance remain separate gates. No runtime/config/capture
 changes or live ASR requests have been performed by this author lane.
+
+Versioned public continuation attestation was added after consumer regression
+proved suffix-only assessment and silent-microphone transcript absence exposed a
+proof gap. SessionStarted now optionally binds immediate predecessor/original
+native identity and ordered paired global origins. The producer checks successful
+settlement, actual retained successor PCM, exact old accepted endpoint equality
+and source clock phase before publication. No gateway Python or Swift input changed.
+The Go generator include root preserves the existing descriptor path, avoiding
+unrelated service-descriptor churn. Copilot must pin the published generated API
+after the source guard merge; old frozen artifacts are superseded, not overwritten.

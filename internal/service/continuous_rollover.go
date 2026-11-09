@@ -305,7 +305,8 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	}
 	ready := successor.Ready()
 	continuing, ok := successor.(backend.ContinuingSession)
-	if !ok || !ready.CaptureContinuation || ready.MaxActivePairs != 1 || ready.Model != pair.ready.Model || ready.Language != pair.ready.Language {
+	sameFormats := len(ready.Sources) == 2 && len(pair.nativeStarted.Sources) == 2 && ready.Sources[0] == pair.nativeStarted.Sources[0] && ready.Sources[1] == pair.nativeStarted.Sources[1]
+	if !ok || !ready.CaptureContinuation || ready.MaxActivePairs != 1 || ready.Model != pair.ready.Model || ready.Language != pair.ready.Language || !sameFormats {
 		fail("backend_failure", errors.New("successor ASR contract changed"))
 		return nil
 	}
@@ -348,6 +349,11 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		}
 		clear(frame.Samples)
 	}
+	attestation, err := settledCaptureContinuation(pair, boundary, cursors)
+	if err != nil {
+		fail("backend_failure", err)
+		return nil
+	}
 	s.mu.Lock()
 	if s.rotationOverallExpiredLocked(time.Now()) {
 		s.muted = true
@@ -363,6 +369,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	next.started = proto.Clone(pair.started).(*misttv1.StreamResponse)
 	next.started.SessionId = id
 	next.started.Sequence = 1
+	next.started.GetSessionStarted().CaptureContinuation = attestation
 	s.active = next
 	s.budgetRotations++
 	s.reason = "capturing"
