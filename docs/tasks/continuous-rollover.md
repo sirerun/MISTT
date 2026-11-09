@@ -15,7 +15,7 @@ Current planned rotation stops native capture, drains the old remote pair, and
 restarts; this creates an explicit capture gap.
 
 Initial source checkpoint adds an unwired bounded handoff primitive: copied PCM,
-eight seconds per source (512 KiB paired PCM), ten-second monotonic deadline,
+eight seconds per source (512,000 bytes paired PCM), ten-second monotonic deadline,
 exact sample-grid splitting, continuous native ledger validation, fresh remote
 mapping, retained native provenance, one-time transfer, and zeroed cancellation.
 Focused synthetic tests cover both-source sample preservation, exact boundary,
@@ -27,3 +27,11 @@ capture_started schema cannot truthfully represent a continuing native epoch),
 service wiring, stop/mute/race tests, independent review, and bounded qualification.
 No gateway deployment, capture activation, provider switch, or budget increase is
 authorized by this source checkpoint itself. Runtime effects remain owner-gated.
+
+Reconciliation: cherry-picked public bcd49e684c9710f0ec58775af6b905c73adc9fd1
+as f5ea61c, accepting valid coalesced control batches within existing byte bounds.
+Resolved its test conflict by retaining the private fatal-status regression and
+both public batch regressions. No other public-main replacement was applied.
+Initial independent buffer review identified a first-frame coverage hole: fixed
+by requiring exact per-source cut cursors and rejecting initial skipped samples.
+Terminal take failures now zero retained PCM as well. Focused rollover tests pass.

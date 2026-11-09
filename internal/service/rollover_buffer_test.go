@@ -12,7 +12,10 @@ func TestRolloverPreservesBothSourcesExactly(t *testing.T) {
 	now := time.Unix(1, 0)
 	native := [16]byte{1}
 	remote := [16]byte{2}
-	b := newRolloverBuffer(native, 100*audio.SampleNS, now)
+	b, err := newRolloverBuffer(native, 100*audio.SampleNS, pairedRolloverCursors(11, 100), now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for seq := uint64(1); seq <= 3; seq++ {
 		for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
 			f := audio.Frame{SessionID: native, Source: source, Sequence: seq + 10, StartSample: 100 + (seq-1)*2, CaptureOffsetNS: (100 + (seq-1)*2) * audio.SampleNS, Samples: []int16{int16(seq), -int16(seq)}}
@@ -56,7 +59,10 @@ func TestRolloverFailsClosed(t *testing.T) {
 	for _, kind := range []string{"cancel", "deadline", "capacity", "gap"} {
 		t.Run(kind, func(t *testing.T) {
 			now := time.Unix(1, 0)
-			b := newRolloverBuffer([16]byte{1}, 0, now)
+			b, err := newRolloverBuffer([16]byte{1}, 0, pairedRolloverCursors(1, 0), now)
+			if err != nil {
+				t.Fatal(err)
+			}
 			f := audio.Frame{SessionID: [16]byte{1}, Source: audio.Microphone, Sequence: 1, Samples: make([]int16, 1600)}
 			f.Samples[0] = 7
 			if err := b.append(f, now); err != nil {
@@ -86,5 +92,20 @@ func TestRolloverFailsClosed(t *testing.T) {
 				t.Fatal("failed buffer replayed")
 			}
 		})
+	}
+}
+
+func pairedRolloverCursors(seq, sample uint64) map[audio.Source]rolloverCursor {
+	return map[audio.Source]rolloverCursor{audio.Microphone: {seq, sample, sample * audio.SampleNS}, audio.CallAudio: {seq, sample, sample * audio.SampleNS}}
+}
+func TestRolloverRejectsFirstFrameGap(t *testing.T) {
+	now := time.Unix(1, 0)
+	b, err := newRolloverBuffer([16]byte{1}, 10*audio.SampleNS, pairedRolloverCursors(4, 10), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := audio.Frame{SessionID: [16]byte{1}, Source: audio.Microphone, Sequence: 4, StartSample: 20, CaptureOffsetNS: 20 * audio.SampleNS, Samples: []int16{1}}
+	if err = b.append(f, now); err == nil || !b.closed {
+		t.Fatal("first-frame gap accepted")
 	}
 }

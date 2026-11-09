@@ -20,6 +20,7 @@ type rolloverBuffer struct {
 	deadline time.Time
 	samples  map[audio.Source]uint64
 	next     map[audio.Source]audio.Frame
+	expected map[audio.Source]rolloverCursor
 	frames   []audio.Frame
 	closed   bool
 }
@@ -27,8 +28,23 @@ type rolloverBuffer struct {
 const rolloverSamplesPerSource = uint64(8 * audio.SampleRate)
 const rolloverDeadline = 10 * time.Second
 
-func newRolloverBuffer(native [16]byte, boundary uint64, now time.Time) *rolloverBuffer {
-	return &rolloverBuffer{native: native, boundary: boundary, deadline: now.Add(rolloverDeadline), samples: map[audio.Source]uint64{}, next: map[audio.Source]audio.Frame{}}
+type rolloverCursor struct{ Sequence, StartSample, CaptureOffsetNS uint64 }
+
+// The cut planner must supply the exact next sample for BOTH sources from the
+// validated native ledger. No first-frame gap may be hidden by rebasing.
+func newRolloverBuffer(native [16]byte, boundary uint64, cursors map[audio.Source]rolloverCursor, now time.Time) (*rolloverBuffer, error) {
+	if native == ([16]byte{}) || len(cursors) != 2 {
+		return nil, errors.New("rollover requires paired native cursors")
+	}
+	expected := make(map[audio.Source]rolloverCursor, 2)
+	for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
+		c, ok := cursors[source]
+		if !ok || c.Sequence == 0 || c.CaptureOffsetNS < boundary || c.CaptureOffsetNS-boundary >= audio.SampleNS {
+			return nil, errors.New("rollover cursor does not cover cut boundary")
+		}
+		expected[source] = c
+	}
+	return &rolloverBuffer{native: native, boundary: boundary, deadline: now.Add(rolloverDeadline), samples: map[audio.Source]uint64{}, next: map[audio.Source]audio.Frame{}, expected: expected}, nil
 }
 
 // append accepts frames wholly at/after the exact cut. The caller must split a
@@ -48,6 +64,12 @@ func (b *rolloverBuffer) append(f audio.Frame, now time.Time) error {
 	}
 	if f.SessionID != b.native || f.CaptureOffsetNS < b.boundary {
 		return fail("rollover native provenance mismatch")
+	}
+	if _, ok := b.next[f.Source]; !ok {
+		c := b.expected[f.Source]
+		if f.Sequence != c.Sequence || f.StartSample != c.StartSample || f.CaptureOffsetNS != c.CaptureOffsetNS {
+			return fail("rollover first frame does not match cut cursor")
+		}
 	}
 	if previous, ok := b.next[f.Source]; ok {
 		if previous.Sequence == math.MaxUint64 || f.Sequence != previous.Sequence+1 || f.StartSample != previous.StartSample+uint64(len(previous.Samples)) || f.CaptureOffsetNS != previous.CaptureOffsetNS+uint64(len(previous.Samples))*audio.SampleNS {
@@ -82,9 +104,11 @@ func (b *rolloverBuffer) take(remote [16]byte, now time.Time) ([]audio.Frame, []
 		return nil, nil, errors.New("rollover handoff deadline exceeded")
 	}
 	if remote == ([16]byte{}) || remote == b.native {
+		b.clearLocked()
 		return nil, nil, errors.New("rollover requires a fresh remote generation")
 	}
 	if b.samples[audio.Microphone] == 0 || b.samples[audio.CallAudio] == 0 {
+		b.clearLocked()
 		return nil, nil, errors.New("rollover requires both source ledgers")
 	}
 	original := b.frames
@@ -104,6 +128,7 @@ func (b *rolloverBuffer) take(remote [16]byte, now time.Time) ([]audio.Frame, []
 	}
 	b.frames = nil
 	b.next = nil
+	b.expected = nil
 	b.samples = nil
 	b.closed = true
 	return original, mapped, nil
@@ -115,6 +140,7 @@ func (b *rolloverBuffer) clearLocked() {
 	}
 	b.frames = nil
 	b.next = nil
+	b.expected = nil
 	b.samples = nil
 	b.closed = true
 }
