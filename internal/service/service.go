@@ -92,6 +92,8 @@ type queuedNativeCommand struct {
 }
 
 type Service struct {
+	diagnosticMu    sync.RWMutex
+	diagnostics     chan<- RolloverDiagnostic
 	budgetStarted   time.Time
 	budgetRotations uint32
 	misttv1.UnimplementedMisttServer

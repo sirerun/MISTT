@@ -29,6 +29,60 @@ SAMPLE_NS = 62500
 PINNED_MANIFEST_SHA256 = '15401b2b55e0f927003cf04c94230fa3532ff0ce211e6c4a3f0612a3e363946c'
 
 
+STOP_REASONS = frozenset(('user','muted','no_clients','max_duration','shutdown','capture_failure','backend_failure','native_failure','budget_rotation','rotation_limit','drain_timeout'))
+GRPC_CODES = frozenset(('OK','Canceled','Unknown','InvalidArgument','DeadlineExceeded','NotFound','AlreadyExists','PermissionDenied','ResourceExhausted','FailedPrecondition','Aborted','OutOfRange','Unimplemented','Internal','Unavailable','DataLoss','Unauthenticated'))
+DETAIL_CLASSES = {'operation failed':'operation_failed','operation timed out':'timeout','native owner disconnected':'native_disconnected'}
+
+ROLLOVER_STAGES=frozenset(['boundary_clock', 'buffer_accept', 'old_transcript_validation', 'old_end_source', 'old_settlement', 'successor_open', 'successor_ready', 'successor_continue', 'replay', 'continuation_attestation'])
+ROLLOVER_CAUSES=frozenset(['remote_close_normal','remote_close_going_away','remote_close_abnormal','remote_close_policy','remote_close_backend','remote_close_other','admission_deadline', 'buffer_closed', 'continuation_unproven', 'cursor_does_not_cover_cut', 'cut_deadline', 'cut_overflow', 'deadline', 'done_before_sources', 'first_frame_cursor_mismatch', 'frame_before_remote_origin', 'handoff_deadline', 'interrupted', 'invalid_pcm', 'invalid_source_completion', 'missing_cut_ledger', 'missing_native_timeline', 'missing_paired_cursors', 'missing_remote_origin', 'missing_source_ledgers', 'native_clock_mismatch', 'native_clock_overflow', 'native_disconnected', 'network_timeout', 'network_failure', 'native_host_overflow', 'native_ledger_gap', 'native_ledger_overflow', 'native_provenance_mismatch', 'native_sample_offset_overflow', 'old_closed_unsettled', 'old_ended_before_cut', 'pcm_capacity', 'remote_done_before_sources', 'remote_event_queue_overflow', 'remote_generation_invalid', 'remote_transcript_fields_invalid', 'settlement_deadline', 'successor_budget_expired', 'successor_contract_changed', 'transcript_after_final', 'transcript_clipped_interval', 'transcript_empty_timeline', 'transcript_end_clock_mismatch', 'transcript_end_host_overflow', 'transcript_host_overflow', 'transcript_interval_invalid', 'transcript_offset_overflow', 'transcript_projection_overflow', 'transcript_start_after_sent', 'transcript_start_before_sent', 'transcript_start_clock_mismatch', 'transcript_start_outside_sent', 'unclassified'])
+
+class TerminalDiagnostics:
+    """Bounded numeric/enum-only evidence; arbitrary error/detail text never escapes."""
+    def __init__(self):
+        self.lock=threading.Lock();self.first_failure=None;self.native_stop=None
+        self.first_error_terminal=None;self.last_terminal=None;self.lifecycle=[]
+        self.stderr_counts={};self.stderr_bytes={'relay':0,'observer':0};self.stderr_truncated=False;self.first_rollover_terminal=None
+    def failure(self,code):
+        safe=code if isinstance(code,str) and re.fullmatch(r'[A-Za-z0-9_]{1,80}',code) else 'unclassified_harness_failure'
+        with self.lock:
+            if self.first_failure is None:self.first_failure=safe
+    def phase(self,value):
+        with self.lock:
+            if len(self.lifecycle)<16:self.lifecycle.append(value)
+    def native(self,reason,expected):
+        with self.lock:
+            if self.native_stop is None:self.native_stop={'reason':reason if isinstance(reason,str) and reason in STOP_REASONS else 'unclassified','expected':bool(expected)}
+    def terminal(self,stop,generation,sequence):
+        code=stop.get('grpc_code',0)
+        code=code if type(code) is int and 0<=code<=16 else None
+        reason=stop.get('reason','')
+        value={'reason':reason if isinstance(reason,str) and reason in STOP_REASONS else 'unclassified','grpc_code':code,'detail_class':DETAIL_CLASSES.get(stop.get('detail',''),'unspecified') if isinstance(stop.get('detail',''),str) else 'unspecified','generation':generation if type(generation) is int and 0<=generation<=256 else None,'sequence':sequence if type(sequence) is int and 0<=sequence<(1<<64) else None}
+        with self.lock:
+            self.last_terminal=value
+            if code not in (0,None) and self.first_error_terminal is None:self.first_error_terminal=value
+    def stderr(self,source,line):
+        # Inspect at most64KiB/process, continuing to drain after the budget.
+        with self.lock:
+            remaining=max(0,65536-self.stderr_bytes[source]);self.stderr_bytes[source]+=min(len(line),remaining)
+            if len(line)>remaining:self.stderr_truncated=True
+            if remaining==0:return
+            text=line[:remaining].decode('utf-8','replace')
+            if len(line)<=4096:
+                try:record=json.loads(text)
+                except (ValueError,TypeError):record=None
+                fields={'event','version','stage','cause','sequence','remote_offset_ns','cut_offset_ns','native_samples','remote_samples'}
+                if isinstance(record,dict) and set(record)==fields and record.get('event')=='mistt_rollover_terminal' and type(record.get('version')) is int and record.get('version')==1 and isinstance(record.get('stage'),str) and record.get('stage') in ROLLOVER_STAGES and isinstance(record.get('cause'),str) and record.get('cause') in ROLLOVER_CAUSES:
+                    scalars=[record.get(k) for k in ('sequence','remote_offset_ns','cut_offset_ns')]
+                    arrays=[record.get(k) for k in ('native_samples','remote_samples')]
+                    if all(type(x) is int and 0<=x<(1<<64) for x in scalars) and all(isinstance(xs,list) and len(xs)==2 and all(type(x) is int and 0<=x<(1<<64) for x in xs) for xs in arrays):
+                        if self.first_rollover_terminal is None:self.first_rollover_terminal=record
+            match=re.search(r'\bcode\s*=\s*([A-Za-z]+)\b',text)
+            if match and match.group(1) in GRPC_CODES:
+                key=source+':grpc_'+match.group(1);self.stderr_counts[key]=self.stderr_counts.get(key,0)+1
+    def snapshot(self):
+        with self.lock:return {'first_harness_failure':self.first_failure,'first_rollover_terminal':self.first_rollover_terminal,'first_native_stop':self.native_stop,'first_error_terminal':self.first_error_terminal,'last_terminal':self.last_terminal,'lifecycle':list(self.lifecycle),'stderr_code_counts':dict(self.stderr_counts),'stderr_inspected_bytes':dict(self.stderr_bytes),'stderr_budget_exceeded':self.stderr_truncated}
+
+
 def valid_continuation(proof,previous,native,last_cut):
     try:
         if (not isinstance(proof,dict) or proof.get('version')!=1
@@ -114,7 +168,7 @@ def validate(config):
     path = None if isinstance(config, dict) else private_file(config)
     c = config if path is None else json.loads(path.read_text())
     required = {"relay", "relay_sha256", "endpoint", "token_file", "ca_file", "listen", "expected_model", "fixture_manifest", "mode", "output_dir"}
-    if not required.issubset(c) or c["mode"] not in ("baseline", "soak") or not c["expected_model"]:
+    if not required.issubset(c) or c["mode"] not in ("baseline", "soak", "diagnostic") or not c["expected_model"]:
         raise ValueError("invalid private configuration schema")
     from urllib.parse import urlsplit
     u = urlsplit(c["endpoint"])
@@ -189,8 +243,8 @@ def discard(stream):
 class Driver:
     def __init__(self, c, items, config_hash):
         self.c, self.items = c, items
-        self.duration = 119 if c["mode"] == "baseline" else 900
-        slots = [(i * 10.0, x) for i, x in enumerate(items)] if c["mode"] == "baseline" else [(108.5 + 110 * i, x) for i, x in enumerate([x for x in items if x["reference"].count("?") == 1][:8])]
+        self.duration = {"baseline":119,"soak":900,"diagnostic":240}[c["mode"]]
+        slots = [(i * 10.0, x) for i, x in enumerate(items)] if c["mode"] == "baseline" else [(108.5 + 110 * i, x) for i, x in enumerate([x for x in items if x["reference"].count("?") == 1][:(2 if c["mode"]=="diagnostic" else 8)])]
         self.schedule = [(int(t * RATE), x) for t, x in slots]
         if c['mode']=='soak':
             scheduled={item['id'] for _,item in self.schedule}
@@ -221,6 +275,10 @@ class Driver:
         self.snapshots = {0: ("", None)}
         self.stop_observed = threading.Event()
         self.errors = []
+        self.diagnostics=TerminalDiagnostics()
+        self.terminal_drain_observed=False
+        self.normal_stop_requested=False
+        self.exit_before_cleanup={}
         self.process = self.subscriber = self.producer = None
         self.hypothesis_log = None
         self.hypothesis_bytes = 0
@@ -263,6 +321,7 @@ class Driver:
         self.last_retained_hypothesis[key]=text
 
     def fail(self, code):
+        self.diagnostics.failure(code)
         self.errors.append(code)
         self.abort.set()
         self.emit("failure", code=code)
@@ -321,6 +380,8 @@ class Driver:
                     self.producer.start()
                 elif kind == "capture_stop":
                     self.native_stops += 1
+                    self.diagnostics.native(value.get("reason"),self.normal_stop_requested)
+                    self.diagnostics.phase("native_stop_received")
                     if not self.final_stop.is_set():
                         self.fail("premature_native_stop")
                     self.stopping.set()
@@ -333,6 +394,7 @@ class Driver:
                     self.write(control({"type": "capture_stopped", "request_id": value["request_id"], "session_id": self.native_id, "cutoff_host_ns": self.epoch + total * SAMPLE_NS, "microphone_io_stopped": True, "tap_io_stopped": True, "tap_destroyed": True, "aggregate_destroyed": True}))
                     for source in SOURCES:
                         self.write(control({"type": "source_end", "session_id": self.native_id, "source": source, "last_sequence": self.sequence, "total_samples": total}))
+                    self.diagnostics.phase("native_eof_sent")
                     self.emit("synthetic_native_eof", frames_per_source=self.sequence, samples_per_source=total)
         except Exception:
             if self.process.poll() is None:
@@ -346,7 +408,7 @@ class Driver:
                 if "SessionStarted" in payload:
                     if self.sessions:
                         proof=payload['SessionStarted'].get('capture_continuation')
-                        if self.c['mode']!='soak' or self.current_stop!='budget_rotation' or not valid_continuation(proof,self.current_asr_id,self.native_id,self.last_cut):
+                        if self.c['mode'] not in ('soak','diagnostic') or self.current_stop!='budget_rotation' or not valid_continuation(proof,self.current_asr_id,self.native_id,self.last_cut):
                             self.fail('continuation_attestation_unqualified')
                         else:
                             self.continuation_proofs+=1
@@ -360,11 +422,12 @@ class Driver:
                         self.fail("unexpected_model_identity")
                 elif "SessionStopped" in payload:
                     reason = payload["SessionStopped"].get("reason", "")
+                    self.diagnostics.terminal(payload["SessionStopped"],self.sessions,value.get("sequence",0))
                     if value.get('session_id')==self.current_asr_id:self.current_stop=reason
                     self.rotations += reason == "budget_rotation"
                     if reason != "budget_rotation":
                         self.stop_observed.set()
-                    self.emit("asr_session_stopped", generation=self.sessions, reason=reason)
+                    self.emit("asr_session_stopped", generation=self.sessions, reason=reason if isinstance(reason,str) and reason in STOP_REASONS else "unclassified",grpc_code=payload["SessionStopped"].get("grpc_code",0))
                 elif "SessionGap" in payload:
                     self.gaps += 1
                     self.emit("subscriber_gap", generation=self.sessions)
@@ -434,6 +497,10 @@ class Driver:
     def close_stack(self):
         pass
 
+    def stderr_diagnostics(self,stream,source):
+        for line in iter(lambda:stream.readline(4096),b""):
+            self.diagnostics.stderr(source,line)
+
     def run(self):
         threads = []
         try:
@@ -442,17 +509,20 @@ class Driver:
             with socket.socket() as probe:
                 probe.bind((host, int(port)))
             env = {k: v for k, v in os.environ.items() if not k.startswith("MISTT_")}
-            continuous = self.c["mode"] == "soak"
+            continuous = self.c["mode"] in ("soak","diagnostic")
             env.update(MISTT_LISTEN=self.c["listen"], MISTT_DGX_ENDPOINT=self.c["endpoint"], MISTT_TOKEN_FILE=self.c["token_file"], MISTT_CA_FILE=self.c["ca_file"], MISTT_LANGUAGE="en", MISTT_BUDGET_ROTATION=str(continuous).lower(), MISTT_CONTINUOUS_ROLLOVER=str(continuous).lower(), MISTT_MAX_DURATION=str(self.duration + 30) + "s")
-            self.process = subprocess.Popen([self.c["relay"], "run"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-            threading.Thread(target=discard, args=(self.process.stderr,), daemon=True).start()
+            relay_command=[self.c["relay"],"run"]
+            if self.c["mode"]=="diagnostic":relay_command.append("--redacted-rollover-diagnostics")
+            self.process = subprocess.Popen(relay_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            stderr_reader=threading.Thread(target=self.stderr_diagnostics,args=(self.process.stderr,"relay"),daemon=True);stderr_reader.start();threads.append(stderr_reader)
             controller = threading.Thread(target=self.native_controls, daemon=True); controller.start(); threads.append(controller)
             until = time.monotonic() + 5
             while not self.owns_listener():
                 if time.monotonic() > until:
                     raise RuntimeError("owned_listener_unavailable")
                 time.sleep(.05)
-            self.subscriber = subprocess.Popen([self.c["relay"], "transcribe", "--address", self.c["listen"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self.subscriber = subprocess.Popen([self.c["relay"], "transcribe", "--address", self.c["listen"]], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            observer_stderr=threading.Thread(target=self.stderr_diagnostics,args=(self.subscriber.stderr,"observer"),daemon=True);observer_stderr.start();threads.append(observer_stderr)
             observer = threading.Thread(target=self.observations, daemon=True); observer.start(); threads.append(observer)
             until = time.monotonic() + 5
             self.launch_bridge()
@@ -468,6 +538,7 @@ class Driver:
             if self.abort.is_set():
                 raise RuntimeError("run_already_failed")
             self.final_stop.set()
+            self.normal_stop_requested=True
             self.cli("mute")  # One deliberate mutation; never retry.
             until = time.monotonic() + 10
             while True:
@@ -484,13 +555,22 @@ class Driver:
         finally:
             self.final_stop.set()
             self.stopping.set()
+            # A native stop is a producer barrier, not an observer barrier. Keep
+            # the relay/subscriber alive long enough to receive its typed terminal.
+            self.exit_before_cleanup={'relay':self.process.poll() if self.process else None,'observer':self.subscriber.poll() if self.subscriber else None}
+            if self.native_stops and not self.stop_observed.is_set() and self.process and self.process.poll() is None:
+                self.diagnostics.phase('awaiting_terminal_after_native_stop')
+                self.terminal_drain_observed=self.stop_observed.wait(10)
+            else:self.terminal_drain_observed=self.stop_observed.is_set()
             if self.process and self.process.poll() is None:
+                self.diagnostics.phase("relay_terminate")
                 self.process.terminate()
                 try:
                     self.process.wait(10)
                 except subprocess.TimeoutExpired:
-                    self.process.kill(); self.process.wait(); self.errors.append("owned_relay_killed_unsettled")
+                    self.diagnostics.phase("relay_kill");self.process.kill(); self.process.wait(); self.errors.append("owned_relay_killed_unsettled")
             if self.subscriber and self.subscriber.poll() is None:
+                self.diagnostics.phase("observer_terminate")
                 self.subscriber.terminate()
                 try:
                     self.subscriber.wait(3)
@@ -502,6 +582,8 @@ class Driver:
                 self.errors.append("native_or_sample_continuity_unqualified")
             if self.c["mode"] == "soak" and (self.sessions < 9 or self.rotations < 8 or self.continuation_proofs < 8):
                 self.errors.append("fewer_than_eight_rotations")
+            if self.c["mode"] == "diagnostic" and (self.sessions<3 or self.rotations<2):
+                self.errors.append("fewer_than_two_diagnostic_rotations")
             if self.c["mode"] == "baseline":
                 self.snapshots[12] = self.latest
                 for index, item in enumerate(self.items):
@@ -522,7 +604,7 @@ class Driver:
             if self.hypothesis_log is not None:
                 os.fsync(self.hypothesis_log.fileno());self.hypothesis_log.close()
             self.close_stack()
-            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "checked_continuation_attestations": self.continuation_proofs, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "transport_qualified": not self.errors, "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": self.hypothesis_log is not None, "fictional_hypothesis_text_retained": self.hypothesis_log is not None, "audio_PCM_retained": False, "fictional_hypothesis_records": self.hypothesis_records, "fictional_hypothesis_bytes": self.hypothesis_bytes, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
+            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "checked_continuation_attestations": self.continuation_proofs, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "terminal_diagnostics":self.diagnostics.snapshot(), "terminal_drain_observed":self.terminal_drain_observed, "exit_before_cleanup":self.exit_before_cleanup, "exit_after_cleanup":{"relay":self.process.returncode if self.process else None,"observer":self.subscriber.returncode if self.subscriber else None}, "diagnostic_only":self.c["mode"]=="diagnostic", "transport_qualified": not self.errors and self.c["mode"]!="diagnostic", "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": self.hypothesis_log is not None, "fictional_hypothesis_text_retained": self.hypothesis_log is not None, "audio_PCM_retained": False, "fictional_hypothesis_records": self.hypothesis_records, "fictional_hypothesis_bytes": self.hypothesis_bytes, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
             with (self.out / "summary.json").open("x") as f:
                 json.dump(summary, f, indent=2)
             os.chmod(self.out / "summary.json", 0o600)
@@ -554,7 +636,7 @@ def main():
         parser.error("--config required")
     c, items, config_hash = validate(args.config)
     if not args.run:
-        print(json.dumps({"validated": True, "mode": c["mode"], "fixtures": len(items), "duration_seconds": 119 if c["mode"] == "baseline" else 900, "live_requests": False}))
+        print(json.dumps({"validated": True, "mode": c["mode"], "fixtures": len(items), "duration_seconds": {"baseline":119,"soak":900,"diagnostic":240}[c["mode"]], "live_requests": False}))
         return
     raise SystemExit(0 if Driver(c, items, config_hash).run() else 1)
 
