@@ -77,6 +77,9 @@ def main(root):
                          reference_token_parity=parity,model_zero_steps=zeros,model_inference_calls=len(jobs),
                          claimed_real_source_samples=len(samples),last_processed_end_sample=jobs[-1][1].end_sample,
                          original_source_origin_sample=origin,original_source_end_sample=origin+jobs[-1][1].end_sample,
+                         unobserved_future_fixture_samples=(len(pcm)-CUT_SAMPLE if name.startswith('prefix_cut_') else 0),
+                         padding_prediction_does_not_establish_future_audio_truth=True,
+                         reliable_acoustic_continuity_qualified=False,
                          model_padding_did_not_advance_source_coverage=True,
                          decode_ms=times,elapsed_ms=round((time.monotonic()-started)*1000,3))
                     if parity is False:raise RuntimeError('full_token_parity_failed')
