@@ -32,6 +32,8 @@ from .pair import (
 )
 from .protocol import (
     PROTOCOL,
+    CONTINUATION_PROTOCOL,
+    validate_capture_continued,
     SOURCES,
     ProtocolError,
     parse_uuid,
@@ -307,6 +309,7 @@ def create_app(
             try:
                 start = strict_json_loads(start_text)
                 session_id = validate_start(start)
+                negotiated_protocol = start["protocol"]
             except ProtocolError:
                 terminal_reason = "invalid_config"
                 await send_error(terminal_reason)
@@ -435,7 +438,7 @@ def create_app(
             with startup_phase("ready_send", session_id):
                 await send({
                     "type": "ready",
-                    "protocol": PROTOCOL,
+                    "protocol": negotiated_protocol,
                     "session_id": str(session_id),
                     "language": "en",
                     "model": {
@@ -456,6 +459,7 @@ def create_app(
                     "aggregate_drain_reserve_tokens": geometry.reserved_tokens_per_window * len(SOURCES),
                     "startup_timeout_ms": int(settings.startup_timeout_seconds * 1000),
                     "drain_timeout_ms": int(settings.drain_timeout_seconds * 1000),
+                    **({"capture_continuation": True} if negotiated_protocol == CONTINUATION_PROTOCOL else {}),
                 })
 
             capture_started = False
@@ -569,7 +573,10 @@ def create_app(
                 try:
                     control = strict_json_loads(text)
                     if not capture_started:
-                        capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_started(control, session_id)
+                        if negotiated_protocol == CONTINUATION_PROTOCOL and isinstance(control, dict) and control.get("type") == "capture_continued":
+                            capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_continued(control, session_id)
+                        else:
+                            capture_epoch_host_ns, capture_epoch_unix_ms = validate_capture_started(control, session_id)
                         capture_started = True
                         continue
                     source, last_sequence, total_samples, cutoff = validate_source_end(control, session_id)
@@ -604,7 +611,6 @@ def create_app(
                     terminal_reason = scheduler.failure_reason
                 elif all(context.completed for context in contexts.values()):
                     completed_normally = True
-                    await send({"type": "done", "session_id": str(session_id)})
                 else:
                     terminal_reason = "backend_failure"
 
@@ -627,12 +633,13 @@ def create_app(
                     # cancellation. Keep the admission until that work and the
                     # scheduler have actually released their contexts.
                     await scheduler.cancel_and_wait()
+            release_verified = True
             if runtime is not None and states:
                 for state in states.values():
                     try:
                         await manager.run_blocking(runtime.release_state, state)
                     except Exception:
-                        pass
+                        release_verified = False
                 states.clear()
             if admission is not None:
                 await manager.release(admission)
@@ -657,5 +664,14 @@ def create_app(
                         qualification.finalize("failed")
                     except Exception:
                         pass
+
+            # Terminal success is a settlement proof: no model context or
+            # admission remains owned, and optional receipt finalization has
+            # run before a client can close this socket or request its successor.
+            if completed_normally:
+                if release_verified:
+                    await send({"type": "done", "session_id": str(session_id)})
+                else:
+                    await send_error("backend_failure")
 
     return app

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 
 PROTOCOL = "mistt.paired.v1"
+CONTINUATION_PROTOCOL = "mistt.paired.v2"
 SOURCES = ("microphone", "call_audio")
 SOURCE_IDS = {1: "microphone", 2: "call_audio"}
 SOURCE_ID_BY_NAME = {value: key for key, value in SOURCE_IDS.items()}
@@ -122,7 +123,7 @@ def encode_frame(
 def validate_start(value: object) -> uuid.UUID:
     if not isinstance(value, dict) or set(value) != {"type", "protocol", "session_id", "language", "sources"}:
         raise ProtocolError("invalid_config")
-    if value["type"] != "start" or value["protocol"] != PROTOCOL or value["language"] != "en":
+    if value["type"] != "start" or value["protocol"] not in (PROTOCOL, CONTINUATION_PROTOCOL) or value["language"] != "en":
         raise ProtocolError("invalid_config")
     session_id = parse_uuid(value["session_id"])
     if not _validate_format_pair(value["sources"]):
@@ -180,3 +181,43 @@ def validate_source_end(value: object, expected_session: uuid.UUID) -> tuple[str
     total_samples = _uint(value["total_samples"], UINT64_MAX)
     cutoff = _uint(value["cutoff_offset_ns"], UINT64_MAX)
     return source, sequence, total_samples, cutoff
+
+
+def validate_capture_continued(value: object, expected_session: uuid.UUID) -> tuple[int, int]:
+    """Validate explicit provenance for a continuing native capture (v2 only).
+
+    This is NOT a fabricated capture_started acknowledgement. The original
+    native acknowledgement is retained verbatim with its original identity;
+    only the separately identified remote generation and sample origin change.
+    The caller must negotiate v2 and finish the previous pair before admission.
+    """
+    if not isinstance(value, dict) or set(value) != {
+        "type", "session_id", "native_capture_started", "cutover_offset_ns", "source_origins"
+    }:
+        raise ProtocolError("invalid_config")
+    if value["type"] != "capture_continued" or parse_uuid(value["session_id"]) != expected_session:
+        raise ProtocolError("stale_session")
+    native = value["native_capture_started"]
+    if not isinstance(native, dict):
+        raise ProtocolError("invalid_config")
+    native_session = parse_uuid(native.get("session_id"))
+    if native_session == expected_session:
+        raise ProtocolError("stale_session")
+    host_ns, unix_ms = validate_capture_started(native, native_session)
+    cut = _uint(value["cutover_offset_ns"], UINT64_MAX, "invalid_timestamp")
+    if cut == 0 or host_ns > UINT64_MAX - cut or unix_ms > (1 << 63) - 1 - cut // 1_000_000:
+        raise ProtocolError("invalid_timestamp")
+    origins = value["source_origins"]
+    if not isinstance(origins, list) or len(origins) != len(SOURCES):
+        raise ProtocolError("invalid_config")
+    for origin, source in zip(origins, SOURCES, strict=True):
+        if not isinstance(origin, dict) or set(origin) != {
+            "source", "native_sequence", "native_start_sample", "native_capture_offset_ns"
+        } or origin["source"] != source:
+            raise ProtocolError("invalid_config")
+        sequence = _uint(origin["native_sequence"], UINT64_MAX)
+        _uint(origin["native_start_sample"], UINT64_MAX)
+        offset = _uint(origin["native_capture_offset_ns"], UINT64_MAX, "invalid_timestamp")
+        if sequence == 0 or offset < cut or offset - cut >= SAMPLE_NS:
+            raise ProtocolError("invalid_timestamp")
+    return host_ns + cut, unix_ms + cut // 1_000_000

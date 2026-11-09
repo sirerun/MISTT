@@ -239,6 +239,63 @@ final class CoreAudioTargetOwnershipTests: XCTestCase {
         ), [])
     }
 
+    func testZoomAndPracticeSelectOnlySignedOwnerProcess() throws {
+        for (bundle, executable, team) in [("us.zoom.xos", "zoom.us", "BJ4HAAB9B3"),
+            ("run.david.evidence-copilot.development", "EvidenceOverlay", "38F4AYRK8L")] {
+            let policy = try CoreAudioTargetOwnership.Policy.selected(bundleIdentifier: bundle,
+                includeHelperExecutables: ["Contents/MacOS/" + executable])
+            let path = "/Fixture/Selected.app"
+            let owner = ProcessIncarnation(pid: 100, parentPID: 1, uid: 501,
+                startSeconds: 100, startMicroseconds: 10, executablePath: path + "/Contents/MacOS/" + executable)
+            let code = LiveCodeIdentity(signingIdentifier: bundle, teamIdentifier: team,
+                bundleIdentifier: bundle, mainExecutableName: executable, appleGenericTrustValidated: true)
+            let reader = FakeOwnershipReader(applications: [.init(bundleIdentifier: bundle, pid: 100, bundlePath: path)],
+                processes: [100: owner], codes: [100: code], objects: [100: 23])
+            let target = AudioClient(objectID: 23, pid: 100, bundleID: bundle, runningOutput: true)
+            let leases = try CoreAudioTargetOwnership.resolveHelpers(from: [target], policy: policy, reader: reader)
+            XCTAssertEqual(leases.count, 1)
+            XCTAssertEqual(leases.first?.helperProcess, owner)
+            XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(from: [], policy: policy, reader: reader))
+            reader.objects[100] = 24
+            XCTAssertThrowsError(try CoreAudioTargetOwnership.revalidate(leases[0], from: [target], policy: policy, reader: reader))
+            reader.objects[100] = 23
+            reader.codes[100] = LiveCodeIdentity(signingIdentifier: bundle, teamIdentifier: "WRONGTEAM",
+                bundleIdentifier: bundle, mainExecutableName: executable, appleGenericTrustValidated: true)
+            XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(from: [target], policy: policy, reader: reader))
+        }
+    }
+    func testZoomCptHostRequiresExactSignedDirectChild() throws {
+        let bundle = "us.zoom.xos"
+        let policy = try CoreAudioTargetOwnership.Policy.selected(bundleIdentifier: bundle,
+            includeHelperExecutables: ["Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost"])
+        let path = "/Fixture/Zoom.app"
+        let owner = ProcessIncarnation(pid: 100, parentPID: 1, uid: 501, startSeconds: 100,
+            startMicroseconds: 10, executablePath: path + "/Contents/MacOS/zoom.us")
+        let helper = ProcessIncarnation(pid: 101, parentPID: 100, uid: 501, startSeconds: 101,
+            startMicroseconds: 10, executablePath: path + "/Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost")
+        let reader = FakeOwnershipReader(applications: [.init(bundleIdentifier: bundle, pid: 100, bundlePath: path)],
+            processes: [100: owner, 101: helper], codes: [
+                100: .init(signingIdentifier: bundle, teamIdentifier: "BJ4HAAB9B3", bundleIdentifier: bundle,
+                    mainExecutableName: "zoom.us", appleGenericTrustValidated: true),
+                101: .init(signingIdentifier: "us.zoom.CptHost", teamIdentifier: "BJ4HAAB9B3", bundleIdentifier: "us.zoom.CptHost",
+                    mainExecutableName: "CptHost", appleGenericTrustValidated: true)], objects: [101: 23])
+        let target = AudioClient(objectID: 23, pid: 101, bundleID: "us.zoom.CptHost", runningOutput: true)
+        let leases = try CoreAudioTargetOwnership.resolveHelpers(from: [target], policy: policy, reader: reader)
+        XCTAssertEqual(leases.count, 1)
+        reader.processes[101] = ProcessIncarnation(pid: 101, parentPID: 1, uid: 501, startSeconds: 101,
+            startMicroseconds: 10, executablePath: helper.executablePath)
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.resolveHelpers(from: [target], policy: policy, reader: reader))
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.revalidate(leases[0], from: [target], policy: policy, reader: reader))
+    }
+
+    func testProfileSelectorsNeverBroadenOrSubstitute() throws {
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.Policy.selected(bundleIdentifier: "us.zoom.xos",
+            includeHelperExecutables: ["Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"]))
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.Policy.selected(bundleIdentifier: "us.zoom.xos",
+            includeHelperExecutables: ["Contents/MacOS/zoom.us", "Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost"]))
+        XCTAssertThrowsError(try CoreAudioTargetOwnership.Policy.selected(bundleIdentifier: "unknown", includeHelperExecutables: []))
+    }
+
     private func fixture() -> FakeOwnershipReader {
         let bundle = "/Fixture/TikTok.app"
         let owner = ProcessIncarnation(

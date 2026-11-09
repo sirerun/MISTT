@@ -8,6 +8,12 @@ import stat
 import urllib.parse
 
 APPROVED_HELPER = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
+PROFILES = {
+ "tiktok": ("com.tiktok.livestudio.desktop", APPROVED_HELPER),
+ "zoom": ("us.zoom.xos", "Contents/MacOS/zoom.us"),
+ "zoom-cpthost": ("us.zoom.xos", "Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost"),
+ "copilot-practice": ("run.david.evidence-copilot.development", "Contents/MacOS/EvidenceOverlay"),
+}
 
 
 def main():
@@ -15,7 +21,8 @@ def main():
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--ca-file", type=Path)
-    parser.add_argument("--target-bundle-id", choices=["com.tiktok.livestudio.desktop"], default="com.tiktok.livestudio.desktop")
+    parser.add_argument("--profile", choices=PROFILES, default="tiktok", help="One explicitly selected playback process; requires restart while muted and no consumers")
+    parser.add_argument("--target-bundle-id", help="Optional assertion matching the selected profile")
     parser.add_argument("--helper-executable", action="append", help="Approved app-relative selector; defaults to the vetted media helper")
     parser.add_argument("--microphone-device", choices=["default"], default="default")
     parser.add_argument("--output", type=Path, default=Path.home() / "Library/Application Support/MISTT/config.json")
@@ -29,9 +36,13 @@ def main():
     info = token.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.getuid():
         raise ValueError("Token file must be owner-owned and inaccessible to other users")
-    helpers = args.helper_executable or [APPROVED_HELPER]
-    if helpers != [APPROVED_HELPER]:
-        raise ValueError("Only the vetted app-relative media helper selector is supported")
+    bundle, executable = PROFILES[args.profile]
+    if args.target_bundle_id is not None and args.target_bundle_id != bundle:
+        raise ValueError("Bundle assertion does not match selected profile")
+    args.target_bundle_id = bundle
+    helpers = args.helper_executable or [executable]
+    if helpers != [executable]:
+        raise ValueError("Only the selected profile executable is supported")
     if not args.target_bundle_id or any(c.isspace() for c in args.target_bundle_id):
         raise ValueError("Provide the qualified target bundle identifier")
     values = {

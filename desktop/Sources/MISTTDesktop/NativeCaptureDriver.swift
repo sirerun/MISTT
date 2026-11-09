@@ -8,8 +8,6 @@ import OSLog
 @MainActor
 final class NativeCaptureDriver {
     private static let startupLogger = Logger(subsystem: "com.sirerun.mistt", category: "capture-startup")
-    private let primaryBundleID = "com.tiktok.livestudio.desktop"
-    private let helperExecutable = "Contents/Resources/app/electron/sdk/lib/MediaSDK_Server"
     private var generation: UInt64 = 0
     private var capture: NativePairCapture?
     private var abortingCapture: NativePairCapture?
@@ -30,9 +28,12 @@ final class NativeCaptureDriver {
     func start(_ request: CaptureStartRequest, writer: NativeIPCWriter,
                completion: @escaping @MainActor (Bool) -> Void) {
         guard !busy, isClosed, request.microphone.device == "default",
-              request.callAudio.bundleId == primaryBundleID,
               request.callAudio.includeHelpers.isEmpty,
-              request.callAudio.includeHelperExecutables == [helperExecutable],
+              let selectedExecutables = request.callAudio.includeHelperExecutables,
+              selectedExecutables.count == 1,
+              let selectedPolicy = try? CoreAudioTargetOwnership.Policy.selected(
+                bundleIdentifier: request.callAudio.bundleId,
+                includeHelperExecutables: selectedExecutables),
               request.sources == Self.sources else {
             completion(false); return
         }
@@ -66,8 +67,6 @@ final class NativeCaptureDriver {
                     throw CaptureStartError.microphoneUnavailable
                 }
                 native.setPermissionState(microphone: "Granted")
-                let selectedPolicy = try CoreAudioTargetOwnership.Policy.tiktokLiveStudio(
-                    includeHelperExecutables: [self.helperExecutable])
                 let clients = try CoreAudioInventory.clients()
                 let leases = try CoreAudioTargetOwnership.resolveHelpers(from: clients, policy: selectedPolicy)
                 guard leases.count == 1 else { throw CoreAudioTargetOwnership.ValidationError.helperMissing }

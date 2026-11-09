@@ -78,6 +78,28 @@ message SessionStarted {
   int64 capture_epoch_unix_ms = 8;
   repeated SourceFormat sources = 9;
   CaptureMode capture_mode = 10;
+  // Optional paired-v2 attestation from the trusted MISTT producer, not ASR
+  // text or an independent cryptographic authentication of capture.
+  CaptureContinuation capture_continuation = 11;
+}
+
+// Present only after the previous paired ASR generation settled successfully,
+// both native ledgers continued across the cut, and its successor accepted v2.
+// The outer SessionStarted retains the original physical epoch/model/formats.
+message CaptureContinuation {
+  uint32 version = 1; // Version 1; absent/unknown proof must never imply a join.
+  string previous_session_id = 2;
+  string native_session_id = 3;
+  uint64 cutover_offset_ns = 4;
+  repeated CaptureSourceOrigin sources = 5; // Exactly microphone, call_audio.
+}
+
+message CaptureSourceOrigin {
+  string source = 1;
+  // Native-global coordinates: previous accepted end == successor first start.
+  // Source clock phase permits capture_offset_ns in cut+[0, 62500ns).
+  uint64 start_sample = 2;
+  uint64 capture_offset_ns = 3;
 }
 
 message TranscriptionEvent {

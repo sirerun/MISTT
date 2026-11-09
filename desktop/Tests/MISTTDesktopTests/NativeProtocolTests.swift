@@ -4,6 +4,23 @@ import NativeAudioQueue
 @testable import MISTTDesktop
 
 final class NativeProtocolTests: XCTestCase {
+    func testExplicitOperatorAndBudgetStopReasonsRemainStrict() throws {
+        let id = UUID().uuidString
+        for reason in ["user", "budget_rotation", "rotation_limit"] {
+            let data = try JSONSerialization.data(withJSONObject: ["type": "capture_stop", "request_id": id, "session_id": id, "reason": reason])
+            guard case .captureStop(let request) = try RelayMessage.decode(data) else { return XCTFail("stop not decoded") }
+            XCTAssertEqual(request.reason, reason)
+        }
+        let bad = try JSONSerialization.data(withJSONObject: ["type": "capture_stop", "request_id": id, "session_id": id, "reason": "unreviewed_reason"])
+        XCTAssertThrowsError(try RelayMessage.decode(bad))
+    }
+    func testBudgetConfigurationKeysAreExplicitlyAdmitted() {
+        for key in ["MISTT_BUDGET_ROTATION", "MISTT_MAX_BUDGET_ROTATIONS", "MISTT_ROTATION_HEADROOM"] {
+            XCTAssertTrue(RelayConfiguration.environmentKeys.contains(key))
+        }
+        XCTAssertFalse(RelayConfiguration.environmentKeys.contains("MISTT_SKIP_CAPTURE_GATES"))
+    }
+
     func testNativeMuteControlMatchesGoLengthKindAndLineTerminator() throws {
         let message = NativeSetMuted(requestId: UUID(), commandSequence: 1,
                                      expectedStatusRevision: 1, muted: false)
