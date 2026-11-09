@@ -204,6 +204,12 @@ class PunctuationMetricTests(unittest.TestCase):
         self.assertEqual(marked_clauses('Did you approve it?',['Did you approve it?']),{0})
         self.assertEqual(marked_clauses('Did you approve it? Or did you reject it',['Did you approve it?','Or did you reject it?']),{0})
         self.assertEqual(marked_clauses('Did you approve it? Or did you reject it?',['Did you approve it?','Or did you reject it?']),{0,1})
+    def test_english_probe_uses_identical_literal_mark_gate(self):
+        from dgx.qualification.english_pnc import marked_clauses as english
+        from dgx.qualification.nemotron_steps import marked_clauses as steps
+        for text in ('Did you approve it','Did you approve it?','Did you approve it? Or did you reject it?'):
+            clauses=['Did you approve it?','Or did you reject it?']
+            self.assertEqual(english(text,clauses),steps(text,clauses))
     def test_date_format_classification_keeps_date_and_negation_semantics(self):
         from dgx.qualification.nemotron_steps import marked_clauses
         reference=['Was it signed before March fifth twenty twenty four?']
