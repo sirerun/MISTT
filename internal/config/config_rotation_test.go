@@ -41,3 +41,23 @@ func TestBudgetRotationConfigExplicitEnvironment(t *testing.T) {
 		t.Fatal("implicit opt-in accepted")
 	}
 }
+
+func TestContinuousRolloverIsExplicitAndRequiresBudgetRotation(t *testing.T) {
+	c := Defaults()
+	if c.ContinuousRollover {
+		t.Fatal("continuous capture enabled by default")
+	}
+	c.ContinuousRollover = true
+	if err := c.Validate(false); err == nil {
+		t.Fatal("continuous capture admitted without rotation bounds")
+	}
+	t.Setenv("MISTT_CONTINUOUS_ROLLOVER", "true")
+	t.Setenv("MISTT_BUDGET_ROTATION", "true")
+	c, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.ContinuousRollover || !c.BudgetRotation {
+		t.Fatal("explicit opt in lost")
+	}
+}

@@ -177,3 +177,46 @@ func TestContinuationWirePreservesRealNativeAck(t *testing.T) {
 		t.Fatal("unnegotiated continuation accepted")
 	}
 }
+
+func TestQueuedPCMOwnsCopyAndCloseClearsRetainedFrames(t *testing.T) {
+	ready := readyFixture()
+	s := &ClientSession{ready: backend.Ready{SessionID: ready.SessionID}, mic: make(chan audio.Frame, 1), call: make(chan audio.Frame, 1), ended: map[audio.Source]bool{}, ends: map[audio.Source]backend.EndRequest{}, limits: map[audio.Source]sourceLimit{audio.Microphone: ready.Sources[0], audio.CallAudio: ready.Sources[1]}, queued: map[audio.Source]backend.EndRequest{}, closed: make(chan struct{})}
+	id, _ := audio.ParseUUID(ready.SessionID)
+	frame := audio.Frame{SessionID: id, Source: audio.Microphone, Sequence: 1, Samples: []int16{7, 8}}
+	if err := s.QueueFrame(frame); err != nil {
+		t.Fatal(err)
+	}
+	frame.Samples[0] = 99
+	retained := <-s.mic
+	if retained.Samples[0] != 7 {
+		t.Fatal("caller could rewrite queued PCM")
+	}
+	s.mic <- retained
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if retained.Samples[0] != 0 || len(s.mic) != 0 {
+		t.Fatal("close retained queued PCM")
+	}
+	if err := s.QueueFrame(frame); err == nil {
+		t.Fatal("closed session accepted PCM")
+	}
+}
+
+func TestTransportFailureAndReadCompletionCannotSendAfterEventsClose(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		s := &ClientSession{closed: make(chan struct{}), events: make(chan backend.Event, 1), mic: make(chan audio.Frame, 1), call: make(chan audio.Frame, 1)}
+		held := []int16{7}
+		s.mic <- audio.Frame{Samples: held}
+		done := make(chan struct{})
+		go func() { s.finish(ErrQueueFull); close(done) }()
+		s.closeEvents()
+		<-done
+		if held[0] != 0 {
+			t.Fatal("transport failure retained queued PCM")
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

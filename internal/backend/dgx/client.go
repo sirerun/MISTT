@@ -159,22 +159,24 @@ type captureStartedWire struct {
 }
 
 type ClientSession struct {
-	conn      *websocket.Conn
-	ready     backend.Ready
-	cfg       Config
-	mic       chan audio.Frame
-	call      chan audio.Frame
-	mu        sync.Mutex
-	ended     map[audio.Source]bool
-	ends      map[audio.Source]backend.EndRequest
-	limits    map[audio.Source]sourceLimit
-	queued    map[audio.Source]backend.EndRequest
-	cutoffSet bool
-	cutoffNS  uint64
-	events    chan backend.Event
-	closed    chan struct{}
-	once      sync.Once
-	writeDone chan error
+	eventMu      sync.Mutex
+	eventsClosed bool
+	conn         *websocket.Conn
+	ready        backend.Ready
+	cfg          Config
+	mic          chan audio.Frame
+	call         chan audio.Frame
+	mu           sync.Mutex
+	ended        map[audio.Source]bool
+	ends         map[audio.Source]backend.EndRequest
+	limits       map[audio.Source]sourceLimit
+	queued       map[audio.Source]backend.EndRequest
+	cutoffSet    bool
+	cutoffNS     uint64
+	events       chan backend.Event
+	closed       chan struct{}
+	once         sync.Once
+	writeDone    chan error
 }
 
 func (c *Client) Connect(ctx context.Context, req backend.StartRequest) (backend.Session, error) {
@@ -387,6 +389,7 @@ func (s *ClientSession) QueueFrame(f audio.Frame) error {
 	if uint64(len(f.Samples)) > limit.MaxAudioSamples-ledger.TotalSamples {
 		return fmt.Errorf("%s audio exceeds gateway audio cap", f.Source)
 	}
+	f.Samples = append([]int16(nil), f.Samples...)
 	select {
 	case q <- f:
 		ledger.LastSequence = f.Sequence
@@ -394,6 +397,7 @@ func (s *ClientSession) QueueFrame(f audio.Frame) error {
 		s.queued[f.Source] = ledger
 		return nil
 	default:
+		clear(f.Samples)
 		return ErrQueueFull
 	}
 }
@@ -431,9 +435,24 @@ func (s *ClientSession) EndSource(source audio.Source, e backend.EndRequest) err
 	}
 	return nil
 }
-func (s *ClientSession) Close() error {
-	s.once.Do(func() { close(s.closed); _ = s.conn.Close() })
-	return nil
+func (s *ClientSession) closeTransport() {
+	close(s.closed)
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clearQueuedPCM(s.mic)
+	clearQueuedPCM(s.call)
+}
+func (s *ClientSession) Close() error { s.once.Do(s.closeTransport); return nil }
+func (s *ClientSession) closeEvents() {
+	s.eventMu.Lock()
+	defer s.eventMu.Unlock()
+	if !s.eventsClosed {
+		close(s.events)
+		s.eventsClosed = true
+	}
 }
 func (s *ClientSession) writeLoop() {
 	mic, call := s.mic, s.call
@@ -449,7 +468,9 @@ func (s *ClientSession) writeLoop() {
 				mic = nil
 				continue
 			}
-			if err := s.writeFrame(f); err != nil {
+			err := s.writeFrame(f)
+			clear(f.Samples)
+			if err != nil {
 				s.finish(err)
 				return
 			}
@@ -463,7 +484,9 @@ func (s *ClientSession) writeLoop() {
 				call = nil
 				continue
 			}
-			if err := s.writeFrame(f); err != nil {
+			err := s.writeFrame(f)
+			clear(f.Samples)
+			if err != nil {
 				s.finish(err)
 				return
 			}
@@ -509,16 +532,19 @@ func (s *ClientSession) writeJSON(value any) error {
 }
 func (s *ClientSession) finish(err error) {
 	s.once.Do(func() {
-		close(s.closed)
-		_ = s.conn.Close()
-		select {
-		case s.events <- backend.Event{Err: err}:
-		default:
+		s.closeTransport()
+		s.eventMu.Lock()
+		defer s.eventMu.Unlock()
+		if !s.eventsClosed {
+			select {
+			case s.events <- backend.Event{Err: err}:
+			default:
+			}
 		}
 	})
 }
 func (s *ClientSession) readLoop() {
-	defer close(s.events)
+	defer s.closeEvents()
 	sourceSeq := map[audio.Source]uint64{}
 	done := map[audio.Source]bool{}
 	for {
@@ -799,4 +825,18 @@ func continuationWire(c backend.CaptureContinuation, ready backend.Ready) (captu
 		}
 	}
 	return captureContinuedWire{"capture_continued", ready.SessionID, captureStartedWire{Type: "capture_started", SessionID: c.NativeSessionID, RequestID: a.RequestID, CaptureEpochHostNS: a.CaptureEpochHostNS, CaptureEpochUnixMS: a.CaptureEpochUnixMS, Sources: a.Sources, MicrophoneReady: a.MicrophoneReady, CallAudioReady: a.CallAudioReady}, c.CutoverOffsetNS, c.Origins}, nil
+}
+
+func clearQueuedPCM(queue <-chan audio.Frame) {
+	for {
+		select {
+		case frame, ok := <-queue:
+			if !ok {
+				return
+			}
+			clear(frame.Samples)
+		default:
+			return
+		}
+	}
 }

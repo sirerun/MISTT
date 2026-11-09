@@ -1,47 +1,54 @@
-# Paired continuous rollover checkpoint
+# Paired continuous rollover
 
-The source baseline is private integration fcf913bb3013fdd147237f7924bc99e788db98e6
-(tree c10db3b8d999a424747ed0e1c96a9bab7fa4f8a8). Its Go internal tree is
-identical to relay integration 7dc671074c8bfb5306e4a6264942aed61f4dfc8d.
-This branch preserves the production background-launch, consent, diagnostics,
-and bounded rotation changes missing from origin/main. It must not be replaced
-with a plain-main build. NativePairCapture.swift already matches the reviewed
-main stop-watchdog implementation; unrelated main differences require review.
+Source custody: baseline fcf913bb3013fdd147237f7924bc99e788db98e6, tree
+c10db3b8d999a424747ed0e1c96a9bab7fa4f8a8, contains relay source
+7dc671074c8bfb5306e4a6264942aed61f4dfc8d unchanged. Preserve its production
+background launch, approved capture targets, consent/diagnostics and rotation.
+Current public main omitted these private features; rebuilding plain main would
+regress the deployed composite. NativePairCapture's public watchdog changes are
+already present. Public coalesced-control fix bcd49e6 was cherry-picked separately
+as f5ea61c, retaining both private fatal-status and public batch regressions.
 
-Observed synthetic production timings: warm readiness approximately 306 ms;
-three fictional questions first complete partials 2.05–3.30 seconds after speech
-ends. Fixed ASR windows explain this delay; no client buffering fix is claimed.
-Current planned rotation stops native capture, drains the old remote pair, and
-restarts; this creates an explicit capture gap.
+Observed upstream synthetic question tail is 2.05–3.30 seconds, warm readiness
+about 306 ms. Fixed ASR windows explain this delay; no speculative client buffer
+latency fix or model/provider switch is included.
 
-Initial source checkpoint adds an unwired bounded handoff primitive: copied PCM,
-eight seconds per source (512,000 bytes paired PCM), ten-second monotonic deadline,
-exact sample-grid splitting, continuous native ledger validation, fresh remote
-mapping, retained native provenance, one-time transfer, and zeroed cancellation.
-Focused synthetic tests cover both-source sample preservation, exact boundary,
-caller-buffer reuse, no replay, capacity, deadline, cancellation, and ledger gaps.
-No capture/runtime behavior changes at this checkpoint.
+`MISTT_CONTINUOUS_ROLLOVER=true` explicitly opts into paired v2 and requires
+bounded budget rotation. Default remains disabled. Unsupported gateways fail
+before starting native capture; no silent downgrade. The existing 120-second
+remote source caps, reserved headroom, operator duration and rotation-count bounds
+remain enforced. Runtime advertises one active pair: no overlapping admission.
 
-Remaining: explicit gateway continuation capability/handshake (current strict
-capture_started schema cannot truthfully represent a continuing native epoch),
-service wiring, stop/mute/race tests, independent review, and bounded qualification.
-No gateway deployment, capture activation, provider switch, or budget increase is
-authorized by this source checkpoint itself. Runtime effects remain owner-gated.
+The coordinator retains one real native generation while splitting both source
+streams at an exact sample boundary. Each source keeps its clock phase. It
+validates every original native frame once, independently sequences each remote
+generation, and retains original sample/epoch provenance in transcript projection.
+During old remote settlement and fresh readiness it owns at most eight seconds
+per source (512,000 bytes paired PCM), with a ten-second deadline. Overflow,
+timeout or failure stops native capture and reports failure; mute cancels retained
+PCM and sends the actual stop to the original native identity. No queued replay
+after cancellation and no automatic admission retry.
 
-Reconciliation: cherry-picked public bcd49e684c9710f0ec58775af6b905c73adc9fd1
-as f5ea61c, accepting valid coalesced control batches within existing byte bounds.
-Resolved its test conflict by retaining the private fatal-status regression and
-both public batch regressions. No other public-main replacement was applied.
-Initial independent buffer review identified a first-frame coverage hole: fixed
-by requiring exact per-source cut cursors and rejecting initial skipped samples.
-Terminal take failures now zero retained PCM as well. Focused rollover tests pass.
+The separate v2 `capture_continued` handshake carries the original native
+acknowledgement unchanged, successor remote identity and exact paired sample
+origins. It never fabricates native capture_started/source_end proof. Gateway
+terminal done now follows successful context/admission cleanup and optional
+receipt finalization for both protocol versions, retaining wire shape while
+closing an existing premature-done/receipt cancellation race. Only then may a
+successor be opened. Queued transport PCM owns copied samples and is cleared on
+completion/cancellation; error publication cannot race a closed event channel.
 
-Read-only runtime contract verified by the runtime owner: max_active_pairs=1;
-no new pair may open until old cleanup releases admission. The existing source
-caps are 1,920,000 transport samples/source and inference_workers=1.
-Protocol checkpoint adds explicit mistt.paired.v2 negotiation and a separate
-capture_continued message, retaining the original native acknowledgement and
-paired source origins. v1 start/ready bytes and behavior remain unchanged.
-No caller currently requests v2; service integration remains outstanding.
-Focused Go DGX client tests and three dependency-free continuation protocol tests
-pass; Python gateway files compile. These are contract tests, not live proof.
+Synthetic tests cover queued speech across settlement/readiness, exact PCM and
+sample identity, clock-phase boundaries, one admission, mute, capacity, the real
+ten-second deadline, original-native stop proof, fresh-identity negotiation,
+transport custody and failure/read-close races. Three-package Go race suite
+(service, DGX client, config) passed before the final transport race regression;
+rerun final exact source after that change. Gateway suite: 20 tests pass,
+including terminal cleanup followed immediately by a fresh v2 admission and
+continuation. Pure protocol tests: three pass. No model downloads are needed.
+
+Independent component reviews found no blocking issues after exact first-frame
+cursor coverage was added. Final committed service/invalidation review, final
+focused checks, native/relay artifacts, DGX reviewed deployment, installation and
+live long-session acceptance remain separate gates. No runtime/config/capture
+changes or live ASR requests have been performed by this author lane.

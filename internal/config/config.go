@@ -47,6 +47,7 @@ type Config struct {
 	FrameQueue               int
 	NativeControlQueue       int
 	BudgetRotation           bool
+	ContinuousRollover       bool
 	MaxBudgetRotations       uint32
 	RotationHeadroom         time.Duration
 }
@@ -113,6 +114,13 @@ func FromEnv() (Config, error) {
 		}
 		c.BudgetRotation = v
 	}
+	if value, ok := os.LookupEnv("MISTT_CONTINUOUS_ROLLOVER"); ok {
+		v, e := strconv.ParseBool(value)
+		if e != nil {
+			return Config{}, fmt.Errorf("parse MISTT_CONTINUOUS_ROLLOVER: %w", e)
+		}
+		c.ContinuousRollover = v
+	}
 	if value, ok := os.LookupEnv("MISTT_MAX_BUDGET_ROTATIONS"); ok {
 		v, e := strconv.ParseUint(value, 10, 32)
 		if e != nil {
@@ -123,6 +131,9 @@ func FromEnv() (Config, error) {
 	return c, nil
 }
 func (c Config) Validate(requireCredentials bool) error {
+	if c.ContinuousRollover && !c.BudgetRotation {
+		return errors.New("continuous rollover requires budget rotation")
+	}
 	if c.BudgetRotation && (c.MaxBudgetRotations < 1 || c.MaxBudgetRotations > 256 || c.RotationHeadroom < c.DrainTimeout+2*time.Second || c.RotationHeadroom > time.Minute) {
 		return errors.New("budget rotation requires1..256 rotations and drain+2s..1m headroom")
 	}

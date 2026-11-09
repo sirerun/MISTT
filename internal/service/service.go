@@ -44,23 +44,31 @@ type sourceLedger struct {
 	ended        bool
 }
 type activePair struct {
-	budgetDeadline time.Time
-	id             string
-	remote         backend.Session
-	ready          backend.Ready
-	reqID          string
-	epochHostNS    uint64
-	epochUnixMS    int64
-	started        *misttv1.StreamResponse
-	sequence       uint64
-	ledgers        map[audio.Source]*sourceLedger
-	sourceEnds     map[audio.Source]bool
-	stopping       bool
-	closed         bool
-	cutoffHostNS   uint64
-	cutoffKnown    bool
-	cutoffOffsetNS uint64
-	seen           map[string]segmentState
+	syntheticRemoteEnds bool
+	remoteSettled       bool
+	remoteCompleted     map[audio.Source]bool
+	nativeID            string
+	nativeStarted       backend.CaptureStarted
+	remoteOffsetNS      uint64
+	remoteOrigins       map[audio.Source]rolloverCursor
+	remoteLedgers       map[audio.Source]*sourceLedger
+	budgetDeadline      time.Time
+	id                  string
+	remote              backend.Session
+	ready               backend.Ready
+	reqID               string
+	epochHostNS         uint64
+	epochUnixMS         int64
+	started             *misttv1.StreamResponse
+	sequence            uint64
+	ledgers             map[audio.Source]*sourceLedger
+	sourceEnds          map[audio.Source]bool
+	stopping            bool
+	closed              bool
+	cutoffHostNS        uint64
+	cutoffKnown         bool
+	cutoffOffsetNS      uint64
+	seen                map[string]segmentState
 }
 type segmentState struct {
 	final bool
@@ -456,7 +464,7 @@ func (s *Service) startPair() error {
 	if err != nil {
 		return err
 	}
-	remote, err := s.backend.Connect(ctx, backend.StartRequest{SessionID: id, Language: s.cfg.Language})
+	remote, err := s.backend.Connect(ctx, backend.StartRequest{SessionID: id, Language: s.cfg.Language, ContinuousCapture: s.cfg.ContinuousRollover})
 	if err != nil {
 		if ctx.Err() != nil {
 			s.mu.Lock()
@@ -474,6 +482,12 @@ func (s *Service) startPair() error {
 		return fmt.Errorf("paired start canceled before native capture: %w", err)
 	}
 	ready := remote.Ready()
+	if s.cfg.ContinuousRollover {
+		if _, ok := remote.(backend.ContinuingSession); !ok || !ready.CaptureContinuation {
+			_ = remote.Close()
+			return errors.New("gateway does not support continuous capture rollover")
+		}
+	}
 	if ready.SessionID != id || ready.Language != s.cfg.Language || ready.Model == "" {
 		_ = remote.Close()
 		return errors.New("remote provider returned an invalid paired session")
@@ -562,10 +576,11 @@ func (s *Service) startPair() error {
 				if m.CaptureEpochUnixMS < 0 {
 					return failStartedRequest(errors.New("native capture epoch wall clock is negative"))
 				}
-				if err := remote.CaptureStarted(backend.CaptureStarted{RequestID: m.RequestID, CaptureEpochHostNS: m.CaptureEpochHostNS, CaptureEpochUnixMS: m.CaptureEpochUnixMS, Sources: formatsToBackend(formats), MicrophoneReady: m.MicrophoneReady, CallAudioReady: m.CallAudioReady}); err != nil {
+				nativeStarted := backend.CaptureStarted{RequestID: m.RequestID, CaptureEpochHostNS: m.CaptureEpochHostNS, CaptureEpochUnixMS: m.CaptureEpochUnixMS, Sources: formatsToBackend(formats), MicrophoneReady: m.MicrophoneReady, CallAudioReady: m.CallAudioReady}
+				if err := remote.CaptureStarted(nativeStarted); err != nil {
 					return failStartedRequest(fmt.Errorf("forward capture epoch to DGX: %w", err))
 				}
-				pair := &activePair{id: id, remote: remote, ready: ready, reqID: reqID, epochHostNS: m.CaptureEpochHostNS, epochUnixMS: m.CaptureEpochUnixMS, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}}
+				pair := &activePair{id: id, nativeID: id, nativeStarted: nativeStarted, remote: remote, ready: ready, reqID: reqID, epochHostNS: m.CaptureEpochHostNS, epochUnixMS: m.CaptureEpochUnixMS, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}}
 				if s.cfg.BudgetRotation {
 					pair.budgetDeadline = captureRequestedAt.Add(rotationWindow)
 				}
@@ -741,14 +756,14 @@ func (s *Service) activeEvent(pair *activePair, event ipc.Event, cutoff *uint64)
 	case "status":
 		return nil
 	case "capture_failed":
-		if m.SessionID != pair.id {
+		if m.SessionID != pair.nativeSessionID() {
 			return nil
 		}
 		return fmt.Errorf("native paired capture failed (%s)", m.Code)
 	case "capture_stopped":
 		return errors.New("unsolicited capture_stopped outside stop handshake")
 	case "source_end":
-		if m.SessionID != pair.id {
+		if m.SessionID != pair.nativeSessionID() {
 			return nil
 		}
 		if !pair.stopping || !pair.cutoffKnown {
@@ -760,7 +775,16 @@ func (s *Service) activeEvent(pair *activePair, event ipc.Event, cutoff *uint64)
 	}
 }
 func (s *Service) acceptFrame(pair *activePair, f audio.Frame, cutoff *uint64) error {
-	if f.SessionID != mustUUID(pair.id) {
+	if err := validateNativeFrame(pair, f, cutoff); err != nil {
+		return err
+	}
+	if pair.syntheticRemoteEnds {
+		return nil
+	}
+	return queueRemoteFrame(pair, f)
+}
+func validateNativeFrame(pair *activePair, f audio.Frame, cutoff *uint64) error {
+	if f.SessionID != mustUUID(pair.nativeSessionID()) {
 		return errors.New("native audio generation does not match paired session")
 	}
 	l := pair.ledgers[f.Source]
@@ -801,9 +825,6 @@ func (s *Service) acceptFrame(pair *activePair, f audio.Frame, cutoff *uint64) e
 			}
 		}
 	}
-	if err := pair.remote.QueueFrame(f); err != nil {
-		return fmt.Errorf("queue %s audio to DGX: %w", f.Source, err)
-	}
 	l.nextSequence = f.Sequence
 	l.nextSample = f.StartSample + uint64(len(f.Samples))
 	l.frames++
@@ -821,8 +842,17 @@ func (s *Service) acceptSourceEnd(pair *activePair, m ipc.NativeMessage) error {
 	if m.LastSequence != l.nextSequence || m.TotalSamples != l.nextSample {
 		return fmt.Errorf("native %s source_end totals do not match transmitted sample ledger", m.Source)
 	}
-	if err := pair.remote.EndSource(m.Source, backend.EndRequest{LastSequence: m.LastSequence, TotalSamples: m.TotalSamples, CutoffOffsetNS: pair.cutoffOffsetNS}); err != nil {
-		return err
+	if pair.cutoffOffsetNS < pair.remoteOffsetNS {
+		return errors.New("native cutoff precedes remote generation")
+	}
+	remoteLedger := pair.transmittedLedger(m.Source)
+	if remoteLedger == nil {
+		return errors.New("missing remote source ledger")
+	}
+	if !pair.syntheticRemoteEnds {
+		if err := pair.remote.EndSource(m.Source, backend.EndRequest{LastSequence: remoteLedger.nextSequence, TotalSamples: remoteLedger.nextSample, CutoffOffsetNS: pair.cutoffOffsetNS - pair.remoteOffsetNS}); err != nil {
+			return err
+		}
 	}
 	l.ended = true
 	pair.sourceEnds[m.Source] = true
@@ -868,7 +898,7 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 		s.abortPair(pair, "native_failure", err)
 		return
 	}
-	if err = s.output.SendControl(ipc.NativeMessage{Type: "capture_stop", RequestID: reqID, SessionID: pair.id, Reason: normalizeStopReason(reason)}); err != nil {
+	if err = s.output.SendControl(ipc.NativeMessage{Type: "capture_stop", RequestID: reqID, SessionID: pair.nativeSessionID(), Reason: normalizeStopReason(reason)}); err != nil {
 		s.abortPair(pair, "native_failure", err)
 		return
 	}
@@ -914,8 +944,11 @@ func (s *Service) stopPair(pair *activePair, reason string, cause error) {
 	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 	remoteEvents := pair.remote.Events()
-	done := false
-	completed := map[audio.Source]bool{}
+	done := pair.remoteSettled
+	completed := pair.remoteCompleted
+	if completed == nil {
+		completed = map[audio.Source]bool{}
+	}
 	failure := error(nil)
 	for !done {
 		select {
@@ -1023,14 +1056,14 @@ func (s *Service) waitForStopAck(pair *activePair, reqID string, cause error, de
 			if m == nil {
 				continue
 			}
-			if m.Type == "capture_failed" && m.SessionID == pair.id {
+			if m.Type == "capture_failed" && m.SessionID == pair.nativeSessionID() {
 				if cause == nil {
 					cause = fmt.Errorf("native paired failure (%s)", m.Code)
 				}
 				continue
 			}
 			if m.Type == "capture_stopped" {
-				if m.SessionID != pair.id || m.RequestID != reqID {
+				if m.SessionID != pair.nativeSessionID() || m.RequestID != reqID {
 					continue
 				}
 				if err := m.Validate(); err != nil {
@@ -1156,7 +1189,7 @@ func (s *Service) publishTranscript(pair *activePair, t *backend.Transcript) err
 	if t == nil || !t.Source.Valid() || t.SegmentID == "" || t.EndSample < t.StartSample || t.EndOffsetNS < t.StartOffsetNS {
 		return errors.New("DGX transcript has invalid source or sample interval")
 	}
-	ledger := pair.ledgers[t.Source]
+	ledger := pair.transmittedLedger(t.Source)
 	if ledger == nil || t.StartSample > ledger.nextSample {
 		return errors.New("DGX transcript starts beyond retained source samples")
 	}
@@ -1206,6 +1239,18 @@ func (s *Service) publishTranscript(pair *activePair, t *backend.Transcript) err
 	} else if !ok {
 		pair.seen[key] = segmentState{text: t.Text}
 	}
+	// Validate in the remote sample domain above, then project back onto the
+	// unchanged native capture epoch/sample origin for downstream provenance.
+	translated := *t
+	t = &translated
+	origin := pair.remoteOrigins[t.Source]
+	if t.EndSample > math.MaxUint64-origin.StartSample || t.EndOffsetNS > math.MaxUint64-pair.remoteOffsetNS {
+		return errors.New("native transcript projection overflows")
+	}
+	t.StartSample += origin.StartSample
+	t.EndSample += origin.StartSample
+	t.StartOffsetNS += pair.remoteOffsetNS
+	t.EndOffsetNS += pair.remoteOffsetNS
 	if t.StartOffsetNS > math.MaxUint64-pair.epochHostNS {
 		return errors.New("transcript host offset overflows")
 	}

@@ -573,7 +573,6 @@ def create_app(
                     terminal_reason = scheduler.failure_reason
                 elif all(context.completed for context in contexts.values()):
                     completed_normally = True
-                    await send({"type": "done", "session_id": str(session_id)})
                 else:
                     terminal_reason = "backend_failure"
 
@@ -596,12 +595,13 @@ def create_app(
                     # cancellation. Keep the admission until that work and the
                     # scheduler have actually released their contexts.
                     await scheduler.cancel_and_wait()
+            release_verified = True
             if runtime is not None and states:
                 for state in states.values():
                     try:
                         await manager.run_blocking(runtime.release_state, state)
                     except Exception:
-                        pass
+                        release_verified = False
                 states.clear()
             if admission is not None:
                 await manager.release(admission)
@@ -626,5 +626,14 @@ def create_app(
                         qualification.finalize("failed")
                     except Exception:
                         pass
+
+            # Terminal success is a settlement proof: no model context or
+            # admission remains owned, and optional receipt finalization has
+            # run before a client can close this socket or request its successor.
+            if completed_normally:
+                if release_verified:
+                    await send({"type": "done", "session_id": str(session_id)})
+                else:
+                    await send_error("backend_failure")
 
     return app

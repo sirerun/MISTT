@@ -24,6 +24,7 @@ from dgx.gateway.ledger import SourceLedger
 from dgx.gateway.pair import FairInferenceScheduler
 from dgx.gateway.qualification_telemetry import QualificationSessionTelemetry
 from dgx.gateway.protocol import (
+    SAMPLE_NS,
     AudioFrame,
     ProtocolError,
     decode_frame,
@@ -292,6 +293,53 @@ class UvicornTransportTests(unittest.TestCase):
 
 
 class GatewayIntegrationTests(unittest.TestCase):
+    def test_v2_done_proves_release_before_successor_admission(self) -> None:
+        class ReleaseRuntime(FakeRuntime):
+            released = 0
+            def release_state(self, state: dict) -> None:
+                super().release_state(state)
+                self.released += 1
+        model = ReleaseRuntime()
+        app, _ = self._app(model)
+        with TestClient(app) as client:
+            with client.websocket_connect("/mistt/v1/stream", headers={"Authorization": "Bearer test-bearer"}) as socket:
+                start = start_message()
+                start["protocol"] = "mistt.paired.v2"
+                socket.send_text(json.dumps(start))
+                ready = socket.receive_json()
+                self.assertEqual(ready["protocol"], "mistt.paired.v2")
+                self.assertIs(ready["capture_continuation"], True)
+                self._send_capture_started(socket)
+                for source in ("microphone", "call_audio"):
+                    socket.send_bytes(encode_frame(SESSION, source, 1, 0, 0, [1, 2, 3, 4]))
+                    self._end(socket, source, 1, 4, 4 * SAMPLE_NS)
+                while socket.receive_json()["type"] != "done":
+                    pass
+                self.assertEqual(model.released, 2)
+                successor = UUID("00112233-4455-6677-8899-aabbccddeeaa")
+                with client.websocket_connect("/mistt/v1/stream", headers={"Authorization": "Bearer test-bearer"}) as fresh:
+                    start = start_message(successor)
+                    start["protocol"] = "mistt.paired.v2"
+                    fresh.send_text(json.dumps(start))
+                    self.assertEqual(fresh.receive_json()["type"], "ready")
+                    fresh.send_text(json.dumps({
+                        "type": "capture_continued", "session_id": str(successor),
+                        "native_capture_started": capture_started(),
+                        "cutover_offset_ns": 4 * SAMPLE_NS,
+                        "source_origins": [
+                            {"source": source, "native_sequence": 2, "native_start_sample": 4,
+                             "native_capture_offset_ns": 4 * SAMPLE_NS}
+                            for source in ("microphone", "call_audio")
+                        ],
+                    }))
+                    for source in ("microphone", "call_audio"):
+                        fresh.send_text(json.dumps({"type": "source_end", "session_id": str(successor),
+                                                   "source": source, "last_sequence": 0,
+                                                   "total_samples": 0, "cutoff_offset_ns": 0}))
+                    while fresh.receive_json()["type"] != "done":
+                        pass
+                    self.assertEqual(model.released, 4)
+
     def _app(self, runtime: FakeRuntime | None = None, *, max_audio_samples: int = 16_000):
         model = runtime or FakeRuntime()
         settings = GatewaySettings(token="test-bearer", max_audio_samples=max_audio_samples,

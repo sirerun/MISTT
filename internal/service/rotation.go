@@ -71,6 +71,12 @@ func (s *Service) rotatePair(pair *activePair) {
 	s.publishLocked()
 	s.signalLocked()
 	s.mu.Unlock()
+	if reason == budgetRotationReason && s.cfg.ContinuousRollover {
+		if next := s.rolloverPair(pair); next != nil {
+			go s.runPair(next)
+		}
+		return
+	}
 	// No retry/unmute: only a fully settled nil-cause stop can leave consent intact.
 	s.stopPair(pair, reason, nil)
 }
