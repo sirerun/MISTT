@@ -371,7 +371,7 @@ class Driver:
                 elif "Transcription" in payload:
                     t = payload["Transcription"]
                     text = t.get("text", "")
-                    self.retain_hypothesis(value,text)  # RAM only; NEVER serialize text.
+                    self.retain_hypothesis(value,text)  # Only explicitly opted-in fictional snapshots persist privately.
                     source = t.get("source")
                     if source == "microphone":
                         words = set(re.findall(r"[^\W_]+", text.casefold()))
