@@ -276,6 +276,24 @@ class ShadowTransportOwnershipTests(unittest.TestCase):
         self.assertFalse(matching_listener_inode([row.replace(' 0A ',' 01 ')],{'12345'},17871))
 
 
+class Q02ModelPaddingTests(unittest.TestCase):
+    def test_model_zero_step_never_claims_new_source_audio(self):
+        from dgx.qualification.q02_cut import padding_jobs
+        from dgx.gateway import pair
+        jobs=padding_jobs(pair,24000,1)
+        self.assertEqual(len(jobs),1)
+        _,job,is_padding=jobs[0]
+        self.assertTrue(is_padding)
+        self.assertEqual(job.end_sample,24000)
+        self.assertEqual(job.valid_input_samples,0)
+        self.assertEqual(job.distinct_model_samples,0)
+        self.assertEqual(job.overlap_samples,0)
+        self.assertEqual(job.padding_samples,9360)
+        self.assertFalse(np.any(job.audio))
+        with self.assertRaises(ValueError):padding_jobs(pair,24000,7)
+        with self.assertRaises(ValueError):padding_jobs(pair,-1,1)
+
+
 class TailListDisposalTests(unittest.TestCase):
     def test_failure_or_cancel_wipes_untransferred_tail_not_transferred_work(self):
         from dgx.gateway.pair import WindowJob,enqueue_window_jobs

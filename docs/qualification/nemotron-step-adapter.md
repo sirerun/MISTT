@@ -132,3 +132,23 @@ not themselves prove full-question consumer reassembly. If classification is
 material or uncertain, a separately reviewed matched119s V1 run against the
 unchanged production VibeVoice endpoint uses the same fixedWAV/cadence/zeroMic
 and private snapshots, avoiding a production model/configuration change.
+
+### Pending isolated q02 EOF/reset experiment (not executed)
+
+The model-only q02_cut.py qualifier compares the complete fixed33,674-sample
+q02 WAV against its exact24,000-sample (1.5s) prefix and9,674-sample successor.
+It runs current EOF, one extra all-zero9360-sample MODEL step, and a fresh
+successor state. Model-only padding never advances claimed real source sample
+coverage; original successor origin stays24,000. A complete uncut reference
+uses six bounded model-zero steps, with full token-trace parity against the
+pinned HF generate implementation before interpreting results. Each actual
+label/blank trace and unchanged raw fictional hypothesis is private0600;
+public output is numeric counts/timing/hash only. Raw old+successor text is
+compared literally, without deduplication or reference substitution.
+
+This isolates the cut/EOF mechanism; it does not reproduce the preceding108.5s
+linguistic context or qualify a PCM overlap protocol. Zero-only model padding
+is an experiment, not an asserted documented six-frame drain API. The pinned
+HF streaming generator pads its last fixed-size feature chunk and terminates
+when its generator is exhausted, without an explicit finalization/drain call.
+EOF coverage and successful recognition of trailing words remain distinct.
