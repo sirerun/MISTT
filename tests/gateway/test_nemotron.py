@@ -126,6 +126,37 @@ class FramingTests(unittest.TestCase):
                 if jobs:self.assertEqual(jobs[-1].end_sample,length)
                 with self.assertRaises(ProtocolError):context.finish_input()
 
+    def test_both_sources_full_production_audio_budget_reserves_real_windows(self):
+        # Mirror app.py's paired context reservation policy; cache slots are not
+        # a cumulative inference-window allowance (57 slots per source).
+        from dgx.gateway.config import MAX_AUDIO_SAMPLES
+        session=uuid4();geometry=NemotronGeometry()
+        contexts={source:NemotronSourceContext(source,SourceLedger(session,source,MAX_AUDIO_SAMPLES),None)
+                  for source in ('call_audio','mic')}
+        aggregate_limit=geometry.max_context_tokens*len(contexts)
+        aggregate_reserved=sum(c.base_context_tokens for c in contexts.values())
+        counts={source:0 for source in contexts}
+        pcm=np.zeros(1600,dtype='<i2').tobytes()
+        for offset in range(0,MAX_AUDIO_SAMPLES,1600):
+            for source,context in contexts.items():
+                own=context.reserve_for_input(offset+1600,aggregate_reserved,aggregate_limit)
+                aggregate_reserved=sum(c.base_context_tokens+c._reserved_windows*geometry.reserved_tokens_per_window
+                                       for c in contexts.values())
+                jobs=context.push_frame(AudioFrame(session,source,offset//1600+1,offset,offset*62500,1600,pcm))
+                counts[source]+=len(jobs)
+                self.assertLessEqual(context.windows_enqueued,own)
+                self.assertEqual(aggregate_reserved,aggregate_limit)
+                for job in jobs:job.audio.fill(0)
+        for source,context in contexts.items():
+            full=counts[source];tails=context.finish_input()
+            self.assertEqual(full,214)
+            self.assertEqual(len(tails),1)
+            self.assertEqual(context.windows_enqueued,215)
+            self.assertEqual(context._reserved_windows,215)
+            self.assertEqual(tails[-1].end_sample,MAX_AUDIO_SAMPLES)
+            self.assertEqual(context.distinct_window_samples,MAX_AUDIO_SAMPLES)
+            for job in tails:job.audio.fill(0)
+
     def test_first_and_later_window_cursors_match_pinned_processor(self):
         session,context=self.context();samples=np.zeros(17600,dtype='<i2');jobs=[]
         for offset in range(0,len(samples),1600):jobs.extend(context.push_frame(AudioFrame(session,'call_audio',offset//1600+1,offset,offset*62500,1600,samples[offset:offset+1600].tobytes())))

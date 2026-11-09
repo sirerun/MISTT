@@ -45,7 +45,9 @@ def build_jobs(pcm,source,adapter,ledger_module,protocol):
     session=uuid4();context=adapter.NemotronSourceContext(source,ledger_module.SourceLedger(session,source,1_920_000),None)
     jobs=[]
     for offset in range(0,len(pcm),1600):
-        part=pcm[offset:offset+1600];context.reserve_for_input(offset+len(part),114,114)
+        part=pcm[offset:offset+1600]
+        paired_cache_limit=context.geometry.max_context_tokens*2
+        context.reserve_for_input(offset+len(part),paired_cache_limit,paired_cache_limit)
         for job in context.push_frame(protocol.AudioFrame(session,source,offset//1600+1,offset,offset*62500,len(part),part.tobytes())):
             jobs.append(((offset+len(part))/16000,job,False))
     for job in context.finish_input():jobs.append((len(pcm)/16000,job,True))
