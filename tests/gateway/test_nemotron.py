@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import threading
+import unittest
+from unittest.mock import patch
+from uuid import uuid4
+
+import numpy as np
+
+from dgx.gateway.ledger import SourceLedger
+from dgx.gateway.nemotron import NemotronGeometry, NemotronSourceContext, StepEngine
+from dgx.gateway.protocol import AudioFrame, ProtocolError
+
+
+class FakeBackend:
+    blank_id = 0
+    max_symbols = 10
+
+    def new_decoder_cache(self):
+        return {'initialized':False,'consumed':[],'inputs':[]}
+
+    def encode(self, audio, state):
+        if state.encoder_cache is None:
+            state.encoder_cache = {'calls':0,'slots':0}
+        state.encoder_cache['calls'] += 1
+        state.encoder_cache['slots'] = min(57,state.encoder_cache['calls']*7)
+        state.padding_cache = {'tag':int(round(float(audio[0])))}
+        return {'plans':[[11 if int(round(float(audio[0])))==1 else 22,0],[0]],'cursors':[0,0]}
+
+    def frame_count(self, encoded):
+        return len(encoded['plans'])
+
+    def predict(self, encoded, frame, last_token, cache):
+        cache['inputs'].append(last_token)
+        if last_token != self.blank_id:
+            cache['consumed'].append(last_token)
+        cache['initialized'] = True
+        cursor=encoded['cursors'][frame];encoded['cursors'][frame]+=1
+        return encoded['plans'][frame][min(cursor,len(encoded['plans'][frame])-1)]
+
+    def cache_slots(self,state):
+        return 0 if state.encoder_cache is None else state.encoder_cache['slots']
+
+    def decode(self,tokens):
+        return ' '.join('alpha?' if token==11 else 'beta?' for token in tokens)
+
+
+class StepTests(unittest.TestCase):
+    def test_blank_advancement_never_consumes_last_nonblank_twice(self):
+        engine=StepEngine(FakeBackend());state=engine.new_state(trace=True)
+        text=engine.step(state,np.ones(7880,dtype=np.float32))
+        self.assertEqual(text,'alpha?');self.assertEqual(state.trace,[0,11,0,0])
+        self.assertEqual(state.decoder_cache['inputs'],[0,11,0])
+        self.assertEqual(state.decoder_cache['consumed'],[11])
+        engine.step(state,np.ones(9360,dtype=np.float32))
+        self.assertEqual(state.decoder_cache['inputs'],[0,11,0,0,11,0])
+        self.assertEqual(state.decoder_cache['consumed'],[11,11])
+
+    def test_two_interleaved_sources_keep_all_caches_and_tokens_isolated(self):
+        engine=StepEngine(FakeBackend());a=engine.new_state();b=engine.new_state()
+        for _ in range(3):
+            engine.step(a,np.ones(9360,dtype=np.float32));engine.step(b,np.full(9360,2,dtype=np.float32))
+        self.assertEqual(a.token_ids,[11]*3);self.assertEqual(b.token_ids,[22]*3)
+        self.assertIsNot(a.encoder_cache,b.encoder_cache);self.assertIsNot(a.padding_cache,b.padding_cache);self.assertIsNot(a.decoder_cache,b.decoder_cache)
+        engine.release(a);self.assertEqual(b.token_ids,[22]*3)
+        with self.assertRaisesRegex(RuntimeError,'unavailable'):engine.step(a,np.ones(9360))
+
+    def test_max_symbols_forces_finite_frame_advance(self):
+        class Repeating(FakeBackend):
+            def predict(self,*args):return 11
+        engine=StepEngine(Repeating());state=engine.new_state(trace=True)
+        engine.step(state,np.ones(7880))
+        self.assertEqual(state.steps,20);self.assertEqual(len(state.token_ids),20)
+        self.assertEqual(state.trace,[0]+[11]*20)
+
+    def test_bounds_fail_closed_and_cannot_resume(self):
+        engine=StepEngine(FakeBackend());state=engine.new_state()
+        with patch('dgx.gateway.nemotron.MAX_TEXT_BYTES',2),self.assertRaisesRegex(RuntimeError,'text_bound'):
+            engine.step(state,np.ones(7880))
+        self.assertTrue(state.failed)
+        with self.assertRaisesRegex(RuntimeError,'unavailable'):engine.step(state,np.ones(7880))
+
+    def test_release_joins_late_step_before_clearing_state(self):
+        entered=threading.Event();finish=threading.Event();release_started=threading.Event();released=threading.Event()
+        class Blocking(FakeBackend):
+            def encode(self,audio,state):entered.set();finish.wait(2);return super().encode(audio,state)
+        engine=StepEngine(Blocking());state=engine.new_state()
+        worker=threading.Thread(target=lambda:engine.step(state,np.ones(7880)));worker.start();self.assertTrue(entered.wait(1))
+        def release():release_started.set();engine.release(state);released.set()
+        cleaner=threading.Thread(target=release);cleaner.start();self.assertTrue(release_started.wait(1));self.assertFalse(released.is_set())
+        finish.set();worker.join(2);cleaner.join(2)
+        self.assertFalse(worker.is_alive());self.assertFalse(cleaner.is_alive());self.assertTrue(state.closed);self.assertIsNone(state.decoder_cache)
+
+    def test_silence_can_remain_blank_and_noise_is_bounded(self):
+        class Silent(FakeBackend):
+            def predict(self,*args):return 0
+        engine=StepEngine(Silent());state=engine.new_state()
+        self.assertEqual(engine.step(state,np.zeros(7880)),'');self.assertEqual(state.token_ids,[])
+        with patch('dgx.gateway.nemotron.MAX_STEPS',1),self.assertRaisesRegex(RuntimeError,'step_bound'):
+            engine.step(state,np.random.default_rng(0).normal(size=9360).astype(np.float32))
+
+
+class FramingTests(unittest.TestCase):
+    def context(self):
+        session=uuid4();ledger=SourceLedger(session,'call_audio',1_920_000)
+        return session,NemotronSourceContext('call_audio',ledger,StepEngine(FakeBackend()).new_state())
+
+    def test_boundaries_keep_every_real_sample_and_never_count_padding(self):
+        for length in (0,1,7879,7880,7881,16943,16944,16945,32000,1_920_000):
+            with self.subTest(length=length):
+                session,context=self.context();pcm=(np.arange(length,dtype=np.int64)%30000).astype('<i2');jobs=[]
+                for offset in range(0,length,1600):
+                    samples=pcm[offset:offset+1600]
+                    context.reserve_for_input(offset+len(samples),114,114)
+                    jobs.extend(context.push_frame(AudioFrame(session,'call_audio',offset//1600+1,offset,offset*62500,len(samples),samples.tobytes())))
+                jobs.extend(context.finish_input());coverage=np.zeros(length,dtype=np.bool_);start=0
+                for index,job in enumerate(jobs):
+                    self.assertEqual(len(job.audio),7880 if index==0 else 9360)
+                    self.assertEqual(job.end_sample,min(start+job.valid_input_samples,length))
+                    np.testing.assert_array_equal(job.audio[:job.valid_input_samples],pcm[start:start+job.valid_input_samples].astype(np.float32)/32768)
+                    coverage[start:start+job.valid_input_samples]=True
+                    self.assertTrue(np.all(job.audio[job.valid_input_samples:]==0))
+                    start=7584 if index==0 else start+8960
+                self.assertTrue(coverage.all());self.assertEqual(context.distinct_window_samples,length);self.assertEqual(context.resampler_output_samples,length)
+                if jobs:self.assertEqual(jobs[-1].end_sample,length)
+                with self.assertRaises(ProtocolError):context.finish_input()
+
+    def test_first_and_later_window_cursors_match_pinned_processor(self):
+        session,context=self.context();samples=np.zeros(17600,dtype='<i2');jobs=[]
+        for offset in range(0,len(samples),1600):jobs.extend(context.push_frame(AudioFrame(session,'call_audio',offset//1600+1,offset,offset*62500,1600,samples[offset:offset+1600].tobytes())))
+        self.assertEqual([job.end_sample for job in jobs],[7880,16944]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
+        self.assertEqual(context.geometry,NemotronGeometry())
+
+class WireIntegrationTests(unittest.TestCase):
+    def test_opt_in_profile_preserves_v1_v2_ready_and_real_final_bounds(self):
+        from fastapi.testclient import TestClient
+        from dgx.gateway.app import create_app
+        from dgx.gateway.config import GatewaySettings
+        from dgx.gateway.nemotron import NemotronRuntime, MODEL_ID, MODEL_REVISION, SOURCE_COMMIT
+        from dgx.gateway.protocol import encode_frame
+        formats=[{'source':source,'sample_rate_hz':16000,'channels':1,'encoding':'s16le'} for source in ('microphone','call_audio')]
+        class FakeNemo(NemotronRuntime):
+            def __init__(self):self.backend=FakeBackend();self.engine=StepEngine(self.backend)
+            def close(self):pass
+        settings=GatewaySettings(token='fictional-token',runtime_profile='nemotron3_5',model_id=MODEL_ID,model_revision=MODEL_REVISION,source_commit=SOURCE_COMMIT,nemotron_cache_directory='/not-read-by-fake')
+        runtime=FakeNemo();app=create_app(settings,lambda:runtime)
+        with TestClient(app) as client:
+            for protocol in ('mistt.paired.v1','mistt.paired.v2'):
+                session=uuid4()
+                with client.websocket_connect('/mistt/v1/stream',headers={'Authorization':'Bearer fictional-token'}) as socket:
+                    socket.send_json({'type':'start','protocol':protocol,'session_id':str(session),'language':'en','sources':formats})
+                    ready=socket.receive_json();self.assertEqual(ready['type'],'ready');self.assertEqual(ready['language'],'en');self.assertEqual(ready['model']['id'],MODEL_ID);self.assertEqual(ready['model']['sample_rate'],16000)
+                    self.assertEqual(ready['aggregate_max_context_tokens'],114);self.assertEqual(ready['aggregate_drain_reserve_tokens'],0)
+                    socket.send_json({'type':'capture_started','request_id':str(uuid4()),'session_id':str(session),'capture_epoch_host_ns':1,'capture_epoch_unix_ms':1791000000000,'sources':formats,'microphone_ready':True,'call_audio_ready':True})
+                    for offset in range(0,16000,1600):
+                        for source in ('microphone','call_audio'):
+                            socket.send_bytes(encode_frame(session,source,offset//1600+1,offset,offset*62500,[32767 if source=='call_audio' else -32767]*1600))
+                    for source in ('microphone','call_audio'):
+                        socket.send_json({'type':'source_end','session_id':str(session),'source':source,'last_sequence':10,'total_samples':16000,'cutoff_offset_ns':1000000000})
+                    events=[]
+                    while True:
+                        event=socket.receive_json();events.append(event)
+                        if event['type'] in ('done','error'):break
+                    self.assertEqual(events[-1]['type'],'done')
+                    finals={event['source']:event for event in events if event['type']=='transcript' and event['is_final']}
+                    self.assertEqual(set(finals),{'microphone','call_audio'})
+                    self.assertEqual(finals['call_audio']['text'],'alpha? alpha?');self.assertEqual(finals['microphone']['text'],'beta? beta?')
+                    for final in finals.values():self.assertEqual(final['end_sample'],16000)
+
+if __name__=='__main__':unittest.main()

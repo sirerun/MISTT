@@ -45,7 +45,7 @@ from .protocol import (
 )
 from .qualification_telemetry import QualificationSessionTelemetry, QualificationTelemetryStore
 from .resample import StatefulLinearResampler
-from .runtime import ModelGeometry, StreamingRuntime, VibeVoiceRuntime, cached_context_tokens
+from .runtime import ModelGeometry, StreamingRuntime, context_tokens, create_runtime
 
 
 _startup_logger = logging.getLogger("uvicorn.error")
@@ -209,6 +209,9 @@ def _formats() -> list[dict[str, Any]]:
 
 
 def _valid_geometry(geometry: ModelGeometry) -> bool:
+    from .nemotron import NemotronGeometry
+    if isinstance(geometry, NemotronGeometry):
+        return geometry == NemotronGeometry()
     return (
         geometry.sample_rate == 24_000
         and geometry.chunk_samples > 0
@@ -224,7 +227,7 @@ def create_app(
 ) -> FastAPI:
     # Tests inject a deterministic runtime. The production entrypoint always
     # constructs the pinned VibeVoice adapter.
-    manager = ModelManager(settings, runtime_factory or (lambda: VibeVoiceRuntime(settings)))
+    manager = ModelManager(settings, runtime_factory or (lambda: create_runtime(settings)))
     qualification_store = QualificationTelemetryStore.from_environment(settings.source_commit)
 
     @asynccontextmanager
@@ -333,13 +336,13 @@ def create_app(
                         state = await asyncio.wait_for(
                             manager.run_blocking(runtime.new_state), timeout=settings.startup_timeout_seconds
                         )
-                    tokens = cached_context_tokens(state)
+                    tokens = context_tokens(runtime, state)
                     if tokens < geometry.prompt_tokens or tokens > geometry.max_context_tokens:
                         runtime.release_state(state)
                         raise RuntimeError("source prompt cache is missing or exceeds its context budget")
                     states[source] = state
                 aggregate_context_limit = geometry.max_context_tokens * AGGREGATE_CONTEXT_MULTIPLIER
-                initial_context = sum(cached_context_tokens(states[source]) for source in SOURCES)
+                initial_context = sum(context_tokens(runtime, states[source]) for source in SOURCES)
                 if initial_context > aggregate_context_limit:
                     raise RuntimeError("paired contexts exceed aggregate context budget")
             except asyncio.TimeoutError:
@@ -359,19 +362,20 @@ def create_app(
                 return
 
             source_max_audio = min(settings.max_audio_samples, MAX_AUDIO_SAMPLES)
-            contexts = {
-                source: SourceContext(
-                    source=source,
-                    ledger=SourceLedger(session_id, source, source_max_audio),
-                    state=states[source],
-                    resampler=StatefulLinearResampler(TRANSPORT_RATE, geometry.sample_rate),
-                    geometry=geometry,
-                    prompt_tokens=geometry.prompt_tokens,
-                    base_context_tokens=cached_context_tokens(states[source]),
-                    max_context_tokens=geometry.max_context_tokens,
-                )
-                for source in SOURCES
-            }
+            contexts = {}
+            custom_context = getattr(runtime, "source_context", None)
+            for source in SOURCES:
+                ledger = SourceLedger(session_id, source, source_max_audio)
+                if callable(custom_context):
+                    contexts[source] = custom_context(source, ledger, states[source])
+                else:
+                    contexts[source] = SourceContext(
+                        source=source, ledger=ledger, state=states[source],
+                        resampler=StatefulLinearResampler(TRANSPORT_RATE, geometry.sample_rate),
+                        geometry=geometry, prompt_tokens=geometry.prompt_tokens,
+                        base_context_tokens=context_tokens(runtime, states[source]),
+                        max_context_tokens=geometry.max_context_tokens,
+                    )
             if qualification_store is not None:
                 qualification = qualification_store.new_session(
                     geometry, MAX_QUEUED_WINDOWS_PER_SOURCE)
@@ -380,7 +384,7 @@ def create_app(
             async def infer(source: str, job: WindowJob) -> None:
                 context = contexts[source]
                 state = context.state
-                if cached_context_tokens(state) + geometry.reserved_tokens_per_window > geometry.max_context_tokens:
+                if context_tokens(runtime, state) + geometry.reserved_tokens_per_window > geometry.max_context_tokens:
                     raise ProtocolError("context_limit")
                 inference_started_ns = time.monotonic_ns()
                 try:
@@ -397,7 +401,10 @@ def create_app(
                                 pass
                 if not isinstance(delta, str):
                     raise RuntimeError("pinned model returned a malformed transcript delta")
-                context.transcript += delta
+                if getattr(runtime, "transcript_mode", "delta") == "snapshot":
+                    context.transcript = delta
+                else:
+                    context.transcript += delta
                 if context.transcript.strip():
                     context.event_sequence += 1
                     start_offset = context.ledger.capture_offset_for_sample(0)

@@ -292,3 +292,37 @@ For a reviewed bounded practice deployment, the existing settings support
 relay with `MISTT_STARTUP_TIMEOUT=600s` or `--startup-timeout 600s`. These are
 explicit operator choices; defaults remain unchanged. Longer startup tolerance
 does not qualify readiness, authorize audio or bypass single-session admission.
+
+## Experimental opt-in Nemotron step runtime
+
+VibeVoice remains the default. `MISTT_RUNTIME=nemotron3_5` selects only immutable
+model `nvidia/nemotron-3.5-asr-streaming-0.6b` revision
+`ea30d66debe3740a08b573244286791d423d6b3e`; set
+`MISTT_NEMOTRON_CACHE_DIR` to an independently verified existing public HF cache.
+The profile never downloads model data and uses separate exact direct dependencies
+in a source-specific system-site-packages venv. Direct pins are not a full
+transitive lock. The existing image supplies PyTorch; shared packages, credentials,
+trust, and the VibeVoice cache/bootstrap path are unchanged. Activation/deployment
+requires owning IaC preview, independent review and actual paired qualification.
+
+Wire language `en` explicitly maps to processor locale `en-US`. No fallback or new
+wire language is implied by the model card. A per-source encoder KV/conv cache,
+RNNT LSTM cache, last predicted token and token buffer are stepped by the existing
+single fair GPU scheduler. Blank predictions remain the next decoder input so
+blank-cache reuse does not consume the previous nonblank token again. No
+high-level generate thread or shared GenerationMixin state is used in the runtime.
+
+The transport/model rate is genuinely16kHz. Dedicated first7880/next9360-sample
+feature windows preserve the processor's49/56 mel frames and exact STFT overlap.
+EndSource pads one final model window; padding never creates capture samples or
+moves source ledger timestamps. Output bounds cover observed source audio, not
+unsupported word-level timestamps. Sliding encoder capacity57 plus fixed LSTM
+state replaces growing-KV budgeting;120-second/source audio limits, two pending
+jobs/source and paired v1/v2 wire shapes remain. Output IDs, text and decoder
+steps are bounded. Each source is joined before release after cancellation.
+
+Native punctuation is returned unchanged as cumulative partial snapshots; question
+marks are never invented. Normalized word completion is not Copilot assessment
+acceptance. See [adapter qualification](../../docs/qualification/nemotron-step-adapter.md)
+for full-token parity, literal-question-mark timing, paired isolation and long-run
+gates. Synthetic model-card/benchmark performance is not production promotion.

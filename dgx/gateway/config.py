@@ -66,8 +66,16 @@ class GatewaySettings:
     drain_timeout_seconds: float = 5.0
     idle_unload_seconds: float = 60.0
     unload_poll_seconds: float = 1.0
+    runtime_profile: str = "vibevoice"
+    nemotron_cache_directory: str | None = None
 
     def __post_init__(self) -> None:
+        if self.runtime_profile not in ("vibevoice", "nemotron3_5"):
+            raise ValueError("unsupported gateway runtime profile")
+        if self.runtime_profile == "nemotron3_5":
+            from .nemotron import MODEL_ID as N_ID, MODEL_REVISION as N_REV, SOURCE_COMMIT as N_SOURCE
+            if (self.model_id, self.model_revision, self.source_commit) != (N_ID, N_REV, N_SOURCE) or not self.nemotron_cache_directory:
+                raise ValueError("explicit pinned Nemotron identity/cache required")
         if not self.token or "\n" in self.token or "\r" in self.token:
             raise ValueError("gateway bearer token is empty or malformed")
         if type(self.max_audio_samples) is not int or self.max_audio_samples <= 0:
@@ -84,8 +92,16 @@ class GatewaySettings:
         if not token_path:
             raise ValueError("MISTT_TOKEN_FILE is required")
         try:
+            profile = os.environ.get("MISTT_RUNTIME", "vibevoice")
+            identity = {}
+            if profile == "nemotron3_5":
+                from .nemotron import MODEL_ID as N_ID, MODEL_REVISION as N_REV, SOURCE_COMMIT as N_SOURCE
+                identity = dict(model_id=N_ID, model_revision=N_REV, source_commit=N_SOURCE)
             return cls(
                 token=read_restricted_secret(token_path),
+                runtime_profile=profile,
+                nemotron_cache_directory=os.environ.get("MISTT_NEMOTRON_CACHE_DIR"),
+                **identity,
                 max_audio_samples=int(os.environ.get("MISTT_MAX_AUDIO_SAMPLES", MAX_AUDIO_SAMPLES)),
                 startup_timeout_seconds=float(os.environ.get("MISTT_STARTUP_TIMEOUT_SECONDS", "180")),
                 session_timeout_seconds=float(os.environ.get("MISTT_SESSION_TIMEOUT_SECONDS", "300")),
