@@ -485,6 +485,7 @@ def create_app(
                         overlap_samples=job.overlap_samples,
                         distinct_model_samples=job.distinct_model_samples,
                         padding_samples=job.padding_samples,
+                        on_discard=lambda item=job: item.audio.fill(0),
                     )
 
             async def finish_source(source: str) -> None:

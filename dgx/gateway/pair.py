@@ -58,9 +58,12 @@ class FairInferenceScheduler:
 
     async def submit(self, source: str, work: Callable[[], Awaitable[None]], *,
                      valid_input_samples: int = 0, overlap_samples: int = 0,
-                     distinct_model_samples: int = 0, padding_samples: int = 0) -> None:
+                     distinct_model_samples: int = 0, padding_samples: int = 0,
+                     on_discard: Callable[[], None] | None = None) -> None:
         queue = self._queues.get(source)
         if queue is None or self.task is None:
+            if on_discard is not None:
+                on_discard()
             raise ProtocolError("invalid_config")
         item = _ScheduledWork(
             work=work,
@@ -69,6 +72,7 @@ class FairInferenceScheduler:
             overlap_samples=max(0, int(overlap_samples)),
             distinct_model_samples=max(0, int(distinct_model_samples)),
             padding_samples=max(0, int(padding_samples)),
+            on_discard=on_discard,
         )
         put = asyncio.create_task(queue.put(item))
         failed = asyncio.create_task(self._failed.wait())
@@ -83,6 +87,8 @@ class FairInferenceScheduler:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(put, failed, return_exceptions=True)
+            if put.cancelled() or put.exception() is not None:
+                item.dispose()
 
     def stop_when_empty(self) -> None:
         self._stopping = True
@@ -100,11 +106,14 @@ class FairInferenceScheduler:
         for queue in self._queues.values():
             while True:
                 try:
-                    queue.get_nowait()
+                    item = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
                 else:
-                    queue.task_done()
+                    try:
+                        item.dispose()
+                    finally:
+                        queue.task_done()
 
     async def _run(self, worker: Callable[[str, Callable[[], Awaitable[None]]], Awaitable[None]]) -> None:
         try:
@@ -154,7 +163,10 @@ class FairInferenceScheduler:
                     self._failed.set()
                     return
                 finally:
-                    queue.task_done()
+                    try:
+                        item.dispose()
+                    finally:
+                        queue.task_done()
         except asyncio.CancelledError:
             raise
 
@@ -198,6 +210,12 @@ class _ScheduledWork:
     overlap_samples: int
     distinct_model_samples: int
     padding_samples: int
+    on_discard: Callable[[], None] | None = None
+
+    def dispose(self) -> None:
+        callback, self.on_discard = self.on_discard, None
+        if callback is not None:
+            callback()
 
     @property
     def is_window(self) -> bool:

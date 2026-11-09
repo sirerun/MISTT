@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import asyncio
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -130,6 +131,34 @@ class FramingTests(unittest.TestCase):
         for offset in range(0,len(samples),1600):jobs.extend(context.push_frame(AudioFrame(session,'call_audio',offset//1600+1,offset,offset*62500,1600,samples[offset:offset+1600].tobytes())))
         self.assertEqual([job.end_sample for job in jobs],[7880,16944]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
+
+class SchedulerDisposalTests(unittest.TestCase):
+    def test_active_pending_and_unqueued_cancelled_pcm_are_disposed_once(self):
+        from dgx.gateway.pair import FairInferenceScheduler
+        async def scenario():
+            scheduler=FairInferenceScheduler(max_items_per_source=1)
+            entered=asyncio.Event();gate=asyncio.Event();joined=asyncio.Event()
+            arrays={name:np.ones(10,dtype=np.float32) for name in ('active','queued','unqueued')};counts={name:0 for name in arrays}
+            async def worker(source,work):
+                entered.set()
+                try:await gate.wait();await work()
+                finally:joined.set()
+            async def nothing():pass
+            def dispose(name):
+                if name=='active':self.assertTrue(joined.is_set())
+                counts[name]+=1;arrays[name].fill(0)
+            scheduler.start(worker)
+            await scheduler.submit('microphone',nothing,on_discard=lambda:dispose('active'))
+            await entered.wait()
+            await scheduler.submit('microphone',nothing,on_discard=lambda:dispose('queued'))
+            pending=asyncio.create_task(scheduler.submit('microphone',nothing,on_discard=lambda:dispose('unqueued')))
+            await asyncio.sleep(0);pending.cancel();await asyncio.gather(pending,return_exceptions=True)
+            self.assertEqual(counts['unqueued'],1);self.assertTrue(arrays['active'].all())
+            await scheduler.cancel_and_wait()
+            self.assertEqual(counts,{'active':1,'queued':1,'unqueued':1})
+            self.assertTrue(all(not array.any() for array in arrays.values()))
+        asyncio.run(scenario())
+
 
 class WireIntegrationTests(unittest.TestCase):
     def test_opt_in_profile_preserves_v1_v2_ready_and_real_final_bounds(self):
