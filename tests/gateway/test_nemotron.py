@@ -163,6 +163,29 @@ class FramingTests(unittest.TestCase):
         self.assertEqual([job.end_sample for job in jobs],[7880,16840]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
 
+class ShadowGroupCleanupTests(unittest.TestCase):
+    def test_timeout_terminates_then_kills_owned_worker_group(self):
+        from dgx.qualification.shadow_launch import bounded_group
+        import signal,subprocess
+        from unittest.mock import Mock
+        child=Mock(pid=12345)
+        child.wait.side_effect=[subprocess.TimeoutExpired('worker',1),subprocess.TimeoutExpired('worker',3),-9]
+        with patch('dgx.qualification.shadow_launch.subprocess.Popen',return_value=child),patch('dgx.qualification.shadow_launch.os.killpg') as kill,patch('dgx.qualification.shadow_launch.time.sleep'):
+            with self.assertRaises(subprocess.TimeoutExpired):bounded_group(['worker'],{},None,1)
+        self.assertEqual(kill.call_args_list[0].args,(12345,signal.SIGTERM))
+        self.assertEqual(kill.call_args_list[1].args,(12345,signal.SIGKILL))
+
+    def test_finished_worker_still_cleans_any_descendant_group(self):
+        from dgx.qualification.shadow_launch import bounded_group
+        import signal
+        from unittest.mock import Mock
+        child=Mock(pid=12345);child.wait.return_value=0
+        with patch('dgx.qualification.shadow_launch.subprocess.Popen',return_value=child),patch('dgx.qualification.shadow_launch.os.killpg') as kill,patch('dgx.qualification.shadow_launch.time.sleep'):
+            self.assertEqual(bounded_group(['worker'],{},None,1),0)
+        self.assertEqual(kill.call_args_list[0].args,(12345,signal.SIGTERM))
+        self.assertEqual(kill.call_args_list[1].args,(12345,signal.SIGKILL))
+
+
 class ShadowTransportOwnershipTests(unittest.TestCase):
     def test_listener_requires_exact_pid_inode_loopback_port_and_listen_state(self):
         from dgx.qualification.paired_transport import matching_listener_inode

@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import secrets
 import re
+import signal
 import shutil
 import socket
 import ssl
@@ -37,6 +38,8 @@ def free_loopback(port):
 
 def run(root):
     root=Path(root).resolve(strict=True)
+    def terminate(_signal,_frame):raise SystemExit(128+_signal)
+    signal.signal(signal.SIGTERM,terminate)
     os.umask(0o077)
     process=None
     result={'status':'failed','production_service_modified':False,
@@ -80,7 +83,7 @@ def run(root):
             MISTT_STARTUP_TIMEOUT_SECONDS='600',MISTT_IDLE_UNLOAD_SECONDS='600')
         # Child stderr is discarded: only content-free qualification receipts persist.
         process=subprocess.Popen([sys.executable,'-m','gateway'],env=env,
-            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         import paired_transport as transport
         until=time.monotonic()+20
         while not transport.owns_linux_listener(process.pid,GATEWAY_PORT):
