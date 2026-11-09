@@ -110,6 +110,9 @@ def run(root):
         result.update(status='completed',stages=stages)
     except BaseException as error:
         result['error_class']=type(error).__name__
+        known={'gateway_source_missing','reviewed_short_stage_required','production_go_artifact_mismatch',
+               'owned_shadow_listener_unavailable','shadow_health_failed','production_go_transport_failed'}
+        if type(error) is RuntimeError and str(error) in known:result['error_code']=str(error)
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
