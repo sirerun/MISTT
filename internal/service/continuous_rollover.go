@@ -348,6 +348,11 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		}
 		clear(frame.Samples)
 	}
+	attestation, err := settledCaptureContinuation(pair, boundary, cursors)
+	if err != nil {
+		fail("backend_failure", err)
+		return nil
+	}
 	s.mu.Lock()
 	if s.rotationOverallExpiredLocked(time.Now()) {
 		s.muted = true
@@ -363,6 +368,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	next.started = proto.Clone(pair.started).(*misttv1.StreamResponse)
 	next.started.SessionId = id
 	next.started.Sequence = 1
+	next.started.GetSessionStarted().CaptureContinuation = attestation
 	s.active = next
 	s.budgetRotations++
 	s.reason = "capturing"

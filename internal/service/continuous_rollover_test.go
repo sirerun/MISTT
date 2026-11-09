@@ -149,6 +149,10 @@ func TestContinuousRolloverQueuesSpeechUntilOldSettlementAndNewReadiness(t *test
 	if next.nativeSessionID() != id || next.id == id || !pair.remoteSettled || !pair.syntheticRemoteEnds || next.remoteOffsetNS != 200_000_000 {
 		t.Fatal("generation/cut proof lost")
 	}
+	proof := next.started.GetSessionStarted().GetCaptureContinuation()
+	if proof == nil || proof.Version != 1 || proof.PreviousSessionId != id || proof.NativeSessionId != id || len(proof.Sources) != 2 || proof.Sources[1].StartSample != 3200 {
+		t.Fatal("missing settled capture attestation")
+	}
 	if old.count() != 4 || provider.next.count() != 8 {
 		t.Fatalf("sample stream lost/duplicated: oldframes=%d newframes=%d", old.count(), provider.next.count())
 	}
@@ -172,7 +176,7 @@ func newHandoffHarness(t *testing.T) (*Service, *activePair, *handoffSession, *h
 	cfg.BudgetRotation = true
 	cfg.ContinuousRollover = true
 	s, decoder := serviceWithOutputReader(t, cfg, provider)
-	pair := &activePair{id: id, nativeID: id, nativeStarted: backend.CaptureStarted{RequestID: id, CaptureEpochHostNS: 1, CaptureEpochUnixMS: 1, MicrophoneReady: true, CallAudioReady: true}, remote: old, ready: old.ready, epochHostNS: 1, epochUnixMS: 1, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}, started: &misttv1.StreamResponse{SessionId: id, Sequence: 1, Payload: &misttv1.StreamResponse_SessionStarted{SessionStarted: &misttv1.SessionStarted{CaptureEpochHostNs: 1, CaptureEpochUnixMs: 1}}}}
+	pair := &activePair{id: id, nativeID: id, nativeStarted: backend.CaptureStarted{RequestID: id, CaptureEpochHostNS: 1, CaptureEpochUnixMS: 1, MicrophoneReady: true, CallAudioReady: true, Sources: []backend.SourceFormat{{Source: audio.Microphone, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}, {Source: audio.CallAudio, SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}}}, remote: old, ready: old.ready, epochHostNS: 1, epochUnixMS: 1, sequence: 1, ledgers: map[audio.Source]*sourceLedger{audio.Microphone: {}, audio.CallAudio: {}}, sourceEnds: map[audio.Source]bool{}, seen: map[string]segmentState{}, started: &misttv1.StreamResponse{SessionId: id, Sequence: 1, Payload: &misttv1.StreamResponse_SessionStarted{SessionStarted: &misttv1.SessionStarted{Backend: "dgx_paired", Model: old.ready.Model, Language: "en", SampleRateHz: 16000, Channels: 1, Encoding: "s16le", CaptureEpochHostNs: 1, CaptureEpochUnixMs: 1, Sources: []*misttv1.SourceFormat{{Source: "microphone", SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}, {Source: "call_audio", SampleRateHz: 16000, Channels: 1, Encoding: "s16le"}}}}}}
 	for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
 		if err := s.acceptFrame(pair, handoffFrame(id, source, 1), nil); err != nil {
 			t.Fatal(err)
