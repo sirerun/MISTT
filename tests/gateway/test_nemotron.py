@@ -276,6 +276,31 @@ class ShadowTransportOwnershipTests(unittest.TestCase):
         self.assertFalse(matching_listener_inode([row.replace(' 0A ',' 01 ')],{'12345'},17871))
 
 
+class TailListDisposalTests(unittest.TestCase):
+    def test_failure_or_cancel_wipes_untransferred_tail_not_transferred_work(self):
+        from dgx.gateway.pair import WindowJob,enqueue_window_jobs
+        for failure in (RuntimeError,asyncio.CancelledError):
+            for fail_index in (0,1):
+                with self.subTest(failure=failure,fail_index=fail_index):
+                    jobs=[WindowJob(np.ones(8),8) for _ in range(fail_index+2)]
+                    accepted=[]
+                    class Scheduler:
+                        async def submit(self,source,work,**metadata):
+                            if len(accepted)==fail_index:
+                                metadata['on_discard']()
+                                raise failure()
+                            accepted.append(metadata['on_discard'])
+                    async def infer(source,job):pass
+                    async def exercise():
+                        with self.assertRaises(failure):
+                            await enqueue_window_jobs(Scheduler(),'call_audio',jobs,infer)
+                    asyncio.run(exercise())
+                    for job in jobs[:fail_index]:self.assertTrue(np.any(job.audio))
+                    for job in jobs[fail_index:]:self.assertFalse(np.any(job.audio))
+                    for dispose in accepted:dispose()
+                    self.assertTrue(all(not np.any(job.audio) for job in jobs))
+
+
 class SchedulerDisposalTests(unittest.TestCase):
     def test_active_pending_and_unqueued_cancelled_pcm_are_disposed_once(self):
         from dgx.gateway.pair import FairInferenceScheduler

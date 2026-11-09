@@ -250,6 +250,31 @@ class WindowJob:
     padding_samples: int = 0
 
 
+async def enqueue_window_jobs(scheduler: FairInferenceScheduler, source: str,
+                              jobs: list[WindowJob], infer: Callable[[str, WindowJob], Awaitable[None]]) -> None:
+    """Transfer each PCM job to submit; wipe jobs never reached on failure.
+
+    submit owns/disposes its current item even when canceled. Previously
+    transferred items remain scheduler-owned until inference/cleanup joins.
+    """
+    transferred = 0
+    try:
+        for job in jobs:
+            transferred += 1
+            await scheduler.submit(
+                source, lambda source=source, job=job: infer(source, job),
+                valid_input_samples=job.valid_input_samples,
+                overlap_samples=job.overlap_samples,
+                distinct_model_samples=job.distinct_model_samples,
+                padding_samples=job.padding_samples,
+                on_discard=lambda item=job: item.audio.fill(0),
+            )
+    except BaseException:
+        for job in jobs[transferred:]:
+            job.audio.fill(0)
+        raise
+
+
 @dataclass
 class SourceContext:
     source: str

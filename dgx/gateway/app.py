@@ -29,6 +29,7 @@ from .pair import (
     FairInferenceScheduler,
     SourceContext,
     WindowJob,
+    enqueue_window_jobs,
 )
 from .protocol import (
     PROTOCOL,
@@ -489,15 +490,7 @@ def create_app(
             session_deadline = time.monotonic() + settings.session_timeout_seconds
 
             async def enqueue_jobs(source: str, jobs: list[WindowJob]) -> None:
-                for job in jobs:
-                    await scheduler.submit(
-                        source, lambda source=source, job=job: infer(source, job),
-                        valid_input_samples=job.valid_input_samples,
-                        overlap_samples=job.overlap_samples,
-                        distinct_model_samples=job.distinct_model_samples,
-                        padding_samples=job.padding_samples,
-                        on_discard=lambda item=job: item.audio.fill(0),
-                    )
+                await enqueue_window_jobs(scheduler, source, jobs, infer)
 
             async def finish_source(source: str) -> None:
                 context = contexts[source]
