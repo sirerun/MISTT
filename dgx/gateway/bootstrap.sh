@@ -19,6 +19,12 @@ assert torch.version.cuda == "13.1" and torch.cuda.is_available(), "qualified CU
 assert torch.cuda.is_bf16_supported(), "qualified BF16 path unavailable"
 PY
 
+case "${MISTT_RUNTIME:-vibevoice}" in
+  vibevoice) ;;
+  nemotron3_5) exec bash "$ROOT/dgx/gateway/bootstrap_nemotron.sh" ;;
+  *) echo "unsupported gateway runtime profile" >&2; exit 1 ;;
+esac
+
 archive="$CACHE/upstream/vibevoice-$SOURCE_COMMIT-$SOURCE_ARCHIVE_SHA256.tar.gz"
 verified_source="$CACHE/upstream/source-$SOURCE_COMMIT-$SOURCE_ARCHIVE_SHA256"
 if [[ -e "$archive" || -L "$archive" ]]; then

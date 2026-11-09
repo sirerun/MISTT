@@ -29,6 +29,7 @@ from .pair import (
     FairInferenceScheduler,
     SourceContext,
     WindowJob,
+    enqueue_window_jobs,
 )
 from .protocol import (
     PROTOCOL,
@@ -45,7 +46,7 @@ from .protocol import (
 )
 from .qualification_telemetry import QualificationSessionTelemetry, QualificationTelemetryStore
 from .resample import StatefulLinearResampler
-from .runtime import ModelGeometry, StreamingRuntime, VibeVoiceRuntime, cached_context_tokens
+from .runtime import ModelGeometry, StreamingRuntime, context_tokens, create_runtime
 
 
 _startup_logger = logging.getLogger("uvicorn.error")
@@ -209,6 +210,9 @@ def _formats() -> list[dict[str, Any]]:
 
 
 def _valid_geometry(geometry: ModelGeometry) -> bool:
+    from .nemotron import NemotronGeometry
+    if isinstance(geometry, NemotronGeometry):
+        return geometry == NemotronGeometry()
     return (
         geometry.sample_rate == 24_000
         and geometry.chunk_samples > 0
@@ -224,7 +228,7 @@ def create_app(
 ) -> FastAPI:
     # Tests inject a deterministic runtime. The production entrypoint always
     # constructs the pinned VibeVoice adapter.
-    manager = ModelManager(settings, runtime_factory or (lambda: VibeVoiceRuntime(settings)))
+    manager = ModelManager(settings, runtime_factory or (lambda: create_runtime(settings)))
     qualification_store = QualificationTelemetryStore.from_environment(settings.source_commit)
 
     @asynccontextmanager
@@ -333,13 +337,13 @@ def create_app(
                         state = await asyncio.wait_for(
                             manager.run_blocking(runtime.new_state), timeout=settings.startup_timeout_seconds
                         )
-                    tokens = cached_context_tokens(state)
+                    tokens = context_tokens(runtime, state)
                     if tokens < geometry.prompt_tokens or tokens > geometry.max_context_tokens:
                         runtime.release_state(state)
                         raise RuntimeError("source prompt cache is missing or exceeds its context budget")
                     states[source] = state
                 aggregate_context_limit = geometry.max_context_tokens * AGGREGATE_CONTEXT_MULTIPLIER
-                initial_context = sum(cached_context_tokens(states[source]) for source in SOURCES)
+                initial_context = sum(context_tokens(runtime, states[source]) for source in SOURCES)
                 if initial_context > aggregate_context_limit:
                     raise RuntimeError("paired contexts exceed aggregate context budget")
             except asyncio.TimeoutError:
@@ -359,28 +363,31 @@ def create_app(
                 return
 
             source_max_audio = min(settings.max_audio_samples, MAX_AUDIO_SAMPLES)
-            contexts = {
-                source: SourceContext(
-                    source=source,
-                    ledger=SourceLedger(session_id, source, source_max_audio),
-                    state=states[source],
-                    resampler=StatefulLinearResampler(TRANSPORT_RATE, geometry.sample_rate),
-                    geometry=geometry,
-                    prompt_tokens=geometry.prompt_tokens,
-                    base_context_tokens=cached_context_tokens(states[source]),
-                    max_context_tokens=geometry.max_context_tokens,
-                )
-                for source in SOURCES
-            }
+            contexts = {}
+            custom_context = getattr(runtime, "source_context", None)
+            for source in SOURCES:
+                ledger = SourceLedger(session_id, source, source_max_audio)
+                if callable(custom_context):
+                    contexts[source] = custom_context(source, ledger, states[source])
+                else:
+                    contexts[source] = SourceContext(
+                        source=source, ledger=ledger, state=states[source],
+                        resampler=StatefulLinearResampler(TRANSPORT_RATE, geometry.sample_rate),
+                        geometry=geometry, prompt_tokens=geometry.prompt_tokens,
+                        base_context_tokens=context_tokens(runtime, states[source]),
+                        max_context_tokens=geometry.max_context_tokens,
+                    )
             if qualification_store is not None:
                 qualification = qualification_store.new_session(
                     geometry, MAX_QUEUED_WINDOWS_PER_SOURCE)
             scheduler = FairInferenceScheduler(telemetry=qualification)
 
+            processed_emission_end = {source: 0 for source in SOURCES}
+
             async def infer(source: str, job: WindowJob) -> None:
                 context = contexts[source]
                 state = context.state
-                if cached_context_tokens(state) + geometry.reserved_tokens_per_window > geometry.max_context_tokens:
+                if context_tokens(runtime, state) + geometry.reserved_tokens_per_window > geometry.max_context_tokens:
                     raise ProtocolError("context_limit")
                 inference_started_ns = time.monotonic_ns()
                 try:
@@ -397,8 +404,20 @@ def create_app(
                                 pass
                 if not isinstance(delta, str):
                     raise RuntimeError("pinned model returned a malformed transcript delta")
-                context.transcript += delta
+                prior_text = context.transcript
+                if getattr(runtime, "transcript_mode", "delta") == "snapshot":
+                    context.transcript = delta
+                else:
+                    context.transcript += delta
                 if context.transcript.strip():
+                    previous_end = processed_emission_end[source]
+                    if job.end_sample < previous_end:
+                        raise ProtocolError("invalid_timestamp")
+                    # Actual repeated recognition plus newly processed source audio
+                    # is a coverage witness, never acoustic silence or finality.
+                    if context.transcript == prior_text and job.end_sample == previous_end:
+                        return
+                    processed_emission_end[source] = job.end_sample
                     context.event_sequence += 1
                     start_offset = context.ledger.capture_offset_for_sample(0)
                     end_offset = context.ledger.capture_offset_for_sample(job.end_sample)
@@ -471,14 +490,7 @@ def create_app(
             session_deadline = time.monotonic() + settings.session_timeout_seconds
 
             async def enqueue_jobs(source: str, jobs: list[WindowJob]) -> None:
-                for job in jobs:
-                    await scheduler.submit(
-                        source, lambda source=source, job=job: infer(source, job),
-                        valid_input_samples=job.valid_input_samples,
-                        overlap_samples=job.overlap_samples,
-                        distinct_model_samples=job.distinct_model_samples,
-                        padding_samples=job.padding_samples,
-                    )
+                await enqueue_window_jobs(scheduler, source, jobs, infer)
 
             async def finish_source(source: str) -> None:
                 context = contexts[source]

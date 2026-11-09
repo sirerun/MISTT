@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -61,6 +62,7 @@ func runDaemon(args []string) error {
 	flags.StringVar(&cfg.Language, "language", cfg.Language, "paired recognition language")
 	flags.StringVar(&cfg.MicrophoneDevice, "microphone-device", cfg.MicrophoneDevice, "native microphone selection")
 	flags.StringVar(&cfg.TargetBundleID, "target-bundle-id", cfg.TargetBundleID, "selected app bundle identity")
+	redactedDiagnostics := flags.Bool("redacted-rollover-diagnostics", false, "emit bounded enum/numeric rollover diagnostics on stderr; no transcript/error text")
 	flags.Bool("desktop", true, "run as the native app-owned relay child")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -90,5 +92,17 @@ func runDaemon(args []string) error {
 	defer cancel()
 	out := ipc.NewWriter(os.Stdout, cfg.NativeControlQueue)
 	svc := service.New(cfg, provider, os.Stdin, out)
+	if *redactedDiagnostics {
+		diagnostics := make(chan service.RolloverDiagnostic, 8)
+		svc.SetRolloverDiagnostics(diagnostics)
+		go func() {
+			enc := json.NewEncoder(os.Stderr)
+			for d := range diagnostics {
+				if enc.Encode(d) != nil {
+					return
+				}
+			}
+		}()
+	}
 	return svc.Run(ctx, listener)
 }

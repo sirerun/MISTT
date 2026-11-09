@@ -46,7 +46,15 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 			_ = successor.Close()
 		}
 	}
-	fail := func(reason string, err error) { cleanup(); s.stopPair(pair, reason, err) }
+	stage := "boundary_clock"
+	boundary := uint64(0)
+	failReported := func(at, reason string, publicErr, diagnosticErr error) {
+		s.reportRollover(pair, at, boundary, diagnosticErr)
+		cleanup()
+		s.stopPair(pair, reason, publicErr)
+	}
+	failAt := func(at, reason string, err error) { failReported(at, reason, err, err) }
+	fail := func(reason string, err error) { failAt(stage, reason, err) }
 	interrupted := func() (string, bool) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -71,7 +79,6 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	// Select a future cut from real captured sample offsets, not a guessed mapping
 	// between Go's clock and the native host clock. The extra frame stays inside
 	// the existing reserved rotation headroom.
-	boundary := uint64(0)
 	for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
 		l := pair.ledgers[source]
 		if l == nil || l.frames == 0 {
@@ -154,6 +161,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		}
 		return nil
 	}
+	stage = "buffer_accept"
 	for len(cursors) < 2 {
 		if reason, stop := interrupted(); stop {
 			fail(reason, nil)
@@ -175,12 +183,17 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 			}
 		case e, ok := <-pair.remote.Events():
 			if !ok || e.Err != nil || e.Done || e.SourceDone != nil {
-				fail("backend_failure", errors.New("old ASR ended before cut"))
+				cause := errors.New("old ASR ended before cut")
+				if e.Err != nil {
+					failReported("buffer_accept", "backend_failure", cause, e.Err)
+				} else {
+					fail("backend_failure", cause)
+				}
 				return nil
 			}
 			if e.Transcript != nil {
 				if err := s.publishTranscript(pair, e.Transcript); err != nil {
-					fail("backend_failure", err)
+					failAt("old_transcript_validation", "backend_failure", err)
 					return nil
 				}
 			}
@@ -188,6 +201,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	}
 	// End only the remote streams. Native EOF remains owned by a future real
 	// capture_stop acknowledgement and is never fabricated for this handoff.
+	stage = "old_end_source"
 	pair.syntheticRemoteEnds = true
 	pair.remoteCompleted = map[audio.Source]bool{}
 	for _, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
@@ -201,6 +215,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 			return nil
 		}
 	}
+	stage = "old_settlement"
 	for !pair.remoteSettled {
 		if reason, stop := interrupted(); stop {
 			fail(reason, nil)
@@ -222,12 +237,17 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 			}
 		case e, ok := <-pair.remote.Events():
 			if !ok || e.Err != nil {
-				fail("backend_failure", errors.New("old ASR closed without settlement"))
+				cause := errors.New("old ASR closed without settlement")
+				if e.Err != nil {
+					failReported("old_settlement", "backend_failure", cause, e.Err)
+				} else {
+					fail("backend_failure", cause)
+				}
 				return nil
 			}
 			if e.Transcript != nil {
 				if err := s.publishTranscript(pair, e.Transcript); err != nil {
-					fail("backend_failure", err)
+					failAt("old_transcript_validation", "backend_failure", err)
 					return nil
 				}
 			}
@@ -249,6 +269,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		}
 	}
 	_ = pair.remote.Close() // v2 done proves context cleanup/admission release first.
+	stage = "successor_open"
 	id, err := newUUID()
 	if err != nil {
 		fail("backend_failure", err)
@@ -303,6 +324,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		fail(reason, nil)
 		return nil
 	}
+	stage = "successor_ready"
 	ready := successor.Ready()
 	continuing, ok := successor.(backend.ContinuingSession)
 	sameFormats := len(ready.Sources) == 2 && len(pair.nativeStarted.Sources) == 2 && ready.Sources[0] == pair.nativeStarted.Sources[0] && ready.Sources[1] == pair.nativeStarted.Sources[1]
@@ -324,10 +346,12 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		c := cursors[source]
 		origins = append(origins, backend.CaptureOrigin{Source: source, NativeSequence: c.Sequence, NativeStartSample: c.StartSample, NativeCaptureOffsetNS: c.CaptureOffsetNS})
 	}
+	stage = "successor_continue"
 	if err = continuing.CaptureContinued(backend.CaptureContinuation{NativeSessionID: pair.nativeSessionID(), NativeStarted: pair.nativeStarted, CutoverOffsetNS: boundary, Origins: origins}); err != nil {
 		fail("backend_failure", err)
 		return nil
 	}
+	stage = "replay"
 	original, _, err := buffer.take(mustUUID(id), time.Now())
 	if err != nil {
 		fail("backend_failure", err)
@@ -349,6 +373,7 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 		}
 		clear(frame.Samples)
 	}
+	stage = "continuation_attestation"
 	attestation, err := settledCaptureContinuation(pair, boundary, cursors)
 	if err != nil {
 		fail("backend_failure", err)

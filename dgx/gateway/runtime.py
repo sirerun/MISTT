@@ -162,3 +162,17 @@ class VibeVoiceRuntime:
         self._model = None
         self._tokenizer = None
         self._torch.cuda.empty_cache()
+
+
+def context_tokens(runtime: StreamingRuntime, state: Any) -> int:
+    reader = getattr(runtime, "context_tokens", None)
+    return reader(state) if callable(reader) else cached_context_tokens(state)
+
+
+def create_runtime(settings: GatewaySettings) -> StreamingRuntime:
+    if settings.runtime_profile == "vibevoice":
+        return VibeVoiceRuntime(settings)
+    if settings.runtime_profile == "nemotron3_5":
+        from .nemotron import NemotronRuntime
+        return NemotronRuntime(settings)
+    raise ValueError("unsupported runtime profile")
