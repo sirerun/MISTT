@@ -31,13 +31,17 @@ def main(root):
     if reuse.get('local_files_only') is not True:raise RuntimeError('offline_cache_required')
     metrics=os.open(root/'candidate-metrics.jsonl',os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
     private=os.open(root/'fictional-q02-hypotheses.jsonl',os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
-    backend=None;phase='load';all_jobs=[]
+    backend=None;phase='load';all_jobs=[];hypothesis_bytes=0
     with os.fdopen(metrics,'w') as numeric,os.fdopen(private,'w') as hypotheses:
         def emit(event,**fields):numeric.write(json.dumps({'event':event,**fields})+'\n');numeric.flush();os.fsync(numeric.fileno())
         def retain(name,text,ids,trace,real_end,origin=0):
-            hypotheses.write(json.dumps({'synthetic_only':True,'variant':name,'raw_hypothesis':text,
+            nonlocal hypothesis_bytes
+            body=json.dumps({'synthetic_only':True,'variant':name,'raw_hypothesis':text,
                 'actual_label_token_ids':ids,'actual_decoder_trace_including_blanks':trace,
-                'claimed_real_source_samples':real_end,'original_source_origin_sample':origin})+'\n');hypotheses.flush();os.fsync(hypotheses.fileno())
+                'claimed_real_source_samples':real_end,'original_source_origin_sample':origin})+'\n'
+            size=len(body.encode())
+            if hypothesis_bytes+size>16*1024*1024:raise RuntimeError('private_fictional_hypothesis_bound')
+            hypotheses.write(body);hypotheses.flush();os.fsync(hypotheses.fileno());hypothesis_bytes+=size
         def jobs_for(samples,zeros=0):
             jobs=build_jobs(samples,'call_audio',adapter,ledger,protocol)+padding_jobs(pair,len(samples),zeros)
             if any(job.end_sample>len(samples) for _,job,_ in jobs):raise RuntimeError('claimed_coverage_advanced')
