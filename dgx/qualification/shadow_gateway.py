@@ -4,11 +4,13 @@ Invoked only by an independently reviewed Spark exec preview. This is not a
 production listener or physical/native-capture or Copilot assessment proof.
 """
 from __future__ import annotations
+import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
 import secrets
+import re
 import shutil
 import socket
 import ssl
@@ -48,7 +50,16 @@ def run(root):
         for source in root.glob('gateway__*.py'):
             new_file(package/source.name.removeprefix('gateway__'),source.read_bytes())
         if not (package/'__main__.py').is_file():raise RuntimeError('gateway_source_missing')
-        relay=root/'mistt';os.chmod(relay,0o700)
+        plan=json.loads((root/'shadow-plan.json').read_text())
+        if (set(plan)!={'mode','duration_seconds','relay_sha256'} or plan['mode']!='baseline'
+                or plan['duration_seconds']!=119 or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
+            raise RuntimeError('reviewed_short_stage_required')
+        with gzip.open(root/'mistt.gz','rb') as compressed:
+            binary=compressed.read(16*1024*1024+1)
+        if len(binary)>16*1024*1024 or hashlib.sha256(binary).hexdigest()!=plan['relay_sha256']:
+            raise RuntimeError('production_go_artifact_mismatch')
+        relay=root/'mistt';new_file(relay,binary,0o700)
+        del binary
         credentials=root/'test-only-credentials';credentials.mkdir(mode=0o700)
         cert=credentials/'tls.crt';key=credentials/'tls.key';token=credentials/'asr.token'
         # New scoped test material only. Never read retained production secrets.
@@ -81,9 +92,6 @@ def run(root):
         request.add_header('Authorization','Bearer '+token.read_text())
         with urllib.request.urlopen(request,context=context,timeout=5) as response:
             if response.status!=200:raise RuntimeError('shadow_health_failed')
-        plan=json.loads((root/'shadow-plan.json').read_text())
-        if plan != {'mode':'baseline','duration_seconds':119}:
-            raise RuntimeError('reviewed_short_stage_required')
         stages=[]
         for mode in ('baseline',):
             config={'relay':str(relay),'relay_sha256':hashlib.sha256(relay.read_bytes()).hexdigest(),
