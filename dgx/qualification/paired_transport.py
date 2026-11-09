@@ -513,7 +513,7 @@ class Driver:
             continuous = self.c["mode"] in ("soak","diagnostic")
             env.update(MISTT_LISTEN=self.c["listen"], MISTT_DGX_ENDPOINT=self.c["endpoint"], MISTT_TOKEN_FILE=self.c["token_file"], MISTT_CA_FILE=self.c["ca_file"], MISTT_LANGUAGE="en", MISTT_BUDGET_ROTATION=str(continuous).lower(), MISTT_CONTINUOUS_ROLLOVER=str(continuous).lower(), MISTT_MAX_DURATION=str(self.duration + 30) + "s")
             relay_command=[self.c["relay"],"run"]
-            if self.c["mode"]=="diagnostic":relay_command.append("--redacted-rollover-diagnostics")
+            if continuous:relay_command.append("--redacted-rollover-diagnostics")
             self.process = subprocess.Popen(relay_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             stderr_reader=threading.Thread(target=self.stderr_diagnostics,args=(self.process.stderr,"relay"),daemon=True);stderr_reader.start();threads.append(stderr_reader)
             controller = threading.Thread(target=self.native_controls, daemon=True); controller.start(); threads.append(controller)
