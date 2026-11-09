@@ -22,6 +22,9 @@ func settledCaptureContinuation(pair *activePair, cut uint64, cursors map[audio.
 	if start == nil || pair.started.SessionId != pair.id || start.Backend != "dgx_paired" || start.Model == "" || start.Model != pair.ready.Model || start.Language != "en" || start.SampleRateHz != audio.SampleRate || start.Channels != audio.Channels || start.Encoding != audio.Encoding || start.CaptureEpochHostNs == 0 || start.CaptureEpochHostNs != pair.epochHostNS || start.CaptureEpochUnixMs <= 0 || start.CaptureEpochUnixMs != pair.epochUnixMS || pair.nativeStarted.CaptureEpochHostNS != pair.epochHostNS || pair.nativeStarted.CaptureEpochUnixMS != pair.epochUnixMS || !pair.nativeStarted.MicrophoneReady || !pair.nativeStarted.CallAudioReady || len(start.Sources) != 2 || len(pair.nativeStarted.Sources) != 2 {
 		return fail()
 	}
+	if pair.epochHostNS > math.MaxUint64-cut || pair.epochUnixMS > math.MaxInt64-int64(cut/1_000_000) {
+		return fail()
+	}
 	proof := &misttv1.CaptureContinuation{Version: 1, PreviousSessionId: pair.id, NativeSessionId: pair.nativeSessionID(), CutoverOffsetNs: cut}
 	for i, source := range []audio.Source{audio.Microphone, audio.CallAudio} {
 		expected := &misttv1.SourceFormat{Source: string(source), SampleRateHz: audio.SampleRate, Channels: audio.Channels, Encoding: audio.Encoding}
@@ -32,7 +35,7 @@ func settledCaptureContinuation(pair *activePair, cut uint64, cursors map[audio.
 		old := pair.remoteLedgers[source]
 		native := pair.ledgers[source]
 		next, ok := cursors[source]
-		if old == nil || native == nil || old.frames == 0 || old.firstSample != 0 || native.frames == 0 || native.ended || !ok || next.Sequence == 0 || next.Sequence > native.nextSequence || next.StartSample >= native.nextSample || next.CaptureOffsetNS < cut || next.CaptureOffsetNS-cut >= audio.SampleNS {
+		if old == nil || native == nil || old.frames == 0 || old.firstSample != 0 || native.frames == 0 || native.ended || !ok || next.Sequence == 0 || next.Sequence > native.nextSequence || next.StartSample >= native.nextSample || next.CaptureOffsetNS < cut || next.CaptureOffsetNS-cut >= audio.SampleNS || pair.epochHostNS > math.MaxUint64-next.CaptureOffsetNS || pair.epochUnixMS > math.MaxInt64-int64(next.CaptureOffsetNS/1_000_000) {
 			return fail()
 		}
 		origin, hasOrigin := pair.remoteOrigins[source]

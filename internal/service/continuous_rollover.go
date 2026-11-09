@@ -305,7 +305,8 @@ func (s *Service) rolloverPair(pair *activePair) *activePair {
 	}
 	ready := successor.Ready()
 	continuing, ok := successor.(backend.ContinuingSession)
-	if !ok || !ready.CaptureContinuation || ready.MaxActivePairs != 1 || ready.Model != pair.ready.Model || ready.Language != pair.ready.Language {
+	sameFormats := len(ready.Sources) == 2 && len(pair.nativeStarted.Sources) == 2 && ready.Sources[0] == pair.nativeStarted.Sources[0] && ready.Sources[1] == pair.nativeStarted.Sources[1]
+	if !ok || !ready.CaptureContinuation || ready.MaxActivePairs != 1 || ready.Model != pair.ready.Model || ready.Language != pair.ready.Language || !sameFormats {
 		fail("backend_failure", errors.New("successor ASR contract changed"))
 		return nil
 	}

@@ -55,6 +55,16 @@ func TestAttestationRejectsUnsettledOrMismatchedNativeBoundaries(t *testing.T) {
 			x.CaptureOffsetNS++
 			c[audio.CallAudio] = x
 		},
+		"host overflow": func(p *activePair, _ map[audio.Source]rolloverCursor) {
+			p.epochHostNS = math.MaxUint64
+			p.nativeStarted.CaptureEpochHostNS = math.MaxUint64
+			p.started.GetSessionStarted().CaptureEpochHostNs = math.MaxUint64
+		},
+		"wall overflow": func(p *activePair, _ map[audio.Source]rolloverCursor) {
+			p.epochUnixMS = math.MaxInt64
+			p.nativeStarted.CaptureEpochUnixMS = math.MaxInt64
+			p.started.GetSessionStarted().CaptureEpochUnixMs = math.MaxInt64
+		},
 		"epoch changed": func(p *activePair, _ map[audio.Source]rolloverCursor) { p.nativeStarted.CaptureEpochHostNS++ },
 		"format changed": func(p *activePair, _ map[audio.Source]rolloverCursor) {
 			p.started.GetSessionStarted().Sources[0].SampleRateHz = 48000
