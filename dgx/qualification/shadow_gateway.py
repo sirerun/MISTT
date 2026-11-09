@@ -54,8 +54,8 @@ def run(root):
             new_file(package/source.name.removeprefix('gateway__'),source.read_bytes())
         if not (package/'__main__.py').is_file():raise RuntimeError('gateway_source_missing')
         plan=json.loads((root/'shadow-plan.json').read_text())
-        if (set(plan)-{'mode','duration_seconds','relay_sha256','retain_fictional_hypotheses'} or not {'mode','duration_seconds','relay_sha256'}.issubset(plan) or plan['mode'] not in ('baseline','soak')
-                or plan['duration_seconds']!={'baseline':119,'soak':900}[plan['mode']] or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
+        if (set(plan)-{'mode','duration_seconds','relay_sha256','retain_fictional_hypotheses'} or not {'mode','duration_seconds','relay_sha256'}.issubset(plan) or plan['mode'] not in ('baseline','soak','diagnostic')
+                or plan['duration_seconds']!={'baseline':119,'soak':900,'diagnostic':240}[plan['mode']] or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
             raise RuntimeError('reviewed_short_stage_required')
         if type(plan.get('retain_fictional_hypotheses',False)) is not bool:
             raise RuntimeError('explicit_hypothesis_retention_required')

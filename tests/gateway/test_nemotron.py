@@ -164,6 +164,28 @@ class FramingTests(unittest.TestCase):
         self.assertEqual(context.geometry,NemotronGeometry())
 
 class ShadowContinuationTests(unittest.TestCase):
+    def test_diagnostic_repeats_exact_first_240_seconds_of_soak_pcm_schedule(self):
+        from dgx.qualification.paired_transport import Driver,RATE
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);manifest=root/'manifest.json';manifest.write_text('[]')
+            items=[{'id':f'q{i:02d}','reference':'Did it work?'} for i in range(1,13)]
+            for item in items:
+                if item['id'] in ('q01','q10'):item['reference']='Please explain.'
+                elif item['id']=='q11':item['reference']='Did it work? Why?'
+            drivers=[]
+            try:
+                for mode in ('soak','diagnostic'):
+                    drivers.append(Driver({'mode':mode,'output_dir':str(root/mode),'relay_sha256':'a'*64,
+                                           'fixture_manifest':str(manifest)},items,None))
+                soak,diagnostic=drivers
+                self.assertEqual(diagnostic.duration,240)
+                self.assertEqual(diagnostic.schedule,[(origin,item) for origin,item in soak.schedule if origin<240*RATE])
+                self.assertEqual(len(diagnostic.schedule),6)
+            finally:
+                for driver in drivers:driver.log.close()
+
     def test_opt_in_fictional_hypotheses_private_bounded_and_unchanged(self):
         from dgx.qualification.paired_transport import Driver
         import tempfile,time,json
@@ -171,6 +193,9 @@ class ShadowContinuationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);manifest=root/'manifest.json';manifest.write_text('[]')
             items=[{'id':f'q{i:02d}','reference':'Did it work?'} for i in range(1,13)]
+            for item in items:
+                if item['id'] in ('q01','q10'):item['reference']='Please explain.'
+                elif item['id']=='q11':item['reference']='Did it work? Why?'
             driver=Driver({'mode':'baseline','output_dir':str(root/'output'),'relay_sha256':'a'*64,
                            'fixture_manifest':str(manifest),'retain_fictional_hypotheses':True},items,None)
             try:
@@ -197,6 +222,9 @@ class ShadowContinuationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);manifest=root/'manifest.json';manifest.write_text('[]')
             items=[{'id':f'q{i:02d}','reference':'Did it work?'} for i in range(1,13)]
+            for item in items:
+                if item['id'] in ('q01','q10'):item['reference']='Please explain.'
+                elif item['id']=='q11':item['reference']='Did it work? Why?'
             driver=Driver({'mode':'soak','output_dir':str(root/'output'),'relay_sha256':'a'*64,
                            'fixture_manifest':str(manifest)},items,None)
             try:

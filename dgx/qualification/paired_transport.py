@@ -246,9 +246,10 @@ class Driver:
         self.duration = {"baseline":119,"soak":900,"diagnostic":240}[c["mode"]]
         slots = [(i * 10.0, x) for i, x in enumerate(items)] if c["mode"] == "baseline" else [(108.5 + 110 * i, x) for i, x in enumerate([x for x in items if x["reference"].count("?") == 1][:(2 if c["mode"]=="diagnostic" else 8)])]
         self.schedule = [(int(t * RATE), x) for t, x in slots]
-        if c['mode']=='soak':
-            scheduled={item['id'] for _,item in self.schedule}
-            self.schedule += [(int(t*RATE),item) for t,item in zip((2,20,40,70),[item for item in items if item['id'] not in scheduled])]
+        if c['mode'] in ('soak','diagnostic'):
+            by_id={item['id']:item for item in items}
+            self.schedule += [(int(t*RATE),by_id[fixture_id]) for t,fixture_id in
+                              zip((2,20,40,70),('q01','q10','q11','q12'))]
             self.schedule.sort(key=lambda row:row[0])
         self.processed_observations = {}
         self.unchanged_advanced_events = 0
