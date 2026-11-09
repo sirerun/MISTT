@@ -21,7 +21,7 @@ import urllib.request
 
 GATEWAY_PORT=17874
 RELAY_PORT=17875
-MODEL='nvidia/nemotron-3.5-asr-streaming-0.6b'
+MODEL='nvidia/nemotron-3.5-asr-streaming-0.6b@ea30d66debe3740a08b573244286791d423d6b3e'
 
 
 def new_file(path, body, mode=0o600):
