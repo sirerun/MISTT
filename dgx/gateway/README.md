@@ -326,3 +326,21 @@ marks are never invented. Normalized word completion is not Copilot assessment
 acceptance. See [adapter qualification](../../docs/qualification/nemotron-step-adapter.md)
 for full-token parity, literal-question-mark timing, paired isolation and long-run
 gates. Synthetic model-card/benchmark performance is not production promotion.
+
+### Processed coverage witnesses
+
+A finished model job with existing nonempty cumulative words emits a partial
+transcript even if no new labels were recognized, when its model-processed source
+end advances. The event sequence and real source end/offset advance; text can be
+identical. This is recognition coverage, not an acoustic-pause, utterance-ended or
+finality claim. Empty/silent sources emit no invented transcript. An unchanged
+padding-only job with no new processed source bound emits no duplicate witness.
+Legacy punctuation-based consumers remain unchanged.
+
+For the fixed Nemotron STFT, the first49 retained mel frames support7880 real
+samples. A subsequent56-frame input accepts9360 samples but its last nonzero
+400-sample FFT window supports only9256 of them; the remaining104 await the next
+step. Published processed ends use that conservative support, not input-array
+length. An almost-full final input can therefore require a second bounded padded
+step to cover its last≤103 real samples. Padding never creates source samples;
+all source tails must reach the true ledger total before source completion.

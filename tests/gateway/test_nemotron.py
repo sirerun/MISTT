@@ -117,7 +117,7 @@ class FramingTests(unittest.TestCase):
                 jobs.extend(context.finish_input());coverage=np.zeros(length,dtype=np.bool_);start=0
                 for index,job in enumerate(jobs):
                     self.assertEqual(len(job.audio),7880 if index==0 else 9360)
-                    self.assertEqual(job.end_sample,min(start+job.valid_input_samples,length))
+                    self.assertEqual(job.end_sample,min(start+min(job.valid_input_samples,7880 if index==0 else 9256),length))
                     np.testing.assert_array_equal(job.audio[:job.valid_input_samples],pcm[start:start+job.valid_input_samples].astype(np.float32)/32768)
                     coverage[start:start+job.valid_input_samples]=True
                     self.assertTrue(np.all(job.audio[job.valid_input_samples:]==0))
@@ -129,7 +129,7 @@ class FramingTests(unittest.TestCase):
     def test_first_and_later_window_cursors_match_pinned_processor(self):
         session,context=self.context();samples=np.zeros(17600,dtype='<i2');jobs=[]
         for offset in range(0,len(samples),1600):jobs.extend(context.push_frame(AudioFrame(session,'call_audio',offset//1600+1,offset,offset*62500,1600,samples[offset:offset+1600].tobytes())))
-        self.assertEqual([job.end_sample for job in jobs],[7880,16944]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
+        self.assertEqual([job.end_sample for job in jobs],[7880,16840]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
 
 class SchedulerDisposalTests(unittest.TestCase):
@@ -161,6 +161,41 @@ class SchedulerDisposalTests(unittest.TestCase):
 
 
 class WireIntegrationTests(unittest.TestCase):
+    def test_unchanged_nonempty_words_advance_processed_bounds_but_empty_mic_emits_no_text(self):
+        from fastapi.testclient import TestClient
+        from dgx.gateway.app import create_app
+        from dgx.gateway.config import GatewaySettings
+        from dgx.gateway.nemotron import NemotronRuntime, MODEL_ID, MODEL_REVISION, SOURCE_COMMIT
+        from dgx.gateway.protocol import encode_frame
+        class OnceBackend(FakeBackend):
+            def encode(self,audio,state):
+                encoded=super().encode(audio,state)
+                if state.encoder_cache['calls']!=1 or not np.any(audio):encoded['plans']=[[0],[0]]
+                return encoded
+        class FakeNemo(NemotronRuntime):
+            def __init__(self):self.backend=OnceBackend();self.engine=StepEngine(self.backend)
+            def close(self):pass
+        settings=GatewaySettings(token='fictional-token',runtime_profile='nemotron3_5',model_id=MODEL_ID,model_revision=MODEL_REVISION,source_commit=SOURCE_COMMIT,nemotron_cache_directory='/not-read-by-fake')
+        formats=[{'source':source,'sample_rate_hz':16000,'channels':1,'encoding':'s16le'} for source in ('microphone','call_audio')]
+        with TestClient(create_app(settings,FakeNemo)) as client:
+            session=uuid4()
+            with client.websocket_connect('/mistt/v1/stream',headers={'Authorization':'Bearer fictional-token'}) as socket:
+                socket.send_json({'type':'start','protocol':'mistt.paired.v2','session_id':str(session),'language':'en','sources':formats});self.assertEqual(socket.receive_json()['type'],'ready')
+                socket.send_json({'type':'capture_started','request_id':str(uuid4()),'session_id':str(session),'capture_epoch_host_ns':1,'capture_epoch_unix_ms':1791000000000,'sources':formats,'microphone_ready':True,'call_audio_ready':True})
+                for offset in range(0,48000,1600):
+                    for source in ('microphone','call_audio'):socket.send_bytes(encode_frame(session,source,offset//1600+1,offset,offset*62500,[32767 if source=='call_audio' else 0]*1600))
+                for source in ('microphone','call_audio'):socket.send_json({'type':'source_end','session_id':str(session),'source':source,'last_sequence':30,'total_samples':48000,'cutoff_offset_ns':3000000000})
+                events=[]
+                while True:
+                    event=socket.receive_json();events.append(event)
+                    if event['type'] in ('done','error'):break
+                self.assertEqual(events[-1]['type'],'done')
+                partials=[event for event in events if event['type']=='transcript' and not event['is_final']]
+                self.assertGreaterEqual(len(partials),2);self.assertTrue(all(event['source']=='call_audio' and event['text']=='alpha?' for event in partials))
+                self.assertTrue(all(a['end_sample']<b['end_sample'] and a['source_event_sequence']<b['source_event_sequence'] for a,b in zip(partials,partials[1:])))
+                self.assertGreaterEqual(partials[1]['end_sample']-partials[0]['end_sample'],8000)
+                for event in partials:self.assertEqual(event['end_offset_ns'],event['end_sample']*62500)
+
     def test_opt_in_profile_preserves_v1_v2_ready_and_real_final_bounds(self):
         from fastapi.testclient import TestClient
         from dgx.gateway.app import create_app

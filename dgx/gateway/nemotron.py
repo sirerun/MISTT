@@ -28,6 +28,7 @@ class NemotronGeometry:
     first_samples: int = 7880
     first_next_start: int = 7584
     window_samples: int = 9360
+    processed_window_samples: int = 9256  # final real nonzero STFT support; 104 input samples await next step
     reserved_tokens_per_window: int = 0  # recurrent/sliding cache does not grow per window
 
 
@@ -131,7 +132,7 @@ class TransformersBackend:
         p = self.processor
         if (p.feature_extractor.sampling_rate, p.num_samples_first_audio_chunk, p.num_samples_per_audio_chunk,
                 p.num_mel_frames_first_audio_chunk, p.num_mel_frames_per_audio_chunk,
-                p.feature_extractor.hop_length, p.feature_extractor.n_fft) != (16000, 7880, 9360, 49, 56, 160, 512):
+                p.feature_extractor.hop_length, p.feature_extractor.n_fft, p.feature_extractor.win_length) != (16000, 7880, 9360, 49, 56, 160, 512, 400):
             raise RuntimeError('rnnt_processor_geometry_mismatch')
         self.model = None
         try:
@@ -267,7 +268,9 @@ class NemotronSourceContext:
         if self.base_context_tokens > self.max_context_tokens or aggregate_context_tokens > aggregate_limit:
             raise ProtocolError('context_limit')
         full = 0 if source_samples < 7880 else 1 + max(0, (source_samples - 16944) // 8960 + 1)
-        self._reserved_windows = full + (1 if source_samples else 0)
+        next_start = 0 if full == 0 else 7584 + (full - 1) * 8960
+        tails = 0 if source_samples == 0 else 1 + int(full > 0 and source_samples - next_start > 9256)
+        self._reserved_windows = full + tails
         return self._reserved_windows
 
     def _job(self, padded=False):
@@ -277,10 +280,12 @@ class NemotronSourceContext:
         valid = min(size, len(self.model_audio) - start)
         audio = np.zeros(size, dtype=np.float32)
         audio[:valid] = self.model_audio[start:start + valid]
-        end = min(self._next_start + valid, self.source_samples)
+        raw_end = min(self._next_start + valid, self.source_samples)
+        support = size if self.windows_enqueued == 0 else self.geometry.processed_window_samples
+        end = min(self._next_start + min(valid, support), self.source_samples)
         overlap = max(0, min(valid, self._highwater - self._next_start))
-        distinct = max(0, end - self._highwater)
-        self._highwater = max(self._highwater, end)
+        distinct = max(0, raw_end - self._highwater)
+        self._highwater = max(self._highwater, raw_end)
         self.distinct_window_samples += distinct
         self.windows_enqueued += 1
         job = WindowJob(audio, end, valid, overlap, distinct, size - valid)
@@ -312,4 +317,11 @@ class NemotronSourceContext:
         if not self.source_samples:
             self.final_tail_geometry = {'emitted':False,'valid_input_samples':0,'overlap_samples':0,'distinct_samples':0,'padded_samples':0}
             return []
-        return [self._job(padded=True)]
+        jobs = [self._job(padded=True)]
+        # A nearly-full final STFT chunk can leave up to103 real samples beyond
+        # its last nonzero window support. Flush those in one further step.
+        if jobs[-1].end_sample < self.source_samples:
+            jobs.append(self._job(padded=True))
+        if jobs[-1].end_sample != self.source_samples:
+            raise RuntimeError('rnnt_final_support_bound')
+        return jobs

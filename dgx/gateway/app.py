@@ -381,6 +381,8 @@ def create_app(
                     geometry, MAX_QUEUED_WINDOWS_PER_SOURCE)
             scheduler = FairInferenceScheduler(telemetry=qualification)
 
+            processed_emission_end = {source: 0 for source in SOURCES}
+
             async def infer(source: str, job: WindowJob) -> None:
                 context = contexts[source]
                 state = context.state
@@ -401,11 +403,20 @@ def create_app(
                                 pass
                 if not isinstance(delta, str):
                     raise RuntimeError("pinned model returned a malformed transcript delta")
+                prior_text = context.transcript
                 if getattr(runtime, "transcript_mode", "delta") == "snapshot":
                     context.transcript = delta
                 else:
                     context.transcript += delta
                 if context.transcript.strip():
+                    previous_end = processed_emission_end[source]
+                    if job.end_sample < previous_end:
+                        raise ProtocolError("invalid_timestamp")
+                    # Actual repeated recognition plus newly processed source audio
+                    # is a coverage witness, never acoustic silence or finality.
+                    if context.transcript == prior_text and job.end_sample == previous_end:
+                        return
+                    processed_emission_end[source] = job.end_sample
                     context.event_sequence += 1
                     start_offset = context.ledger.capture_offset_for_sample(0)
                     end_offset = context.ledger.capture_offset_for_sample(job.end_sample)
