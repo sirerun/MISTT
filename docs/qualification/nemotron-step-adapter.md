@@ -67,3 +67,25 @@ questions separated by silence; q12 has a question followed by a statement.
 No fake punctuation, raw transcript logs or case material. A separate production
 Go/native15-minute multi-rotation acceptance must prove no gaps, stale generations,
 queue growth or privacy/cancellation regressions before model promotion.
+
+### Pending real transport qualification (not executed)
+
+`dgx/qualification/shadow_gateway.py` and `paired_transport.py` prepare a
+synthetic-only, 119-second production-Go-service transport qualification. The
+existing owning DGX Spark-exec operator must separately preview and authorize
+this listener operation. It binds only Pod-local127.0.0.1:17874 (strict TLS
+shadow gateway) and17875 (owned Go gRPC service), generates separate one-day
+test-only CA/key/token material inside a fresh private operation directory,
+and never reads retained production credentials. No production listener,
+reservation, model/configuration or default changes. The public archive pins
+the LinuxARM64 diagnostic Go relay, gateway source and fixed12 fictional WAV
+fixtures. The Go service drives framed synthetic native IPC; it does not use
+Core Audio or physical capture. The Linux listener guard verifies the exact
+owned child PID's socket inode in `/proc` before any gRPC control effect.
+
+The first stage runs all12 fixtures over119seconds, beyond the suspected
+64-second cutoff, recording numeric semantic/latency and unchanged-text
+advancing processed-coverage evidence without storing recognized text/PCM.
+A900-second rollover soak is a separate future reviewed effect after this
+short stage settles. No SubQ key, Copilot decision request, cards, actual Mac
+capture or user-visible acceptance is qualified by this transport-only path.

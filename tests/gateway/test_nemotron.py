@@ -163,6 +163,17 @@ class FramingTests(unittest.TestCase):
         self.assertEqual([job.end_sample for job in jobs],[7880,16840]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
 
+class ShadowTransportOwnershipTests(unittest.TestCase):
+    def test_listener_requires_exact_pid_inode_loopback_port_and_listen_state(self):
+        from dgx.qualification.paired_transport import matching_listener_inode
+        row='0: 0100007F:45CF 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 12345'
+        self.assertTrue(matching_listener_inode([row],{'12345'},17871))
+        self.assertFalse(matching_listener_inode([row],{'foreign'},17871))
+        self.assertFalse(matching_listener_inode([row],{'12345'},17872))
+        self.assertFalse(matching_listener_inode([row.replace('0100007F','00000000')],{'12345'},17871))
+        self.assertFalse(matching_listener_inode([row.replace(' 0A ',' 01 ')],{'12345'},17871))
+
+
 class SchedulerDisposalTests(unittest.TestCase):
     def test_active_pending_and_unqueued_cancelled_pcm_are_disposed_once(self):
         from dgx.gateway.pair import FairInferenceScheduler
