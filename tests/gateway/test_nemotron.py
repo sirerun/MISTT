@@ -196,4 +196,19 @@ class WireIntegrationTests(unittest.TestCase):
                     self.assertEqual(finals['call_audio']['text'],'alpha? alpha?');self.assertEqual(finals['microphone']['text'],'beta? beta?')
                     for final in finals.values():self.assertEqual(final['end_sample'],16000)
 
+
+class PunctuationMetricTests(unittest.TestCase):
+    def test_word_complete_without_native_mark_is_not_assessable(self):
+        from dgx.qualification.nemotron_steps import marked_clauses
+        self.assertEqual(marked_clauses('Did you approve it',['Did you approve it?']),set())
+        self.assertEqual(marked_clauses('Did you approve it?',['Did you approve it?']),{0})
+        self.assertEqual(marked_clauses('Did you approve it? Or did you reject it',['Did you approve it?','Or did you reject it?']),{0})
+        self.assertEqual(marked_clauses('Did you approve it? Or did you reject it?',['Did you approve it?','Or did you reject it?']),{0,1})
+    def test_date_format_classification_keeps_date_and_negation_semantics(self):
+        from dgx.qualification.nemotron_steps import marked_clauses
+        reference=['Was it signed before March fifth twenty twenty four?']
+        self.assertEqual(marked_clauses('Was it signed before March 5th 2024?',reference,date=True),{0})
+        self.assertEqual(marked_clauses('Was it signed before March 6th 2024?',reference,date=True),set())
+        self.assertEqual(marked_clauses('Was it not signed before March 5th 2024?',reference,date=True),set())
+
 if __name__=='__main__':unittest.main()
