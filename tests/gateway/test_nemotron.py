@@ -163,6 +163,24 @@ class FramingTests(unittest.TestCase):
         self.assertEqual([job.end_sample for job in jobs],[7880,16840]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
 
+class ShadowDependencyTests(unittest.TestCase):
+    def test_exact_gateway_dependencies_and_imports_precede_worker(self):
+        from dgx.qualification import shadow_launch
+        import json,tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'pins.json').write_text(json.dumps({'dependencies':['transformers==5.13.0']}))
+            (root/'transport-dependencies.json').write_text(json.dumps(['fastapi==0.116.1','uvicorn==0.35.0','websockets==15.0.1']))
+            with patch.object(shadow_launch.os,'nice'),patch.object(shadow_launch.signal,'signal'),patch.object(shadow_launch.venv,'create'),patch.object(shadow_launch,'bounded_group',return_value=0) as bounded:
+                self.assertTrue(shadow_launch.run(root))
+            calls=bounded.call_args_list
+            self.assertEqual(len(calls),3)
+            self.assertEqual(calls[0].args[0][-3:],['fastapi==0.116.1','uvicorn==0.35.0','websockets==15.0.1'])
+            self.assertIn('import fastapi,uvicorn,websockets',calls[1].args[0][-1])
+            self.assertEqual(calls[2].args[0][-2:], [str(root/'worker.py'),str(root)])
+
+
 class ShadowGroupCleanupTests(unittest.TestCase):
     def test_timeout_terminates_then_kills_owned_worker_group(self):
         from dgx.qualification.shadow_launch import bounded_group
