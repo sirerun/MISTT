@@ -28,6 +28,22 @@ SAMPLE_NS = 62500
 PINNED_MANIFEST_SHA256 = '15401b2b55e0f927003cf04c94230fa3532ff0ce211e6c4a3f0612a3e363946c'
 
 
+def valid_continuation(proof,previous,native,last_cut):
+    try:
+        if (not isinstance(proof,dict) or proof.get('version')!=1
+                or proof.get('previous_session_id')!=previous
+                or proof.get('native_session_id')!=native):
+            return False
+        cut=int(proof['cutover_offset_ns']);sources=proof['sources']
+        if cut<=last_cut or len(sources)!=2:return False
+        for source,name in zip(sources,SOURCES):
+            sample=int(source['start_sample']);offset=int(source['capture_offset_ns'])
+            if source['source']!=name or sample<=0 or offset!=sample*SAMPLE_NS or offset!=cut:return False
+        return True
+    except (KeyError,ValueError,TypeError):
+        return False
+
+
 def matching_listener_inode(lines, inodes, port):
     for line in lines:
         fields=line.split()
@@ -173,6 +189,10 @@ class Driver:
         self.duration = 119 if c["mode"] == "baseline" else 900
         slots = [(i * 10.0, x) for i, x in enumerate(items)] if c["mode"] == "baseline" else [(108.5 + 110 * i, x) for i, x in enumerate([x for x in items if x["reference"].count("?") == 1][:8])]
         self.schedule = [(int(t * RATE), x) for t, x in slots]
+        if c['mode']=='soak':
+            scheduled={item['id'] for _,item in self.schedule}
+            self.schedule += [(int(t*RATE),item) for t,item in zip((2,20,40,70),[item for item in items if item['id'] not in scheduled])]
+            self.schedule.sort(key=lambda row:row[0])
         self.processed_observations = {}
         self.unchanged_advanced_events = 0
         self.max_unchanged_coverage_ns = 0
@@ -188,6 +208,10 @@ class Driver:
         self.native_id = None
         self.sequence = 0
         self.native_starts = self.native_stops = self.sessions = self.rotations = self.gaps = 0
+        self.current_asr_id = None
+        self.current_stop = None
+        self.continuation_proofs = 0
+        self.last_cut = 0
         self.mic_nonmarker = 0
         self.qcounts = {}
         self.latest = ("", None)
@@ -289,6 +313,15 @@ class Driver:
                 value = json.loads(line)
                 payload = value.get("Payload", {})
                 if "SessionStarted" in payload:
+                    if self.sessions:
+                        proof=payload['SessionStarted'].get('capture_continuation')
+                        if self.c['mode']!='soak' or self.current_stop!='budget_rotation' or not valid_continuation(proof,self.current_asr_id,self.native_id,self.last_cut):
+                            self.fail('continuation_attestation_unqualified')
+                        else:
+                            self.continuation_proofs+=1
+                            self.last_cut=int(proof['cutover_offset_ns'])
+                    self.current_asr_id=value.get('session_id')
+                    self.current_stop=None
                     self.sessions += 1
                     model = payload["SessionStarted"].get("model", "")
                     self.emit("asr_session_started", generation=self.sessions, model=model)
@@ -296,6 +329,7 @@ class Driver:
                         self.fail("unexpected_model_identity")
                 elif "SessionStopped" in payload:
                     reason = payload["SessionStopped"].get("reason", "")
+                    if value.get('session_id')==self.current_asr_id:self.current_stop=reason
                     self.rotations += reason == "budget_rotation"
                     if reason != "budget_rotation":
                         self.stop_observed.set()
@@ -434,7 +468,7 @@ class Driver:
                 thread.join(2)
             if self.native_starts != 1 or self.native_stops != 1 or self.gaps or self.sequence != self.duration * 10:
                 self.errors.append("native_or_sample_continuity_unqualified")
-            if self.c["mode"] == "soak" and (self.sessions < 9 or self.rotations < 8):
+            if self.c["mode"] == "soak" and (self.sessions < 9 or self.rotations < 8 or self.continuation_proofs < 8):
                 self.errors.append("fewer_than_eight_rotations")
             if self.c["mode"] == "baseline":
                 self.snapshots[12] = self.latest
@@ -454,7 +488,7 @@ class Driver:
             if self.unchanged_advanced_events == 0 or self.max_unchanged_coverage_ns < 500_000_000:
                 self.errors.append("unchanged_processed_coverage_unqualified")
             self.close_stack()
-            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "transport_qualified": not self.errors, "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": False, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
+            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "checked_continuation_attestations": self.continuation_proofs, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "transport_qualified": not self.errors, "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": False, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
             with (self.out / "summary.json").open("x") as f:
                 json.dump(summary, f, indent=2)
             os.chmod(self.out / "summary.json", 0o600)

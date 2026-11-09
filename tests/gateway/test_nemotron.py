@@ -163,6 +163,41 @@ class FramingTests(unittest.TestCase):
         self.assertEqual([job.end_sample for job in jobs],[7880,16840]);self.assertEqual([job.overlap_samples for job in jobs],[0,296]);self.assertEqual(context._next_start,16544)
         self.assertEqual(context.geometry,NemotronGeometry())
 
+class ShadowContinuationTests(unittest.TestCase):
+    def test_soak_schedules_all_twelve_and_initializes_proof_custody(self):
+        from dgx.qualification.paired_transport import Driver
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);manifest=root/'manifest.json';manifest.write_text('[]')
+            items=[{'id':f'q{i:02d}','reference':'Did it work?'} for i in range(1,13)]
+            driver=Driver({'mode':'soak','output_dir':str(root/'output'),'relay_sha256':'a'*64,
+                           'fixture_manifest':str(manifest)},items,None)
+            try:
+                self.assertEqual(driver.duration,900)
+                self.assertEqual(len(driver.metrics),12)
+                self.assertEqual(len(driver.schedule),12)
+                self.assertEqual(driver.continuation_proofs,0)
+                self.assertIsNone(driver.current_asr_id)
+            finally:driver.log.close()
+
+    def test_exact_ordered_native_global_boundary_attestation(self):
+        from dgx.qualification.paired_transport import valid_continuation
+        import copy
+        proof={'version':1,'previous_session_id':'old','native_session_id':'native',
+               'cutover_offset_ns':110_000_000_000,'sources':[
+                   {'source':source,'start_sample':1_760_000,'capture_offset_ns':110_000_000_000}
+                   for source in ('microphone','call_audio')]}
+        self.assertTrue(valid_continuation(proof,'old','native',0))
+        self.assertFalse(valid_continuation(proof,'foreign','native',0))
+        self.assertFalse(valid_continuation(proof,'old','foreign',0))
+        self.assertFalse(valid_continuation(proof,'old','native',110_000_000_000))
+        altered=copy.deepcopy(proof);altered['sources'].reverse()
+        self.assertFalse(valid_continuation(altered,'old','native',0))
+        altered=copy.deepcopy(proof);altered['sources'][1]['start_sample']+=1
+        self.assertFalse(valid_continuation(altered,'old','native',0))
+
+
 class ShadowDependencyTests(unittest.TestCase):
     def test_exact_gateway_dependencies_and_imports_precede_worker(self):
         from dgx.qualification import shadow_launch

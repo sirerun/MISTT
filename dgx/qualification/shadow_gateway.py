@@ -54,8 +54,8 @@ def run(root):
             new_file(package/source.name.removeprefix('gateway__'),source.read_bytes())
         if not (package/'__main__.py').is_file():raise RuntimeError('gateway_source_missing')
         plan=json.loads((root/'shadow-plan.json').read_text())
-        if (set(plan)!={'mode','duration_seconds','relay_sha256'} or plan['mode']!='baseline'
-                or plan['duration_seconds']!=119 or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
+        if (set(plan)!={'mode','duration_seconds','relay_sha256'} or plan['mode'] not in ('baseline','soak')
+                or plan['duration_seconds']!={'baseline':119,'soak':900}[plan['mode']] or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
             raise RuntimeError('reviewed_short_stage_required')
         with gzip.open(root/'mistt.gz','rb') as compressed:
             binary=compressed.read(16*1024*1024+1)
@@ -96,7 +96,7 @@ def run(root):
         with urllib.request.urlopen(request,context=context,timeout=5) as response:
             if response.status!=200:raise RuntimeError('shadow_health_failed')
         stages=[]
-        for mode in ('baseline',):
+        for mode in (plan['mode'],):
             config={'relay':str(relay),'relay_sha256':hashlib.sha256(relay.read_bytes()).hexdigest(),
                 'endpoint':f'wss://127.0.0.1:{GATEWAY_PORT}/mistt/v1/stream',
                 'token_file':str(token),'ca_file':str(cert),'listen':f'127.0.0.1:{RELAY_PORT}',
