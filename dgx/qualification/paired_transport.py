@@ -2,7 +2,8 @@
 """Private offline-by-default production-relay acceptance driver.
 
 --run launches only an owned Go relay with SYNTHETIC native IPC and private ASR.
-It never invokes Core Audio, plays audio, changes UI, or persists transcripts/PCM.
+It never invokes Core Audio, plays audio, changes UI, or persists PCM.
+Optional root-reviewed retention stores fixed-fictional hypotheses privately only.
 """
 import argparse
 import hashlib
@@ -129,6 +130,8 @@ def validate(config):
         raise ValueError("dedicated non-default loopback listener required")
     if not Path(c["output_dir"]).is_absolute() or Path(c["output_dir"]).exists():
         raise ValueError("new absolute output directory required")
+    if 'retain_fictional_hypotheses' in c and type(c['retain_fictional_hypotheses']) is not bool:
+        raise ValueError('explicit fictional hypothesis retention boolean required')
     items = fixture_data(c["fixture_manifest"])
     return c, items, digest(path) if path is not None else None
 
@@ -219,17 +222,45 @@ class Driver:
         self.stop_observed = threading.Event()
         self.errors = []
         self.process = self.subscriber = self.producer = None
+        self.hypothesis_log = None
+        self.hypothesis_bytes = 0
+        self.hypothesis_records = 0
+        self.last_retained_hypothesis = {}
+
         self.out = Path(c["output_dir"])
         self.out.mkdir(mode=0o700)
         self.log = (self.out / "events.jsonl").open("x", buffering=1)
         os.chmod(self.out / "events.jsonl", 0o600)
+        if c.get('retain_fictional_hypotheses',False):
+            fd=os.open(self.out/'fictional-hypotheses.jsonl',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+            self.hypothesis_log=os.fdopen(fd,'w')
+
         with (self.out / "intent.json").open("x") as f:
-            json.dump({"operation_id": str(uuid.uuid4()), "mode": c["mode"], "relay_sha256": c["relay_sha256"], "config_sha256": config_hash, "manifest_sha256": digest(c["fixture_manifest"]), "duration_seconds": self.duration, "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "fixture_count": len(self.schedule)}, f, indent=2)
+            json.dump({"operation_id": str(uuid.uuid4()), "mode": c["mode"], "relay_sha256": c["relay_sha256"], "config_sha256": config_hash, "manifest_sha256": digest(c["fixture_manifest"]), "duration_seconds": self.duration, "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "fixture_count": len(self.schedule), "fictional_hypothesis_retention": self.hypothesis_log is not None}, f, indent=2)
         os.chmod(self.out / "intent.json", 0o600)
 
     def emit(self, event, **fields):
         with self.metric_lock:
             self.log.write(json.dumps({"event": event, "monotonic_ns": time.monotonic_ns(), **fields}) + "\n")
+
+    def retain_hypothesis(self,value,text):
+        if self.hypothesis_log is None:return
+        payload=value.get('Payload',{}).get('Transcription',{})
+        key=(value.get('session_id'),payload.get('source'))
+        if self.last_retained_hypothesis.get(key)==text and not payload.get('is_final',False):return
+        entry={'synthetic_only':True,'elapsed_ms':round((time.monotonic()-self.start_time)*1000,3),
+               'session_id':value.get('session_id'),'generation':self.sessions,
+               'source':payload.get('source'),'source_event_sequence':payload.get('source_event_sequence'),
+               'start_sample':payload.get('start_sample'),'end_sample':payload.get('end_sample'),
+               'start_offset_ns':payload.get('start_offset_ns'),'end_offset_ns':payload.get('end_offset_ns'),
+               'is_final':payload.get('is_final',False),'raw_hypothesis':text}
+        body=json.dumps(entry,ensure_ascii=False)+'\n'
+        size=len(body.encode())
+        if self.hypothesis_bytes+size>16*1024*1024:
+            self.fail('fictional_hypothesis_budget_exceeded');return
+        self.hypothesis_log.write(body);self.hypothesis_log.flush()
+        self.hypothesis_bytes+=size;self.hypothesis_records+=1
+        self.last_retained_hypothesis[key]=text
 
     def fail(self, code):
         self.errors.append(code)
@@ -339,7 +370,8 @@ class Driver:
                     self.emit("subscriber_gap", generation=self.sessions)
                 elif "Transcription" in payload:
                     t = payload["Transcription"]
-                    text = t.get("text", "")  # RAM only; NEVER serialize text.
+                    text = t.get("text", "")
+                    self.retain_hypothesis(value,text)  # RAM only; NEVER serialize text.
                     source = t.get("source")
                     if source == "microphone":
                         words = set(re.findall(r"[^\W_]+", text.casefold()))
@@ -487,8 +519,10 @@ class Driver:
                         metric.update(verbatim_exact=exact, verbatim_word_errors=edit_distance(reference.split(), hypothesis.split()), reference_word_count=len(reference.split()), restricted_date_format_only=date_only, semantic_equivalent=exact or date_only)
             if self.unchanged_advanced_events == 0 or self.max_unchanged_coverage_ns < 500_000_000:
                 self.errors.append("unchanged_processed_coverage_unqualified")
+            if self.hypothesis_log is not None:
+                os.fsync(self.hypothesis_log.fileno());self.hypothesis_log.close()
             self.close_stack()
-            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "checked_continuation_attestations": self.continuation_proofs, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "transport_qualified": not self.errors, "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": False, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
+            summary = {"mode": self.c["mode"], "native_kind": "synthetic_ipc_NOT_actual_mac_capture", "assessment_metrics": "not measured: transport-only", "native_starts": self.native_starts, "native_stops": self.native_stops, "asr_generations": self.sessions, "budget_rotations": self.rotations, "checked_continuation_attestations": self.continuation_proofs, "subscriber_gaps": self.gaps, "frames_per_source": self.sequence, "samples_per_source": self.sequence * FRAME_SAMPLES, "microphone_pcm": "generated_zero_only", "microphone_nonmarker_events": self.mic_nonmarker, "fixtures": list(self.metrics.values()), "errors": self.errors, "transport_qualified": not self.errors, "semantic_qualified": all(m.get("semantic_equivalent", False) for m in self.metrics.values()) if self.c["mode"] == "baseline" else False, "all_references_observed_in_one_asr_segment": all(m["normalized_reference_observed"] for m in self.metrics.values()), "actual_native_qualified": False, "transport_observer_persisted_transcripts_or_pcm": self.hypothesis_log is not None, "fictional_hypothesis_text_retained": self.hypothesis_log is not None, "audio_PCM_retained": False, "fictional_hypothesis_records": self.hypothesis_records, "fictional_hypothesis_bytes": self.hypothesis_bytes, "unchanged_text_advanced_processed_events": self.unchanged_advanced_events, "max_unchanged_advanced_processed_ns": self.max_unchanged_coverage_ns}
             with (self.out / "summary.json").open("x") as f:
                 json.dump(summary, f, indent=2)
             os.chmod(self.out / "summary.json", 0o600)

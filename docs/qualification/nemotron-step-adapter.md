@@ -114,3 +114,21 @@ attestations. It preserves source cap120s, fixed model cache and all production
 settings. Its12-fixture schedule includes eight questions crossing real timer
 cuts. It measures transport/recognition observations only; a missing full
 reference split across ASR generations is not repaired by invented text.
+
+### Optional fictional-only diagnostic retention
+
+A separately reviewed soak may set retain_fictional_hypotheses=true. This
+stores unchanged raw hypothesis snapshots only for the SHA-pinned12 fictional
+WAVs and synthetic-zero microphone, in a fresh0600
+fictional-hypotheses.jsonl under the0700 operation directory. It never logs
+hypotheses to stdout, public telemetry, Git or a source archive, and never
+changes model text using expected references. Only changed text and final
+snapshots are retained, capped at16MiB; the receipt truthfully declares text
+retention and no PCM retention. Default behavior remains no hypothesis storage.
+
+These snapshots can classify the prior q03/q06/q12 lexical differences without
+assuming they are material semantic errors. V2 prefix/suffix observations do
+not themselves prove full-question consumer reassembly. If classification is
+material or uncertain, a separately reviewed matched119s V1 run against the
+unchanged production VibeVoice endpoint uses the same fixedWAV/cadence/zeroMic
+and private snapshots, avoiding a production model/configuration change.

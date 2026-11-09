@@ -164,6 +164,32 @@ class FramingTests(unittest.TestCase):
         self.assertEqual(context.geometry,NemotronGeometry())
 
 class ShadowContinuationTests(unittest.TestCase):
+    def test_opt_in_fictional_hypotheses_private_bounded_and_unchanged(self):
+        from dgx.qualification.paired_transport import Driver
+        import tempfile,time,json
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);manifest=root/'manifest.json';manifest.write_text('[]')
+            items=[{'id':f'q{i:02d}','reference':'Did it work?'} for i in range(1,13)]
+            driver=Driver({'mode':'baseline','output_dir':str(root/'output'),'relay_sha256':'a'*64,
+                           'fixture_manifest':str(manifest),'retain_fictional_hypotheses':True},items,None)
+            try:
+                driver.start_time=time.monotonic()
+                event={'session_id':'synthetic-session','Payload':{'Transcription':{'source':'call_audio','end_sample':8960,'end_offset_ns':560000000}}}
+                driver.retain_hypothesis(event,'Fictional unchanged words')
+                driver.retain_hypothesis(event,'Fictional unchanged words')
+                path=root/'output/fictional-hypotheses.jsonl'
+                rows=[json.loads(line) for line in path.read_text().splitlines()]
+                self.assertEqual(len(rows),1)
+                self.assertEqual(rows[0]['raw_hypothesis'],'Fictional unchanged words')
+                self.assertTrue(rows[0]['synthetic_only'])
+                self.assertEqual(path.stat().st_mode & 0o777,0o600)
+                driver.hypothesis_bytes=16*1024*1024
+                driver.retain_hypothesis(event,'Different fictional words')
+                self.assertIn('fictional_hypothesis_budget_exceeded',driver.errors)
+                self.assertEqual(len(path.read_text().splitlines()),1)
+            finally:driver.hypothesis_log.close();driver.log.close()
+
     def test_soak_schedules_all_twelve_and_initializes_proof_custody(self):
         from dgx.qualification.paired_transport import Driver
         import tempfile

@@ -54,9 +54,11 @@ def run(root):
             new_file(package/source.name.removeprefix('gateway__'),source.read_bytes())
         if not (package/'__main__.py').is_file():raise RuntimeError('gateway_source_missing')
         plan=json.loads((root/'shadow-plan.json').read_text())
-        if (set(plan)!={'mode','duration_seconds','relay_sha256'} or plan['mode'] not in ('baseline','soak')
+        if (set(plan)-{'mode','duration_seconds','relay_sha256','retain_fictional_hypotheses'} or not {'mode','duration_seconds','relay_sha256'}.issubset(plan) or plan['mode'] not in ('baseline','soak')
                 or plan['duration_seconds']!={'baseline':119,'soak':900}[plan['mode']] or not re.fullmatch('[0-9a-f]{64}',plan['relay_sha256'])):
             raise RuntimeError('reviewed_short_stage_required')
+        if type(plan.get('retain_fictional_hypotheses',False)) is not bool:
+            raise RuntimeError('explicit_hypothesis_retention_required')
         with gzip.open(root/'mistt.gz','rb') as compressed:
             binary=compressed.read(16*1024*1024+1)
         if len(binary)>16*1024*1024 or hashlib.sha256(binary).hexdigest()!=plan['relay_sha256']:
@@ -101,7 +103,8 @@ def run(root):
                 'endpoint':f'wss://127.0.0.1:{GATEWAY_PORT}/mistt/v1/stream',
                 'token_file':str(token),'ca_file':str(cert),'listen':f'127.0.0.1:{RELAY_PORT}',
                 'expected_model':MODEL,'fixture_manifest':str(root/'fixture-manifest.json'),
-                'mode':mode,'output_dir':str(root/('transport-'+mode))}
+                'mode':mode,'output_dir':str(root/('transport-'+mode)),
+                'retain_fictional_hypotheses':plan.get('retain_fictional_hypotheses',False)}
             validated,items,_=transport.validate(config)
             driver=transport.Driver(validated,items,None)
             passed=driver.run()
@@ -111,7 +114,7 @@ def run(root):
     except BaseException as error:
         result['error_class']=type(error).__name__
         known={'gateway_source_missing','reviewed_short_stage_required','production_go_artifact_mismatch',
-               'owned_shadow_listener_unavailable','shadow_health_failed','production_go_transport_failed'}
+               'owned_shadow_listener_unavailable','shadow_health_failed','production_go_transport_failed','explicit_hypothesis_retention_required'}
         if type(error) is RuntimeError and str(error) in known:result['error_code']=str(error)
     finally:
         if process is not None and process.poll() is None:
