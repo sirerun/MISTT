@@ -89,3 +89,28 @@ advancing processed-coverage evidence without storing recognized text/PCM.
 A900-second rollover soak is a separate future reviewed effect after this
 short stage settles. No SubQ key, Copilot decision request, cards, actual Mac
 capture or user-visible acceptance is qualified by this transport-only path.
+
+###119-second paired.v1 shadow result (2026-11-09)
+
+The separately approved production-Go V1 transport run completed: one Ready
+with exact pinned Nemotron3.5 identity, one synthetic native start/stop,
+1,190 frames and1,904,000 samples per source, zero subscriber gaps and clean
+normal EOF/closure.151 nonfinal unchanged-text events advanced actual processed
+coverage, with a560ms maximum adjacent witness; silent microphone emitted no
+nonmarker text. All owned processes/listeners were reaped, original production
+manifest unchanged and its strict TLS health returned200.
+
+This was **transport acceptance only**. Nine of12 fixture outputs were exact;
+q03 had one word error and q06/q12 had two each, beyond the restricted date
+normalizer. Recognized full references (9) had median146.9ms and maximum441.9ms
+utterance-end latency. Semantic acceptance failed; no default-model promotion,
+physical capture, Copilot assessment, paired.v2 or15-minute acceptance follows.
+Some punctuation appeared with long cumulative context but was withheld for
+seconds; it does not replace the opt-in typed stable-prompt readiness gate.
+
+A separate900-second V2 preview enables the actual production-Go continuous
+rollover path and checks at least eight ordered native-global continuation
+attestations. It preserves source cap120s, fixed model cache and all production
+settings. Its12-fixture schedule includes eight questions crossing real timer
+cuts. It measures transport/recognition observations only; a missing full
+reference split across ASR generations is not repaired by invented text.
