@@ -91,7 +91,7 @@ def run(root):
                 raise RuntimeError('owned_shadow_listener_unavailable')
             time.sleep(.05)
         context=ssl.create_default_context(cafile=str(cert))
-        request=urllib.request.Request(f'https://127.0.0.1:{GATEWAY_PORT}/healthz')
+        request=urllib.request.Request(f'https://127.0.0.1:{GATEWAY_PORT}/mistt/healthz')
         request.add_header('Authorization','Bearer '+token.read_text())
         with urllib.request.urlopen(request,context=context,timeout=5) as response:
             if response.status!=200:raise RuntimeError('shadow_health_failed')
